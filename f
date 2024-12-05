@@ -1,514 +1,701 @@
-j1.son@SDS-DIS-15776 MINGW64 /c/project/ssf (cloudpark-WaitSensordevel)
-$ git diff main..cloudpark-WaitSensordevel|cat
-diff --git a/Classes/Common/IOVariable.py b/Classes/Common/IOVariable.py
-index 133d005..1553ee5 100644
---- a/Classes/Common/IOVariable.py
-+++ b/Classes/Common/IOVariable.py
-@@ -1,7 +1,8 @@
- from typing import Optional
-+from abc import ABC, abstractmethod
-
--
--class IOVariable():
-+# JSONPathObj, JSONataObj를 위한 추상클래스
-+class IOVariable(ABC):
-     def __init__(self,
-                  query_language: str = "JSONPath",
-                  input_value: Optional[dict] = {},
-@@ -15,4 +16,12 @@ class IOVariable():
-         self.input_value = input_value  # 초기 input에서 변환되어 최종저긍로 사용되는 input값
-         self.output_value = output_value  # 최종적으로 사용되는 결과값
-
-+    @abstractmethod
-+    def filterling_input_by_types(self, types):
-+        pass
-+
-+    @abstractmethod
-+    def filterling_output_by_types(self, types):
-+        pass
-+
-
-diff --git a/Classes/Common/JSONpathObj.py b/Classes/Common/JSONPathObj.py
-similarity index 77%
-rename from Classes/Common/JSONpathObj.py
-rename to Classes/Common/JSONPathObj.py
-index 9113200..14c1a59 100644
---- a/Classes/Common/JSONpathObj.py
+j1.son@j1-son002 MINGW64 /c/project/ssf-manager-pilot (develop-OtherOperators)
+$ git diff develop..develop-OtherOperators|cat
+diff --git a/Classes/Common/JSONPathObj.py b/Classes/Common/JSONPathObj.py
+index 14c1a59..0261bed 100644
+--- a/Classes/Common/JSONPathObj.py
 +++ b/Classes/Common/JSONPathObj.py
-@@ -44,7 +44,6 @@ class JSONPathObj(IOVariable):
-         self.input_value = self.extract_jsonpath_value_from_processing_json(self.parameters, self.input_value)
+@@ -1,8 +1,10 @@
++from copy import deepcopy
+ from typing import Optional
+
+ from Classes.Common.IOVariable import IOVariable
+ from Util.JSONPathParser import JSONPathParser
+-
++import logging
++logger = logging.getLogger('airflow.task')
+
+ class JSONPathObj(IOVariable):
+     def __init__(self,
+@@ -29,7 +31,8 @@ class JSONPathObj(IOVariable):
+
+     ### inputs
+     # jsondata에서 jsonpath로 뽑아옴
+-    def filter(self, jsondata: dict, jsonpath: str) -> Optional[dict]:
++
++    def apply_json_path(self, jsondata: dict, jsonpath: str) -> Optional[dict]:
+         if not self.json_parser.parse(jsonpath):
+             raise ValueError(f"Invalid JSONPath: {jsonpath}")
+
+@@ -37,15 +40,18 @@ class JSONPathObj(IOVariable):
+
+     #Input으로 입력 필터링 - InputPath 필터를 사용하여 사용할 상태 입력의 일부를 선택합니다
+     def input_filter_by_input_path(self) -> Optional[dict]:
+-        self.input_value = self.filter(self.input_value, self.input_path)
++        logger.debug(f"input_by_parameters : {self.input_path}")
++        self.input_value = self.apply_json_path(self.input_value, self.input_path)
          return self.input_value
 
--
+-    def input_by_parameter(self) -> Optional[dict]:
++    def input_by_parameters(self) -> Optional[dict]:
++        logger.debug(f"input_by_parameters : {self.parameters}")
+         self.input_value = self.extract_jsonpath_value_from_processing_json(self.parameters, self.input_value)
+-        return self.input_value
++
+
     ### Outputs
      def output_set_by_result(self):
++        logger.debug(f"output_set_by_result : {self.result}")
          self.output_value = self.result
-@@ -75,3 +74,45 @@ class JSONPathObj(IOVariable):
-     def output_filter_by_output_path(self) -> Optional[dict]:
-         self.output_value = self.filter(self.output_value, self.output_path)
+
+     # ResultSelector로 결과 변환 - ResultSelector 필터를 사용하여 태스크 결과의 일부 (Output)을 활용해 새 JSON 객체를 생성합니다
+@@ -58,26 +64,33 @@ class JSONPathObj(IOVariable):
+         if self.result_path is None: #Discard reuslt and keep origianl Input
+             self.output_value = self.input_value
+         else: #Combine Original input with result
+-            self.output_value += self.filter(self.input_value, self.result_path)
++            self.output_value += self.apply_json_path(self.input_value, self.result_path)
          return self.output_value
+
+     # jsonpath를 포함하고 있는 json(processing_json)에서 jsonpath값을 치환환 json 추출하여 결과 반환
++    # 기존의 입력값을 살리기 위해 별도의 output_json객체를 deepcopy하여 .$값이 끝나는 값을 .$을 제거한 (JSONpath를 평가한) 값으로 치환하여 return
+     def extract_jsonpath_value_from_processing_json(self, processing_json: dict, target_json: dict) -> Optional[dict]:
++        output_json = deepcopy(processing_json)
+         for key in list(processing_json.keys()):  # 원본 딕셔너리를 수정하므로 list()로 복사
+             if key.endswith(".$"): # key가 .$로 끝나면
+                 jsonpath = processing_json[key]  # ".$" 제거하여 JsonPath 추출
+-                value = self.filter(target_json, jsonpath)  # JsonPath로 값 필터링
+-                processing_json[key] = value  # 해당 키의 값을 치환
+-        return processing_json
++                value = self.apply_json_path(target_json, jsonpath)  # JsonPath로 값 필터링 or 함수일경우 함수 실행
++                output_json[key.rsplit('.$', 1)[0]] = value  # 해당 키의 값을 치환
++                del output_json[key] #기존 키 삭제
++        logger.debug(f"Output extracted : {output_json}")
++        return output_json
+
+     #Output 입력 필터링 - Output 필터를 사용하여 사용할 상태 입력의 일부를 선택합니다
+     def output_filter_by_output_path(self) -> Optional[dict]:
+-        self.output_value = self.filter(self.output_value, self.output_path)
++        logger.debug(f"output_filter_by_output_path : {self.output_path}")
++        self.output_value = self.apply_json_path(self.output_value, self.output_path)
+         return self.output_value
+
+
+
+     def filterling_input_by_types(self, types):
++        logger.debug(
++            f"Filtering input by types : {types}, input_path : {self.input_path}, params: {self.parameters}, input_value:{self.input_value}")
+         match types:
+             case "Choice":
+                 pass
+@@ -85,19 +98,29 @@ class JSONPathObj(IOVariable):
+                 pass
+             case "Map":
+                 pass
 +
-+
-+
-+    def filterling_input_by_types(self, types):
-+        match types:
-+            case "Choice":
-+                pass
-+            case "Parallel":
-+                pass
-+            case "Map":
-+                pass
-+            case "Pass":
-+                pass
-+            case "Wait":
+             case "Pass":
+-                pass
 +                if self.input_path is not None:
 +                    self.input_filter_by_input_path()
-+            case "Succeed":
-+                pass
-+            case "Fail":
-+                pass
-+            case _:
-+                raise ValueError(f"Invalid type: {types}")
++                if self.parameters is not None:
++                    self.input_by_parameters()
 +
-+    def filterling_output_by_types(self, types):
-+        match types:
-+            case "Choice":
-+                pass
-+            case "Parallel":
-+                pass
-+            case "Map":
-+                pass
-+            case "Pass":
-+                pass
-+            case "Wait":
+             case "Wait":
+                 if self.input_path is not None:
+                     self.input_filter_by_input_path()
++
+             case "Succeed":
+-                pass
++                if self.input_path is not None:
++                    self.input_filter_by_input_path()
++
+             case "Fail":
+                 pass
+             case _:
+                 raise ValueError(f"Invalid type: {types}")
++        logger.debug(f"Filtered Input : {self.input_value}")
+
+     def filterling_output_by_types(self, types):
++        logger.debug(f"Filtering output by types : {types}, {self.result_path}, {self.result}, {self.output_path}, {self.output_value}")
+         match types:
+             case "Choice":
+                 pass
+@@ -106,8 +129,18 @@ class JSONPathObj(IOVariable):
+             case "Map":
+                 pass
+             case "Pass":
+-                pass
++
++                if self.result is not None:
++                    self.output_set_by_result()
++
++                if self.result_path is not None:
++                    self.output_add_original_input_with_result_path()
++
 +                if self.output_path is not None:
 +                    self.output_filter_by_output_path()
-+            case "Succeed":
-+                pass
-+            case "Fail":
-+                pass
-+            case _:
-+                raise ValueError(f"Invalid type: {types}")
++
+             case "Wait":
++                logger.info("Wait에 도착하였습니다!!!!!!!")
+                 if self.output_path is not None:
+                     self.output_filter_by_output_path()
+             case "Succeed":
+@@ -116,3 +149,4 @@ class JSONPathObj(IOVariable):
+                 pass
+             case _:
+                 raise ValueError(f"Invalid type: {types}")
++        logger.debug(f"Filtered Output : {self.output_value}")
+\ No newline at end of file
 diff --git a/Classes/Common/JSONataObj.py b/Classes/Common/JSONataObj.py
-index 7b074e6..71e5971 100644
+index 71e5971..ca5ccb1 100644
 --- a/Classes/Common/JSONataObj.py
 +++ b/Classes/Common/JSONataObj.py
-@@ -16,3 +16,41 @@ class JSONataObj(IOVariable):
-         super().__init__(query_language=query_language, input_value=input_value, output_value=output_value)
+@@ -1,7 +1,8 @@
+ from typing import Optional
+
+ from Classes.Common.IOVariable import IOVariable
+-
++import logging
++logger = logging.getLogger('airflow.task')
+
+ class JSONataObj(IOVariable):
+     def __init__(self,
+@@ -17,7 +18,9 @@ class JSONataObj(IOVariable):
          self.assign = assign
          self.output = output
-+
-+    def filterling_input_by_types(self, types):
-+        match types:
-+            case "Choice":
-+                pass
-+            case "Parallel":
-+                pass
-+            case "Map":
-+                pass
-+            case "Pass":
-+                pass
-+            case "Wait":
-+                pass
-+            case "Succeed":
-+                pass
-+            case "Fail":
-+                pass
-+            case _:
-+                raise ValueError(f"Invalid type: {types}")
-+
-+    def filterling_output_by_types(self, types):
-+        match types:
-+            case "Choice":
-+                pass
-+            case "Parallel":
-+                pass
-+            case "Map":
-+                pass
-+            case "Pass":
-+                pass
-+            case "Wait":
-+                pass
-+            case "Succeed":
-+                pass
-+            case "Fail":
-+                pass
-+            case _:
-+                raise ValueError(f"Invalid type: {types}")
-diff --git a/Classes/Validators/WaitObjectValidator.py b/Classes/ObjectVariables/WaitObjectVariables.py
-similarity index 63%
-rename from Classes/Validators/WaitObjectValidator.py
-rename to Classes/ObjectVariables/WaitObjectVariables.py
-index a8afce4..8958e96 100644
---- a/Classes/Validators/WaitObjectValidator.py
-+++ b/Classes/ObjectVariables/WaitObjectVariables.py
-@@ -1,16 +1,23 @@
- from datetime import datetime, timezone, timedelta
- from typing import Optional
-+
- from Util.JSONPathParser import JSONPathParser
- from Util.JSONataParser import JSONataParser
 
++
+     def filterling_input_by_types(self, types):
++        logger.debug(f"Filitering JSONataObj / input: {self.input_value}, assign: {self.assign}, output: {self.output}")
+         match types:
+             case "Choice":
+                 pass
+@@ -35,8 +38,11 @@ class JSONataObj(IOVariable):
+                 pass
+             case _:
+                 raise ValueError(f"Invalid type: {types}")
++        logger.debug(f"Filtered input: {self.input_value}")
 
--
--class WaitObjectValidator:
-+class WaitObjectVariables:
+     def filterling_output_by_types(self, types):
++        logger.debug(f"Filitering JSONataObj / Output: {self.output_value}, assign: {self.assign}, output: {self.output}")
++
+         match types:
+             case "Choice":
+                 pass
+@@ -54,3 +60,4 @@ class JSONataObj(IOVariable):
+                 pass
+             case _:
+                 raise ValueError(f"Invalid type: {types}")
++        logger.debug(f"Filtered output: {self.output_value}")
+\ No newline at end of file
+diff --git a/Classes/Common/StateMeta.py b/Classes/Common/StateMeta.py
+index 8298f93..d5bc4f1 100644
+--- a/Classes/Common/StateMeta.py
++++ b/Classes/Common/StateMeta.py
+@@ -3,8 +3,8 @@ from typing import Optional
+ class StateMeta():
      def __init__(self,
-                  obj : dict,
-                  query_language : Optional[str] = "JSONPath"):
+                  name: str,
+-                 comment: str,
+                  type: str,
++                 comment: Optional[str] = "",
+                  query_language: str = "JSONPath",
+                  next: Optional[str] = None,
+                  end: Optional[bool] = None,
+diff --git a/Classes/Validators/__init__.py b/Classes/Validators/__init__.py
+deleted file mode 100644
+index e69de29..0000000
+diff --git a/Operator/PassOperator.py b/Operator/PassOperator.py
+index 37ba56f..f2722db 100644
+--- a/Operator/PassOperator.py
++++ b/Operator/PassOperator.py
+@@ -2,53 +2,46 @@ from typing import Optional, Any
 
-         self.obj = obj
-+        self.validate_variables_mapping()
-+
-+        self.seconds = obj.get("seconds")
-+        self.seconds_path = obj.get("seconds_path")
-+        self.timestamp = obj.get("timestamp")
-+        self.timestamp_path = obj.get("timestamp_path")
-+
-         self.query_language = query_language
-         self.evaluated_timestamp = None
+ from airflow.models import BaseOperator
 
-@@ -20,49 +27,52 @@ class WaitObjectValidator:
-         if len(self.obj.items()) > 1:
-             raise ValueError("Second, secondsPath, timestamp, timestampPath 중 1개만 입력 가능합니다.")
-
-+    # 값에 대한 유효성 검증을 수행한 후, 실제 wait해야하는 값에 대한 timestamp를 반환
-+    # Wait 값이 있을경우 Timestamp를 출력, 없을경우 현재시간의 datetime.now()를 출력함.
-     def evaluate(self, input_value : dict) -> str:
-         self.validate()
-         self.inject(input_value)
--        self.post_validate()
--        return self.evaluated_timestamp
--
-+        return self.evaluated_timestamp if self.post_validate() is True else datetime.now().isoformat()
-
-     def inject(self, input_value : dict) -> bool:
-         # seconds, secondspath, timestamp, timestampPath를 이용해서 해당 값을 timestamp 방식으로 변환하여 `self.evauated_timestamp`로 리턴함
-
--        if self.obj.get('seconds') is not None:
-+        if self.seconds is not None:
-             if self.query_language == "JSONPath":
--                seconds = self.obj.get('seconds')
-+                seconds = self.seconds
-             elif self.query_language == "JSONata":
--                if isinstance(self.obj.get('seconds'), int):
--                    seconds = self.obj.get('seconds')
--                elif isinstance(self.obj.get('seconds'), str):
--                    seconds = JSONataParser.get_value_with_jsonata_from_json_data(json_data = input_value, jsonata_str=self.obj.get('seconds'))
-+                if isinstance(self.seconds, int):
-+                    seconds = self.seconds
-+                elif isinstance(self.seconds, str):
-+                    seconds = JSONataParser.get_value_with_jsonata_from_json_data(json_data = input_value, jsonata_str=self.seconds)
-
--        elif self.obj.get('secondsPath') is not None:
-+        elif self.seconds_path is not None:
-             try:
--                seconds=int(JSONPathParser.get_value_with_jsonpath_from_json_data(json_data=input_value, json_path=self.obj.get('secondsPath')))
-+                seconds=int(JSONPathParser.get_value_with_jsonpath_from_json_data(json_data=input_value, json_path=self.seconds_path))
-             except:
-                 raise ValueError("유효하지 않은 secondsPath입니다.")
-
--        elif self.obj.get('timestamp') is not None:
-+        elif self.timestamp is not None:
-             try:
--                self.evaluated_timestamp = datetime.fromisoformat(self.obj.get('timestamp').replace('Z', '+00:00'))
-+                self.evaluated_timestamp = datetime.fromisoformat(self.timestamp.replace('Z', '+00:00'))
-                 return True
-             except:
-                 raise ValueError("유효하지 않은 timestamp입니다.")
-
-
--        elif self.obj.get('timestampPath') is not None:
-+        elif self.timestamp_path is not None:
-             try:
--                timestamp = JSONPathParser.get_value_with_jsonpath_from_json_data(json_data= input_value, json_path=self.obj.get('timestampPath'))
-+                timestamp = JSONPathParser.get_value_with_jsonpath_from_json_data(json_data= input_value, json_path=self.timestamp_path)
-                 self.evaluated_timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                 return True
-             except:
-                 raise ValueError("유효하지 않은 timestampPath입니다.")
-
--        if self.obj.get('seconds') is not None or self.obj.get('secondsPath') is not None:
-+        if self.seconds is not None or self.seconds_path is not None:
-             try:
-+                import logging
-+                logger = logging.getLogger(__name__)
-+                logger.info(f"self.seconds: {self.seconds}")
-                 now = datetime.now()
-                 future_time = now + timedelta(seconds=seconds)
-                 self.evaluated_timestamp = future_time.isoformat()
-@@ -85,20 +95,19 @@ class WaitObjectValidator:
-             return True if validation is True else False
-
-     def validate_seconds(self) -> bool:
--        seconds = self.obj.get('seconds')
--        if seconds == None:
-+        if self.seconds == None:
-             return True
-
--        if isinstance(seconds, (int)):
--            if not (0 <= seconds <= 99999999):
-+        if isinstance(self.seconds, (int)):
-+            if not (0 <= self.seconds <= 99999999):
-                 raise ValueError("0에서 99999999까지의 양의 정수만 지원합니다.")
-
--            if seconds > 31536000:
-+            if self.seconds > 31536000:
-                 raise ValueError("1년 이상의 Seconds는 지원하지 않습니다")
-
--        elif isinstance(seconds, (str)):
-+        elif isinstance(self.seconds, (str)):
-             if self.query_language == "JSONata":
--                JSONataParser.parse(jsonata_str = seconds)
-+                JSONataParser.parse(jsonata_str = self.seconds)
-
-             elif self.query_language == "JSONPath":
-                 raise ValueError("JSONPath 의 Wait Obejct seconds는 int여야합니다.")
-@@ -110,16 +119,15 @@ class WaitObjectValidator:
-
-
-     def validate_seconds_path(self) -> bool:
--        seconds_path = self.obj.get('seconds_path')
--        if seconds_path == None:
-+        if self.seconds_path is None:
-             return True
-
--        if isinstance(seconds_path, (str)):
-+        if isinstance(self.seconds_path, (str)):
-             if self.query_language == "JSONata":
-                 raise ValueError("JSONata는 seconds_path를 지원하지 않습니다")
-
-             elif self.query_language == "JSONPath":
--                return False if JSONPathParser.parse(seconds_path) is False else True
-+                return False if JSONPathParser.parse(self.seconds_path) is False else True
-
-         else:
-             raise TypeError("지원하지 않는 Type의 seconds_path입니다. ")
-@@ -129,21 +137,20 @@ class WaitObjectValidator:
-
-
-     def validate_timestamp(self):
--        timestamp = self.obj.get('timestamp')
--        if timestamp is None:
-+        if self.timestamp is None:
-             return True
-
--        if isinstance(timestamp, (str)):
-+        if isinstance(self.timestamp, (str)):
-             current_time = datetime.now(timezone.utc)
-
-             if self.query_language == "JSONata":
-                 # JSONATA Type의 Value인지 확인
--                JSONataParser.get_value_with_jsonata_from_json_data(timestamp)
-+                JSONataParser.get_value_with_jsonata_from_json_data(self.timestamp)
-
-
-             elif self.query_language == "JSONPath":
-                 try:
--                    timestamp_datetime = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-+                    timestamp_datetime = datetime.fromisoformat(self.timestamp.replace('Z', '+00:00'))
-                     one_year_later = current_time + timedelta(days=365)
-                     if not (current_time <= timestamp_datetime <= one_year_later):
-                         raise ValueError(
-@@ -154,27 +161,42 @@ class WaitObjectValidator:
-         return True
-
-     def validate_timestamp_path(self):
--        timestamp_path = self.obj.get('timestamp_path')
--        if timestamp_path is None:
-+        if self.timestamp_path is None:
-             return True
-
--        if isinstance(timestamp_path, (str)):
-+        if isinstance(self.timestamp_path, (str)):
-             if self.query_language == "JSONata":
-                 raise ValueError("JSONata는 timestamp_path를 지원하지 않습니다")
-
-             elif self.query_language == "JSONPath":
--                return False if JSONPathParser.parse(timestamp_path) is False else True
-+                return False if JSONPathParser.parse(self.timestamp_path) is False else True
-
-         else:
-             raise TypeError("지원하지 않는 Type의 timestamp_path입니다. ")
-
-         return True
-
--    def post_validate(self):
-+    def post_validate(self) -> bool:
-         if self.evaluated_timestamp is None:
-             raise ValueError("평가된 Timestamp가 없습니다")
-         if type(self.evaluated_timestamp) is not str:
-             raise TypeError("TimeStamp의 값이 올바르지 않습니다")
--
-+        if self._is_within_one_year(self.evaluated_timestamp) is False:
-+            raise ValueError("Wait은 1년 내로 실행되어야합니다.")
-         return True
-
-+    def _is_within_one_year(self, iso_format_str_datetime):
-+        # 현재 날짜와 시간 가져오기
-+        now = datetime.now()
-+
-+        # 주어진 ISO 포맷 날짜 문자열을 datetime 객체로 변환
-+        target_date = datetime.fromisoformat(iso_format_str_datetime)
-+
-+        # 1년 후의 날짜 계산
-+        one_year_later = now + timedelta(days=365)
-+
-+        # 타겟 날짜가 현재 날짜와 1년 이내인지 확인
-+        if now <= target_date <= one_year_later:
-+            return True
-+        else:
-+            return False
-diff --git a/Operator/WaitOperator.py b/Operator/WaitOperator.py
-index 4d1241e..d2d6a2b 100644
---- a/Operator/WaitOperator.py
-+++ b/Operator/WaitOperator.py
-@@ -1,16 +1,18 @@
-+from datetime import datetime
- from typing import Optional, Any
--from airflow.models import BaseOperator
-
--from Classes.Common.JSONpathObj import JSONPathObj
-+from airflow.sensors.date_time import DateTimeSensorAsync
-+
+-from Classes.Common import IOVariable, StateMeta
++import Classes.Common.JSONPathObj
++from Classes.Common.StateMeta import StateMeta
++from Classes.Common.JSONataObj import JSONataObj
 +from Classes.Common.JSONPathObj import JSONPathObj
- from Classes.Common.JSONataObj import JSONataObj
- from Classes.Common.StateMeta import StateMeta
--from Classes.Validators.WaitObjectValidator import WaitObjectValidator
--from Util.JSONPathParser import JSONPathParser
-+from Classes.ObjectVariables.WaitObjectVariables import WaitObjectVariables
 
- import logging
- logger = logging.getLogger(__name__)
-+logger.setLevel(logging.DEBUG)
 
--class WaitOperator(BaseOperator):
-+class WaitOperator(DateTimeSensorAsync):
+ class PassOperator(BaseOperator):
      def __init__(self,
                   meta: dict,
                   io_variable: dict,
-@@ -19,9 +21,6 @@ class WaitOperator(BaseOperator):
+-                 object_variable: Optional[dict] = None,
++                 *args,
                   **kwargs
                   ):
+-        super().__init__(**kwargs)
 
--        super().__init__(
--            *args,
--            **kwargs)
+-        self.meta = StateMeta(meta)
++        self.meta = StateMeta(**meta)
++
++        super().__init__(*args, **kwargs)
++
+         if meta.get('query_language') == "JSONata":
+-            self.io_variable = IOVariable(io_variable).JSONataObj(io_variable)
++            self.io_variable = JSONataObj(**io_variable)
+         elif meta.get('query_language') in ["JSONPath", None]:
+-            self.io_variable = IOVariable(io_variable).JSONPathObj(io_variable)
+-
+-        self.object_variable = None
++            self.io_variable = JSONPathObj(**io_variable,)
 
-         self.meta = StateMeta(**meta)
+     def pre_execute(self, context: Any):
+         self.input_value_process()
 
-@@ -32,48 +31,35 @@ class WaitOperator(BaseOperator):
+-    def execute(self, context):
+-        self.process()
++    def execute(self, context: Any):
++        # The Pass State (identified by "Type":"Pass") by default passes its input to its output, performing no work.
++        pass
++
++    def post_execute(self, context: Any, result: Any = None):
+         self.output_value_process()
 
-         self.object_variable = object_variable
-         self.evaluated_wait_timestamp = None
-+        self.input_value_process()
-
--        self.json_parser = JSONPathParser()
-+        logger.info(f"evaluated_wait_timestamp: {self.evaluated_wait_timestamp}")
-
-+        #필요할경우 end_from_trigger를 통해 wait until로 구현할 수 있을지도..?
-+        super().__init__(
-+            target_time = self.evaluated_wait_timestamp,
-+            *args,
-+            **kwargs)
+-        return self.io_variable.output_value
++        context['task_instance'].xcom_push(key="output_value", value=self.io_variable.output_value)
++        super().post_execute(context, result)
 
      def input_value_process(self):
--        logger.info("평가전 evaluated_wait_timestamp", self.evaluated_wait_timestamp)
--        if self.meta.query_language == "JSONPath":
--            if hasattr(self.io_variable, 'input_path') and self.io_variable.input_path is not None:
--                self.io_variable.input_filter_by_input_path()
+-        if self.io_variable.input_path is not None:
+-            self.io_variable.input_filter_by_input_path()
 -
--        elif self.meta.query_language == "JSONata":
--            print("hello")
--
--        # io_vairable의 input_value를 이용해서 평가된 wait_time
-+        # input을 IO_Variables에 맞게 처리함
-+        self.io_variable.filterling_input_by_types(self.meta.type)
-
--
--        self.evaluated_wait_timestamp = WaitObjectValidator(self.object_variable).evaluate(self.io_variable.input_value)
--        logger.info(f"평가후 Evaluated Wait Time Stamp: {self.evaluated_wait_timestamp}")
--
--
+-        if self.io_variable.parameter is not None:
+-            self.io_variable.input_by_parameter()
 -
 -    def process(self):
 -        pass
-+        # io_vairable의 input_value를 이용해서 평가된 wait_time timestamp를 확인
-+        self.evaluated_wait_timestamp = WaitObjectVariables(self.object_variable).evaluate(self.io_variable.input_value)
++        self.io_variable.filterling_input_by_types(self.meta.type)
 
      def output_value_process(self):
+-        if self.io_variable.result is not None:
+-            self.io_variable.output_set_by_result()
+-
+-        if self.io_variable.result_path is not None:
+-            self.io_variable.output_add_original_input_with_result_path()
+-
 -        if self.io_variable.output_path is not None:
 -            self.io_variable.output_filter_by_output_path()
--
 +        self.io_variable.filterling_output_by_types(self.meta.type)
 
--    def pre_execute(self, context: Any):
-+    def execute(self, context: Any):
-+        logger.info(f"현재: {datetime.now().isoformat()}, 평가후 Evaluated Wait Time Stamp:  {self.evaluated_wait_timestamp}")
-+        logger.info(f"execute 시작, {datetime.now().isoformat()}")
-+        logger.info(f"context: {context}")
-+        super().execute(context)
 
--        logger.info("airflow started")
--        self.input_value_process()
--        logger.info(context.execution_date)
--        context.execution_date = self.evaluated_wait_timestamp
--        logger.info(context.execution_date)
--        super().pre_execute(context)
+diff --git a/Operator/SucceedOperator.py b/Operator/SucceedOperator.py
+index 2c72a4b..a07bc3a 100644
+--- a/Operator/SucceedOperator.py
++++ b/Operator/SucceedOperator.py
+@@ -1,46 +1,48 @@
+-from typing import Optional, Any
++from typing import Any
+
+ from airflow.models import BaseOperator
+-from Classes.Common import IOVariable, StateMeta
+
++from Classes.Common.StateMeta import StateMeta
++from Classes.Common.JSONataObj import JSONataObj
++from Classes.Common.JSONPathObj import JSONPathObj
+
+-class SuccessOperator(BaseOperator):
++
++class SucceedOperator(BaseOperator):
+     def __init__(self,
+                  meta: dict,
+                  io_variable: dict,
+-                 object_variable: Optional[dict] = None,
++                 *args,
+                  **kwargs
+                  ):
+         super().__init__(**kwargs)
+
+-        self.meta = StateMeta(meta)
++        self.meta = StateMeta(**meta)
+
+         if meta.get('query_language') == "JSONata":
+-            self.io_variable = IOVariable(io_variable).JSONataObj(io_variable)
++            self.io_variable = JSONataObj(**io_variable)
+         elif meta.get('query_language') in ["JSONPath", None]:
+-            self.io_variable = IOVariable(io_variable).JSONPathObj(io_variable)
 -
+-        self.io_variable = IOVariable(io_variable)
+-        self.object_variable = None
+-
+-
+-    def input_value_process(self):
+-        pass
++            self.io_variable = JSONPathObj(**io_variable)
+
+-    def process(self):
+-        pass
+-
+-    def output_value_process(self):
+-        pass
+
+     def pre_execute(self, context: Any):
+         self.input_value_process()
+
 -    def execute(self, context):
--        logging.info(context.execution_date)
 -        self.process()
++    def execute(self, context: Any):
++        pass
 +
 +    def post_execute(self, context, result):
-+        logger.info(f"execute 종료, {datetime.now().isoformat()}")
          self.output_value_process()
--
--        return self.io_variable.output_value
--
-+        logger.debug(context)
++        context['task_instance'].xcom_push(key="output_value", value=self.io_variable.output_value)
 +        super().post_execute(context, result)
+
+-        return self.io_variable.output_value
++    def input_value_process(self):
++        self.io_variable.filterling_input_by_types(self.meta.type)
++
++    def output_value_process(self):
++        # If "Output" is not provided, the Succeed State copies its input through to its output.
++        # A JSONata Succeed State MAY have an "Output" field whose value, if present, will become the state output.
++        self.io_variable.output_value = self.io_variable.input_value
++        self.io_variable.filterling_output_by_types(self.meta.type)
+
+
+
+diff --git a/Operator/WaitOperator.py b/Operator/WaitOperator.py
+index 852832a..2aaafec 100644
+--- a/Operator/WaitOperator.py
++++ b/Operator/WaitOperator.py
+@@ -39,19 +39,13 @@ class WaitOperator(BaseOperator):
+     def pre_execute(self, context: Any):
+         self.input_value_process()
+
+-    def input_value_process(self):
+-        # input을 IO_Variables에 맞게 처리함
+-        self.io_variable.filterling_input_by_types(self.meta.type)
+-
+-        # io_vairable의 input_value를 이용해서 평가된 wait_time timestamp를 확인
+-        self.evaluated_wait_timestamp = WaitObjectVariables(self.object_variable).evaluate(self.io_variable.input_value)
+
+     def execute(self, context: Any):
+         self.log.info(f"현재: {datetime.now().isoformat()}, 평가후 Evaluated Wait Time Stamp:  {self.evaluated_wait_timestamp}")
+         self.log.info(f"execute 시작, {datetime.now().isoformat()}")
+         self.log.info(f"context: {context}")
+
+-
++
+     def post_execute(self, context, result):
+         self.log.info(f"execute 종료, {datetime.now().isoformat()}")
+         self.output_value_process()
+@@ -64,6 +58,13 @@ class WaitOperator(BaseOperator):
+         # CustomOperator에서는 위와같이 Result를 Push해줘야함.
+         # return self.io_variable.output_value
+
++    def input_value_process(self):
++        # input을 IO_Variables에 맞게 처리함
++        self.io_variable.filterling_input_by_types(self.meta.type)
++
++        # io_vairable의 input_value를 이용해서 평가된 wait_time timestamp를 확인
++        self.evaluated_wait_timestamp = WaitObjectVariables(self.object_variable).evaluate(self.io_variable.input_value)
++
+     def output_value_process(self):
+         self.io_variable.filterling_output_by_types(self.meta.type)
+
+diff --git a/TestTemplate/ParsedJSON/Pass_with_two_type.json b/TestTemplate/ParsedJSON/Pass_with_two_type.json
+new file mode 100644
+index 0000000..f1c67c2
+--- /dev/null
++++ b/TestTemplate/ParsedJSON/Pass_with_two_type.json
+@@ -0,0 +1,35 @@
++{
++    "query_language": "JSONPath",
++    "start_at": "JSONPath state",
++    "states": {
++        "JSONPath state": {
++            "io_variable": {
++                "parameters": {
++                    "total.$": "$.transaction.total"
++                },
++                "query_language": "JSONPath"
++            },
++            "meta": {
++                "end": false,
++                "name": "JSONPath state",
++                "next": "JSONata state",
++                "query_language": "JSONPath",
++                "type": "Pass"
++            }
++        },
++        "JSONata state": {
++            "io_variable": {
++                "output": {
++                    "total": "{% $states.input.transaction.total %}"
++                },
++                "query_language": "JSONata"
++            },
++            "meta": {
++                "end": true,
++                "name": "JSONata state",
++                "query_language": "JSONata",
++                "type": "Pass"
++            }
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/TestTemplate/RawJSONTemplate/Pass_with_two_type.json b/TestTemplate/RawJSONTemplate/Pass_with_two_type.json
+new file mode 100644
+index 0000000..e5b1e78
+--- /dev/null
++++ b/TestTemplate/RawJSONTemplate/Pass_with_two_type.json
+@@ -0,0 +1,21 @@
++{
++  "QueryLanguage": "JSONPath",
++  "StartAt": "JSONPath state",
++  "States": {
++    "JSONPath state": {
++      "Type": "Pass",
++      "Parameters": {
++        "total.$": "$.transaction.total"
++      },
++      "Next": "JSONata state"
++    },
++    "JSONata state": {
++      "Type": "Pass",
++      "QueryLanguage": "JSONata",
++      "Output": {
++        "total": "{% $states.input.transaction.total %}"
++      },
++      "End": true
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/Util/JSONPathParser.py b/Util/JSONPathParser.py
+index 7b7ae98..aebbb2d 100644
+--- a/Util/JSONPathParser.py
++++ b/Util/JSONPathParser.py
+@@ -1,6 +1,8 @@
+ import json
+ from jsonpath_ng import parse
+ from jsonpath_ng.exceptions import JsonPathParserError
++import logging
++logger = logging.getLogger('airflow.task')
+
+ class JSONPathParser:
+     def __init__(self):
+@@ -15,14 +17,18 @@ class JSONPathParser:
+
+     @staticmethod
+     def get_value_with_jsonpath_from_json_data(json_data, json_path):
+-        expression = parse(json_path)
+-        value = {match.value for match in expression.find(json_data)}
++        try:
++            expression = parse(json_path)
++            logger.info(f"Parsing JSON path '{json_path}' from JSON data")
++            value = {match.value for match in expression.find(json_data)}
+
+-        if type(value) is set: # Key-value가 아닐때,
+-            value = list(value)
+-            if len(value) == 1: # 값으로 반환
+-                return value[0]
+-            else: # List로 반환
++            if type(value) is set: # Key-value가 아닐때,
++                value = list(value)
++                if len(value) == 1: # 값으로 반환
++                    return value[0]
++                else: # List로 반환
++                    return value
++            else:
+                 return value
+-        else:
+-            return value
+\ No newline at end of file
++        except JsonPathParserError:
++            logger.exception('JsonPathParserError')
+\ No newline at end of file
+diff --git a/Util/JSONataParser.py b/Util/JSONataParser.py
+index ef07f15..1b4b499 100644
+--- a/Util/JSONataParser.py
++++ b/Util/JSONataParser.py
+@@ -1,6 +1,5 @@
+ # pip install jsonata-python
+ # https://github.com/rayokota/jsonata-python
+-import logging
+
+ import jsonata
+ import json
+@@ -19,10 +18,14 @@ class JSONataParser:
+     @staticmethod
+     # Jsonata 평가규칙으로 평가한 값을 Return함.
+     def get_value_with_jsonata_from_json_data(json_data, jsonata_str):
++        import logging
++        logger = logging.getLogger('airflow.task')
++
+         try:
+             jsonata.Jsonata(jsonata_str)
+             expr = jsonata.Jsonata(jsonata_str)
+             value = expr.evaluate(json_data)
++            logger.debug(f"jsonata_str {jsonata_str} -> value {value}")
+
+             if type(value) is set:  # Key-value가 아닐때,
+                 value = list(value)
+@@ -34,5 +37,5 @@ class JSONataParser:
+                 return value
+
+         except Exception as e:
+-            logging.error(f"JSONata expression : {str(e)}")
++            logging.exception(f"JSONata expression : {str(e)}")
+
 diff --git a/app/routes/Mapper/VariableObjectMapper.py b/app/routes/Mapper/VariableObjectMapper.py
-index 9f6e4c9..d3b60fe 100644
+index d3b60fe..739e4e9 100644
 --- a/app/routes/Mapper/VariableObjectMapper.py
 +++ b/app/routes/Mapper/VariableObjectMapper.py
-@@ -1,4 +1,4 @@
--from Classes.Validators.WaitObjectValidator import WaitObjectValidator
-+from Classes.ObjectVariables.WaitObjectVariables import WaitObjectVariables
- from Util.JSONPathParser import JSONPathParser
+@@ -44,7 +44,11 @@ def meta_mapper(object_detail: dict, workflow_query_language: str) -> dict:
+     if object_detail.get("QueryLanguage") == None:
+         object_detail["QueryLanguage"] = workflow_query_language
+
+-    return obj if meta_validate_variables_mapping(obj) else vaild
++
++    if meta_validate_variables_mapping(obj):
++        return obj
++    else:
++        raise ValueError(f"meta mapper 오류 : {obj}")
 
 
-@@ -79,7 +79,7 @@ def wait_object_variable_mapping(object_detail : dict) -> dict:
-         "timestamp": object_detail.get('Timestamp'),  # str
-         "timestamp_path": object_detail.get('TimestampPath')
-     })
--    if WaitObjectValidator(obj, object_detail.get("QueryLanguage")).validate():
-+    if WaitObjectVariables(obj, object_detail.get("QueryLanguage")).validate():
-         return obj
 
-
-diff --git a/dags/test_my_Wait_Operator.py b/dags/test_my_Wait_Operator.py
-index c0c7376..f7fdfa5 100644
---- a/dags/test_my_Wait_Operator.py
-+++ b/dags/test_my_Wait_Operator.py
-@@ -23,17 +23,14 @@ with DAG(
-     sample_json = """
-         {
-             "io_variable": {
--                "assign": {
--                    "CheckpointCount": "{% $CheckpointCount + 1 %}"
--                },
--                "query_language": "JSONata"
-+                "query_language": "JSONPath"
-             },
-             "meta": {
-                 "comment": "A Wait state delays the state machine from continuing for a specified time.",
-                 "end": false,
-                 "name": "Wait for X Seconds",
-                 "next": "Execute in Parallel",
--                "query_language": "JSONata",
-+                "query_language": "JSONPath",
-                 "type": "Wait"
-             },
-             "object_variable": {
-
+diff --git a/dags/test_my_Pass_Operator.py b/dags/test_my_Pass_Operator.py
+new file mode 100644
+index 0000000..a6a220c
+--- /dev/null
++++ b/dags/test_my_Pass_Operator.py
+@@ -0,0 +1,58 @@
++from __future__ import annotations
++
++import datetime, json
++from airflow.models.dag import DAG
++from airflow.operators.python import PythonOperator
++
++from Operator.PassOperator import PassOperator
++import logging
++
++logger = logging.getLogger(__name__)
++
++with (DAG(
++        dag_id="test_my_pass_operator",
++        schedule=datetime.timedelta(hours=4),
++        start_date=datetime.datetime(2021, 1, 1),
++        catchup=False,
++        tags=["cloud.park", "passOperator"],
++) as dag):
++
++    file_path = r'TestTemplate/ParsedJSON/Pass_with_two_type.json'
++    with open(f"/opt/airflow/plugins/{file_path}", 'r') as json_file:
++        input_json = json.load(json_file)
++
++    sample_state_variable = input_json["states"]["JSONPath state"]
++
++    global_io_variable = {}
++    global_io_variable["input_value"] = json.loads("""
++    {
++        "transaction" : {
++            "total" : "100"
++         }
++    }
++    """)
++
++
++    task1 = PythonOperator(
++        task_id="task1",
++        python_callable=lambda: print(datetime.datetime.now())
++    )
++
++    sample_state_variable["io_variable"]['input_value'] = global_io_variable["input_value"]
++    task2 = PassOperator(
++        task_id="task2",
++        meta=sample_state_variable["meta"],
++        io_variable=sample_state_variable["io_variable"],
++    )
++
++
++
++    task3 = PythonOperator(
++        task_id="task3",
++        python_callable=lambda: print(datetime.datetime.now())
++    )
++
++    task1 >> task2 >> task3
++
++if __name__ == "__main__":
++    dag.test()
+\ No newline at end of file
+diff --git a/dags/test_my_Suceed_Operator.py b/dags/test_my_Suceed_Operator.py
+new file mode 100644
+index 0000000..9ba3663
+--- /dev/null
++++ b/dags/test_my_Suceed_Operator.py
+@@ -0,0 +1,56 @@
++from __future__ import annotations
++
++import datetime, json
++from airflow.models.dag import DAG
++from airflow.operators.python import PythonOperator
++
++from Operator.SucceedOperator import SucceedOperator
++
++
++with (DAG(
++        dag_id="test_my_Succeed_operator",
++        schedule=datetime.timedelta(hours=4),
++        start_date=datetime.datetime(2021, 1, 1),
++        catchup=False,
++        tags=["cloud.park", "SucceedOperator"],
++) as dag):
++
++    with open("/opt/airflow/plugins/TestTemplate/ParsedJSON/parsed_jsonata1.json", 'r') as json_file:
++        input_json = json.load(json_file)
++
++    sample_state_variable = input_json["states"]["Summarize the Execution"]
++
++    global_io_variable = {}
++    global_io_variable["input_value"] = json.loads("""
++    {
++        "Hello" : 10
++    }
++    """)
++
++
++    task1 = PythonOperator(
++        task_id="task1",
++        python_callable=lambda: print(datetime.datetime.now())
++    )
++
++
++    task2 = SucceedOperator(
++        task_id="task2",
++        meta=sample_state_variable["meta"],
++        io_variable=global_io_variable,
++    )
++
++
++    def value_from_task(**context):
++        res = context['task_instance'].xcom_pull(key='output_value')
++        print(res)
++
++    task3 = PythonOperator(
++        task_id="task3",
++        python_callable=value_from_task
++    )
++
++    task1 >> task2 >> task3
++
++if __name__ == "__main__":
++    dag.test()
+\ No newline at end of file
+diff --git a/docker-compose.yaml b/docker-compose.yaml
+index d8137b6..dc49d4c 100644
+--- a/docker-compose.yaml
++++ b/docker-compose.yaml
+@@ -58,6 +58,7 @@ x-airflow-common:
+     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres/airflow
+     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+     AIRFLOW__CORE__FERNET_KEY: ''
++    AIRFLOW__LOGGING__LOGGING_LEVEL: 'DEBUG'
+     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
