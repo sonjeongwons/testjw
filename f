@@ -2,7 +2,7 @@ j1.son@j1-son002 MINGW64 /c/project/ssf-manager-pilot (develop-OtherOperators)
 $ git diff develop..develop-OtherOperators|cat
 diff --git a/Classes/Common/JSONPathObj.py b/Classes/Common/JSONPathObj.py
 index 14c1a59..0261bed 100644
---- a/Classes/Common/JSONPathObj.py
+--- a/Classes/Common/JSONPathObj.pyk
 +++ b/Classes/Common/JSONPathObj.py
 @@ -1,8 +1,10 @@
 +from copy import deepcopy
