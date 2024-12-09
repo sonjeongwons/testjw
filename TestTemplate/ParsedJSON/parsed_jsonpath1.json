@@ -1,0 +1,128 @@
+{
+  "comment": "A Hello World example demonstrating various state types of the Amazon States Language. It is composed of flow control states only, so it does not need resources to run.",
+  "query_language": "JSONPath",
+  "start_at": "Pass___ebdf8cc0",
+  "states": {
+    "Hello_World___a591a6d4": {
+      "io_variable": {
+        "query_language": "JSONPath"
+      },
+      "meta": {
+        "end": true,
+        "name": "Hello World",
+        "query_language": "JSONPath",
+        "type": "Pass"
+      }
+    },
+    "Hello_World_example?___71e1a85a": {
+      "io_variable": {
+        "query_language": "JSONPath"
+      },
+      "meta": {
+        "comment": "A Choice state adds branching logic to a state machine. Choice rules can implement many different comparison operators, and rules can be combined using And, Or, and Not",
+        "end": false,
+        "name": "Hello World example?",
+        "query_language": "JSONPath",
+        "type": "Choice"
+      },
+      "object_variable": {
+        "choice_values": [
+          {
+            "is_string": true,
+            "next": "Yes",
+            "variable": "$.IsHelloWorldExample"
+          },
+          {
+            "and": [
+              {
+                "boolean_equals": false,
+                "variable": "$.IsHelloWorldExampleinsideAnd1"
+              },
+              {
+                "is_numeric": true,
+                "variable": "$.IsHelloWorldExampleinsideAnd2"
+              }
+            ],
+            "next": "No"
+          },
+          {
+            "boolean_equals": false,
+            "next": "No",
+            "variable": "$.IsHelloWorldExample22"
+          }
+        ]
+      }
+    },
+    "No___1ea442a1": {
+      "io_variable": {
+        "query_language": "JSONPath"
+      },
+      "meta": {
+        "end": false,
+        "name": "No",
+        "query_language": "JSONPath",
+        "type": "Fail"
+      },
+      "object_variable": {
+        "cause": "Not Hello World"
+      }
+    },
+    "Parallel_State___f3bca4bd": {
+      "io_variable": {
+        "query_language": "JSONPath"
+      },
+      "meta": {
+        "comment": "A Parallel state can be used to create parallel branches of execution in your state machine.",
+        "end": false,
+        "name": "Parallel State",
+        "next": "Hello_World___a591a6d4",
+        "query_language": "JSONPath",
+        "type": "Parallel"
+      }
+    },
+    "Pass___ebdf8cc0": {
+      "io_variable": {
+        "query_language": "JSONata",
+        "result": {
+          "IsHelloWorldExample": true
+        }
+      },
+      "meta": {
+        "comment": "A Pass state passes its input to its output, without performing work. They can also generate static JSON output, or transform JSON input using filters and pass the transformed data to the next state. Pass states are useful when constructing and debugging state machines.",
+        "end": false,
+        "name": "Pass",
+        "next": "Hello_World_example?___71e1a85a",
+        "query_language": "JSONata",
+        "type": "Pass"
+      }
+    },
+    "Wait_3_sec___bd8ecbd8": {
+      "io_variable": {
+        "query_language": "JSONPath"
+      },
+      "meta": {
+        "comment": "A Wait state delays the state machine from continuing for a specified time.",
+        "end": false,
+        "name": "Wait 3 sec",
+        "next": "Parallel_State___f3bca4bd",
+        "query_language": "JSONPath",
+        "type": "Wait"
+      },
+      "object_variable": {
+        "seconds_path": "$.Hello"
+      }
+    },
+    "Yes___85a39ab3": {
+      "io_variable": {
+        "query_language": "JSONPath"
+      },
+      "meta": {
+        "end": false,
+        "name": "Yes",
+        "next": "Wait_3_sec___bd8ecbd8",
+        "query_language": "JSONPath",
+        "type": "Pass"
+      }
+    }
+  }
+}
