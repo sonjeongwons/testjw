@@ -1,0 +1,170 @@
+{
+  "comment": "A Hello World example that demonstrates various state types in the Amazon States Language, and showcases data flow and transformations using variables and JSONata expressions. This example consists solely of flow control states, so no additional resources are needed to run it.",
+  "query_language": "JSONata",
+  "start_at": "Set_Variables_and_State_Output___78572ec5",
+  "states": {
+    "Choice___efa0389a": {
+      "io_variable": {
+        "query_language": "JSONata"
+      },
+      "meta": {
+        "end": false,
+        "name": "Choice",
+        "query_language": "JSONata",
+        "type": "Choice"
+      },
+      "object_variable": {
+        "choice_values": [
+          {
+            "assign": {
+              "variableName": "{% $states.result.Payload %}"
+            },
+            "next": "Wait",
+            "output": {
+              "placeholder": "{% $text.example %}"
+            }
+          },
+          {
+            "assign": {
+              "variableName": "{% $states.result.Payload %}"
+            },
+            "end": true,
+            "output": {
+              "placeholder": "{% $text.example %}"
+            }
+          }
+        ]
+      }
+    },
+    "Execute_in_Parallel___3ae7b3b8": {
+      "io_variable": {
+        "query_language": "JSONata"
+      },
+      "meta": {
+        "comment": "A Parallel state can be used to create parallel branches of execution in your state machine.",
+        "end": false,
+        "name": "Execute in Parallel",
+        "next": "Set_Checkpoint___ab434f03",
+        "query_language": "JSONata",
+        "type": "Parallel"
+      }
+    },
+    "Fail_the_Execution___70b6dc4b": {
+      "io_variable": {
+        "query_language": "JSONata"
+      },
+      "meta": {
+        "comment": "A Fail state stops the execution of the state machine and marks it as a failure, unless it is caught by a Catch block.",
+        "end": false,
+        "name": "Fail the Execution",
+        "query_language": "JSONata",
+        "type": "Fail"
+      },
+      "object_variable": {
+        "error": "Not a Hello World Example"
+      }
+    },
+    "Is_Hello_World_Example?___66abc898": {
+      "io_variable": {
+        "query_language": "JSONata"
+      },
+      "meta": {
+        "comment": "A Choice state adds branching logic to a state machine. Choice rules use the Condition property to evaluate expressions with custom JSONata logic, allowing for flexible branching.",
+        "end": false,
+        "name": "Is Hello World Example?",
+        "query_language": "JSONata",
+        "type": "Choice"
+      },
+      "object_variable": {
+        "choice_values": [
+          {
+            "next": "Wait for X Seconds"
+          }
+        ]
+      }
+    },
+    "Set_Checkpoint___ab434f03": {
+      "io_variable": {
+        "assign": {
+          "CheckpointCount": "{% $CheckpointCount + 1 %}"
+        },
+        "query_language": "JSONata"
+      },
+      "meta": {
+        "end": false,
+        "name": "Set Checkpoint",
+        "next": "Summarize_the_Execution\ud83d\ude12___35b34b13",
+        "query_language": "JSONata",
+        "type": "Pass"
+      }
+    },
+    "Set_Variables_and_State_Output___78572ec5": {
+      "io_variable": {
+        "assign": {
+          "CheckpointCount": 0
+        },
+        "output": {
+          "ExecutionWaitTimeInSeconds": 3,
+          "IsHelloWorldExample": true
+        },
+        "query_language": "JSONata"
+      },
+      "meta": {
+        "comment": "A Pass state passes its input to its output, without performing work. They can also generate static JSON output, or transform JSON input using JSONata expressions, and pass the transformed data to the next state. Pass states are useful when constructing and debugging state machines.",
+        "end": false,
+        "name": "Set Variables and State Output",
+        "next": "Choice___efa0389a",
+        "query_language": "JSONata",
+        "type": "Pass"
+      }
+    },
+    "Summarize_the_Execution\ud83d\ude12___35b34b13": {
+      "io_variable": {
+        "output": {
+          "Summary": "{% 'This Hello World execution began on ' & $states.input.FormattedExecutionStartDate & '. The state machine ran for ' & $states.input.ElapsedTimeToSnapshot & ' seconds before the snapshot was taken, passing through ' & $CheckpointCount & ' checkpoints, and has successfully completed.' %}"
+        },
+        "query_language": "JSONata"
+      },
+      "meta": {
+        "comment": "A Succeed state indicates successful completion of the state machine.",
+        "end": false,
+        "name": "Summarize the Execution\ud83d\ude12",
+        "query_language": "JSONata",
+        "type": "Succeed"
+      }
+    },
+    "Wait___26b83994": {
+      "io_variable": {
+        "query_language": "JSONata"
+      },
+      "meta": {
+        "end": true,
+        "name": "Wait",
+        "query_language": "JSONata",
+        "type": "Wait"
+      },
+      "object_variable": {
+        "seconds": 5
+      }
+    },
+    "Wait_for_X_Seconds___555a0ac7": {
+      "io_variable": {
+        "assign": {
+          "CheckpointCount": "{% $CheckpointCount + 1 %}"
+        },
+        "query_language": "JSONata"
+      },
+      "meta": {
+        "comment": "A Wait state delays the state machine from continuing for a specified time.",
+        "end": false,
+        "name": "Wait for X Seconds",
+        "next": "Execute_in_Parallel___3ae7b3b8",
+        "query_language": "JSONata",
+        "type": "Wait"
+      },
+      "object_variable": {
+        "seconds": "{% $states.input.ExecutionWaitTimeInSeconds %}"
+      }
+    }
+  }
+}
