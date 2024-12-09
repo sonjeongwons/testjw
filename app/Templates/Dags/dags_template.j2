@@ -1,0 +1,42 @@
+{#data = {'imports': [], 'dags_info': [], 'states': [], 'work_orders' : []}#}
+{%- for import_setence in data.imports %}
+{{ import_setence }}
+{%- endfor %}
+
+
+{%- for dag_info in data.dags_info %}
+{{ dag_info }}
+{%- endfor %}
+
+
+    file_path = r'TestTemplate/ParsedJSON/Pass_with_two_type.json'
+    with open(f"/opt/airflow/plugins/{file_path}", 'r') as json_file:
+        input_json = json.load(json_file)
+
+    sample_state_variable = input_json["states"]["JSONPath_state___6b3cc434"]
+
+    global_io_variable = {}
+    global_io_variable["input_value"] = json.loads("""
+    {
+        "transaction" : {
+            "total" : "100"
+         }
+    }
+    """)
+
+    task1 = PythonOperator(
+        task_id="task1",
+        python_callable=lambda: print(datetime.datetime.now())
+    )
+
+    sample_state_variable["io_variable"]['input_value'] = global_io_variable["input_value"]
+
+{% for state in data.states %}
+    {{ state | indent(4) }}
+{% endfor %}
+
+{% for order in data.work_orders %}
+    {{ order | indent(4) }}
+{% endfor %}
+
+
