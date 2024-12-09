@@ -1,0 +1,7 @@
+with (DAG(
+        dag_id="new_sample_generated_pass_operator",
+        schedule=datetime.timedelta(hours=4),
+        start_date=datetime.datetime(2021, 1, 1),
+        catchup=False,
+        tags=["cloud.park", "passOperator"],
+) as dag):
