@@ -1,0 +1,35 @@
+{
+  "query_language": "JSONPath",
+  "start_at": "JSONPath_state___6b3cc434",
+  "states": {
+    "JSONPath_state___6b3cc434": {
+      "io_variable": {
+        "parameters": {
+          "total.$": "$.transaction.total"
+        },
+        "query_language": "JSONPath"
+      },
+      "meta": {
+        "end": false,
+        "name": "JSONPath state",
+        "next": "JSONata_state___ec67a3da",
+        "query_language": "JSONPath",
+        "type": "Pass"
+      }
+    },
+    "JSONata_state___ec67a3da": {
+      "io_variable": {
+        "output": {
+          "total": "{% $states.input.transaction.total %}"
+        },
+        "query_language": "JSONata"
+      },
+      "meta": {
+        "end": true,
+        "name": "JSONata state",
+        "query_language": "JSONata",
+        "type": "Pass"
+      }
+    }
+  }
+}
