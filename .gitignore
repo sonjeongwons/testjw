@@ -1,0 +1,38 @@
+/app/.tmp/
+# PyCharm specific
+.idea/
+.vscode/
+
+# Python and Flask specific
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.venv
+
+# Flask specific
+instance/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+#docker-compose
+docker-compose/logs/*
+docker-compose/plugins/*
+docker-compose/config/*
+
+app/.tmp/*
+!/.tmp/*
