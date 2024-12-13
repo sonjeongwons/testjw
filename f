@@ -1,4 +1,4 @@
-$ git diff develop...feature-set_headers_in_function|cat
+$ git diff develop...feature-set_headers_in_function
 diff --git a/src/main/resources/codetemplates/handler/golang/manager.go b/src/main/resources/codetemplates/handler/golang/manager.go
 index c43dffb..5884c9b 100644
 --- a/src/main/resources/codetemplates/handler/golang/manager.go
