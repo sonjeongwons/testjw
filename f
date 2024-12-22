@@ -1,76 +1,3 @@
-package com.scf.manager.mvc.dto;
-import lombok.*;
-
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-@Builder
-public class DataKeyDTO {
-
-    private String endpointUrl;
-    private String projectId;
-    private String accessKey;
-    private String secretKey;
-    private String masterKey;
-    private String dataKey;
-    private String keyVersion;
-    private String plainText;
-    private String envKey;
-    private String envValue;
-
-    @Data
-    @AllArgsConstructor
-    @NoArgsConstructor
-    @Builder
-    public static class Register {
-        private String endpointUrl;
-        private String projectId;
-        private String accessKey;
-        private String secretKey;
-        private String masterKey;
-    }
-
-    @Data
-    @AllArgsConstructor
-    @NoArgsConstructor
-    @Builder
-    public static class envEncrpyt {
-        private String endpointUrl;
-        private String projectId;
-        private String accessKey;
-        private String secretKey;
-        private String masterKey;
-        private String dataKey;
-        private String plainText;
-        private String envKey;
-        private String envValue;
-    }
-
-    @Data
-    @AllArgsConstructor
-    @NoArgsConstructor
-    @Builder
-    public static class envDecrpyt {
-        private String endpointUrl;
-        private String projectId;
-        private String accessKey;
-        private String secretKey;
-        private String cipherText;
-    }
-
-    @Data
-    @AllArgsConstructor
-    @NoArgsConstructor
-    @Builder
-    public static class Response {
-        private String projectId;
-        private String dataKey;
-        private String keyVersion;
-        private String plainText;
-    }
-}
-
-
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -79,7 +6,6 @@ public class KmsService {
     @Value("${SCF_KEY}")
     private String scfEncryptKey;
 
-    // URI
     private static final String KMS_API_DECRYPT = "/kms/v1/decrypt/%s";
     private static final String KMS_API_CREATE_DATAKEY = "/kms/v1/datakey/plaintext/%s";
 
@@ -92,18 +18,18 @@ public class KmsService {
     private String headerClientType;
 
     public JSONObject createDataKey(DataKeyDTO.Register reqDto) throws Exception {
-        initializeApiConfig(reqDto);
+        initializeApiConfig(reqDto.getEndpointUrl(), reqDto.getAccessKey(), reqDto.getSecretKey(), reqDto.getProjectId(), reqDto.getMasterKey());
         return callKmsApi(KMS_API_CREATE_DATAKEY, buildCreateDataKeyPayload());
     }
 
     public String transferEnvEncrypt(DataKeyDTO.envEncrpyt reqDto, String functionKey) throws Exception {
-        initializeApiConfig(reqDto);
+        initializeApiConfig(reqDto.getEndpointUrl(), reqDto.getAccessKey(), reqDto.getSecretKey(), reqDto.getProjectId(), reqDto.getMasterKey());
         Map<String, String> envelope = buildEncryptionEnvelope(reqDto, functionKey);
         return encryptWithKey(convertMapToJson(envelope), scfEncryptKey);
     }
 
     public String transferEnvDecrypt(DataKeyDTO.envDecrpyt reqDto) throws Exception {
-        initializeApiConfig(reqDto);
+        initializeApiConfig(reqDto.getEndpointUrl(), reqDto.getAccessKey(), reqDto.getSecretKey(), reqDto.getProjectId(), null);
         String decryptedJson = decryptWithKey(reqDto.getCipherText(), scfEncryptKey);
         Map<String, String> decryptedData = convertJsonToMap(decryptedJson);
         String decryptedDataKey = callDecryptDataKey(decryptedData.get("encryptedDataKey"));
@@ -112,14 +38,14 @@ public class KmsService {
 
     // ===== Helper Methods =====
 
-    private void initializeApiConfig(DataKeyDTO.Register reqDto) {
-        kmsApiBaseUri = reqDto.getEndpointUrl();
-        accessKey = reqDto.getAccessKey();
-        accessSecretKey = reqDto.getSecretKey();
-        method = "POST";
-        headerProjectId = reqDto.getProjectId();
-        headerClientType = "OpenApi";
-        keyName = reqDto.getMasterKey();
+    private void initializeApiConfig(String endpointUrl, String accessKey, String secretKey, String projectId, String masterKey) {
+        this.kmsApiBaseUri = endpointUrl;
+        this.accessKey = accessKey;
+        this.accessSecretKey = secretKey;
+        this.method = "POST";
+        this.headerProjectId = projectId;
+        this.headerClientType = "OpenApi";
+        this.keyName = masterKey; // masterKey는 null일 수 있음.
     }
 
     private JSONObject buildCreateDataKeyPayload() {
@@ -130,7 +56,7 @@ public class KmsService {
 
     private Map<String, String> buildEncryptionEnvelope(DataKeyDTO.envEncrpyt reqDto, String functionKey) throws Exception {
         SecretKey secretKey = createSecretKeyFromBase64(reqDto.getPlainText());
-        byte[] cipherEnv = encryptData(reqDto.getEnvValue().toString().getBytes(StandardCharsets.UTF_8), secretKey);
+        byte[] cipherEnv = encryptData(reqDto.getEnvValue().getBytes(StandardCharsets.UTF_8), secretKey);
         return Map.of(
                 "envKey", reqDto.getEnvKey(),
                 "cipherEnv", encodeBase64(cipherEnv),
@@ -251,6 +177,7 @@ public class KmsService {
         return new JSONObject(map).toJSONString();
     }
 }
+
 
 
 아래는 기존 코드를 리팩토링한 버전입니다. 리팩토링된 주요 변경사항은 메소드 간 코드 중복 제거, 가독성 개선, 책임 분리, 그리고 클린 코드 원칙 적용에 중점을 두었습니다. 기존 메소드와 인터페이스는 변경하지 않았으며, KmsService 클래스 내부에서만 리팩토링이 수행되었습니다.
