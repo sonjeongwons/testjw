@@ -1,3 +1,76 @@
+package com.scf.manager.mvc.dto;
+import lombok.*;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+public class DataKeyDTO {
+
+    private String endpointUrl;
+    private String projectId;
+    private String accessKey;
+    private String secretKey;
+    private String masterKey;
+    private String dataKey;
+    private String keyVersion;
+    private String plainText;
+    private String envKey;
+    private String envValue;
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    @Builder
+    public static class Register {
+        private String endpointUrl;
+        private String projectId;
+        private String accessKey;
+        private String secretKey;
+        private String masterKey;
+    }
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    @Builder
+    public static class envEncrpyt {
+        private String endpointUrl;
+        private String projectId;
+        private String accessKey;
+        private String secretKey;
+        private String masterKey;
+        private String dataKey;
+        private String plainText;
+        private String envKey;
+        private String envValue;
+    }
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    @Builder
+    public static class envDecrpyt {
+        private String endpointUrl;
+        private String projectId;
+        private String accessKey;
+        private String secretKey;
+        private String cipherText;
+    }
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    @Builder
+    public static class Response {
+        private String projectId;
+        private String dataKey;
+        private String keyVersion;
+        private String plainText;
+    }
+}
+
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
