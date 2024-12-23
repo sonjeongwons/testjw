@@ -1,84 +1,185 @@
+package parser
 
-CONSOLE OUTPUT
-[...truncated 60 lines...]
-[Pipeline] {
-[Pipeline] sh
-+ gradle jib --no-daemon --image=paas-dssqlxhe.scr.skr-west.scp-in.com/scf/scf-manager:latest -Djib.from.image=paas-dssqlxhe.scr.skr-west.scp-in.com/scf/scf-manager-base:17-debian -Djib.from.auth.username=j1.son@samsung.com -Djib.from.auth.password=wjddnjs1! -Djib.to.auth.username=j1.son@samsung.com -Djib.to.auth.password=wjddnjs1! --build-cache
-Welcome to Gradle 7.6.4!
-Here are the highlights of this release:
-- Added support for Java 19.
-- Introduced `--rerun` flag for individual task rerun.
-- Improved dependency block for test suites to be strongly typed.
-- Added a pluggable system for Java toolchains provisioning.
-For more details see https://docs.gradle.org/7.6.4/release-notes.html
-> git rev-parse refs/remotes/origin/refactoring-kmsservice^{commit} # timeout=10
-> git config core.sparsecheckout # timeout=10
-> git checkout -f 1883cc6f1e603a6ddc24e1bafd69dc4da9b6f5c0 # timeout=10
-> git branch -a -v --no-abbrev # timeout=10
-> git checkout -b refactoring-kmsservice 1883cc6f1e603a6ddc24e1bafd69dc4da9b6f5c0 # timeout=10
-To honour the JVM settings for this build a single-use Daemon process will be forked. See https://docs.gradle.org/7.6.4/userguide/gradle_daemon.html#sec:disabling_the_daemon.
-Daemon will be stopped at the end of the build
-> Task :compileJava
-> Task :compileJava FAILED
-FAILURE: Build failed with an exception.
-* What went wrong:
-Execution failed for task ':compileJava'.
-> Could not resolve all files for configuration ':compileClasspath'.
-> Could not download lombok-1.18.22.jar (org.projectlombok:lombok:1.18.22): Skipped due to earlier error
-> Could not download spring-boot-configuration-processor-3.1.3.jar (org.springframework.boot:spring-boot-configuration-processor:3.1.3): Skipped due to earlier error
-> Could not download querydsl-apt-5.0.0-jakarta.jar (com.querydsl:querydsl-apt:5.0.0): Skipped due to earlier error
-> Could not download spring-boot-starter-security-3.1.3.jar (org.springframework.boot:spring-boot-starter-security:3.1.3): Skipped due to earlier error
-> Could not download spring-boot-starter-validation-3.1.3.jar (org.springframework.boot:spring-boot-starter-validation:3.1.3): Skipped due to earlier error
-> Could not download spring-boot-starter-websocket-3.1.3.jar (org.springframework.boot:spring-boot-starter-websocket:3.1.3): Skipped due to earlier error
-> Could not download spring-boot-starter-web-3.1.3.jar (org.springframework.boot:spring-boot-starter-web:3.1.3): Skipped due to earlier error
-> Could not download spring-boot-starter-actuator-3.1.3.jar (org.springframework.boot:spring-boot-starter-actuator:3.1.3): Skipped due to earlier error
-> Could not download spring-boot-starter-data-jpa-3.1.3.jar (org.springframework.boot:spring-boot-starter-data-jpa:3.1.3): Skipped due to earlier error
-> Could not download jakarta.annotation-api-2.1.1.jar (jakarta.annotation:jakarta.annotation-api:2.1.1): Skipped due to earlier error
-> Could not download jakarta.persistence-api-3.1.0.jar (jakarta.persistence:jakarta.persistence-api:3.1.0): Skipped due to earlier error
-> Could not download springdoc-openapi-ui-1.6.9.jar (org.springdoc:springdoc-openapi-ui:1.6.9): Skipped due to earlier error
-> Could not download jjwt-0.9.1.jar (io.jsonwebtoken:jjwt:0.9.1): Skipped due to earlier error
-> Could not download spring-boot-devtools-3.1.3.jar (org.springframework.boot:spring-boot-devtools:3.1.3): Skipped due to earlier error
-> Could not download commons-lang3-3.12.0.jar (org.apache.commons:commons-lang3:3.12.0): Skipped due to earlier error
-> Could not download commons-io-2.11.0.jar (commons-io:commons-io:2.11.0): Skipped due to earlier error
-> Could not download modelmapper-2.4.5.jar (org.modelmapper:modelmapper:2.4.5): Skipped due to earlier error
-> Could not download postgresql-42.4.0.jar (org.postgresql:postgresql:42.4.0): Skipped due to earlier error
-> Could not download sockjs-client-1.1.2.jar (org.webjars:sockjs-client:1.1.2): Skipped due to earlier error
-> Could not download stomp-websocket-2.3.3-1.jar (org.webjars:stomp-websocket:2.3.3-1): Skipped due to earlier error
-> Could not download converter-gson-2.7.2.jar (com.squareup.retrofit2:converter-gson:2.7.2): Skipped due to earlier error
-> Could not download retrofit-2.7.2.jar (com.squareup.retrofit2:retrofit:2.7.2): Skipped due to earlier error
-> Could not download logging-interceptor-3.9.0.jar (com.squareup.okhttp3:logging-interceptor:3.9.0): Skipped due to earlier error
-> Could not download okhttp-4.10.0.jar (com.squareup.okhttp3:okhttp:4.10.0): Skipped due to earlier error
-> Could not download json-simple-1.1.1.jar (com.googlecode.json-simple:json-simple:1.1.1): Skipped due to earlier error
-> Could not download querydsl-jpa-5.0.0-jakarta.jar (com.querydsl:querydsl-jpa:5.0.0): Skipped due to earlier error
-> Could not download knative-client-6.0.0.jar (io.fabric8:knative-client:6.0.0): Skipped due to earlier error
-> Could not download knative-model-6.0.0.jar (io.fabric8:knative-model:6.0.0): Skipped due to earlier error
-> Could not download istio-client-6.0.0.jar (io.fabric8:istio-client:6.0.0): Skipped due to earlier error
-> Could not download nimbus-jose-jwt-9.24.1.jar (com.nimbusds:nimbus-jose-jwt:9.24.1): Skipped due to earlier error
-> Could not download kubernetes-client-6.0.0.jar (io.fabric8:kubernetes-client:6.0.0): Skipped due to earlier error
-> Could not download bcpkix-jdk15on-1.70.jar (org.bouncycastle:bcpkix-jdk15on:1.70): Skipped due to earlier error
-> Could not download bcprov-jdk15on-1.70.jar (org.bouncycastle:bcprov-jdk15on:1.70): Skipped due to earlier error
-> Could not download hibernate-types-60-2.21.1.jar (com.vladmihalcea:hibernate-types-60:2.21.1): Skipped due to earlier error
-> Could not download commons-codec-1.15.jar (commons-codec:commons-codec:1.15): Skipped due to earlier error
-> Could not download json-20220924.jar (org.json:json:20220924): Skipped due to earlier error
-> Could not download jakarta.security.enterprise-api-2.0.0.jar (jakarta.security.enterprise:jakarta.security.enterprise-api:2.0.0): Skipped due to earlier error
-> Could not download s3-2.20.162.jar (software.amazon.awssdk:s3:2.20.162): Skipped due to earlier error
-* Try:
-> Run with --stacktrace option to get the stack trace.
-> Run with --info or --debug option to get more log output.
-> Run with --scan to get full insights.
-* Get more help at https://help.gradle.org
-BUILD FAILED in 6m 36s
-1 actionable task: 1 executed
-[Pipeline] }
-[Pipeline] // withEnv
-[Pipeline] }
-[Pipeline] // stage
-[Pipeline] stage
-[Pipeline] { (Deploy to VM)
-Stage "Deploy to VM" skipped due to earlier failure(s)
-[Pipeline] getContext
-[Pipeline] }
-[Pipeline] // stage
-[Pipeline] stage
-[Pipeline] { (Declarative: Post Actions)
-[Pipeline] echo
+import (
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/prometheus/common/model"
+	"github.com/prometheus/prometheus/model/labels"
+)
+
+// Tree returns a string of the tree structure of the given node.
+func Tree(node Node) string {
+	return buildTree(node, "")
+}
+
+// buildTree constructs the hierarchical tree representation of nodes.
+func buildTree(node Node, level string) string {
+	if node == nil {
+		return fmt.Sprintf("%s |---- %T\n", level, node)
+	}
+	typeName := extractTypeName(node)
+	treeStructure := fmt.Sprintf("%s |---- %s :: %s\n", level, typeName, node)
+	level += " · · ·"
+	for _, child := range Children(node) {
+		treeStructure += buildTree(child, level)
+	}
+	return treeStructure
+}
+
+// extractTypeName retrieves the simple type name of a given node.
+func extractTypeName(node Node) string {
+	typeParts := strings.Split(fmt.Sprintf("%T", node), ".")
+	return typeParts[len(typeParts)-1]
+}
+
+func (node *EvalStmt) String() string {
+	return "EVAL " + node.Expr.String()
+}
+
+func (es Expressions) String() string {
+	if len(es) == 0 {
+		return ""
+	}
+	parts := make([]string, len(es))
+	for i, e := range es {
+		parts[i] = e.String()
+	}
+	return strings.Join(parts, ", ")
+}
+
+func (node *AggregateExpr) String() string {
+	return fmt.Sprintf("%s(%s%s)", node.getAggOpStr(), formatOptionalParam(node), node.Expr)
+}
+
+// formatOptionalParam formats the parameter if it exists for the aggregator.
+func formatOptionalParam(node *AggregateExpr) string {
+	if node.Op.IsAggregatorWithParam() {
+		return fmt.Sprintf("%s, ", node.Param)
+	}
+	return ""
+}
+
+func (node *AggregateExpr) getAggOpStr() string {
+	groupingClause := ""
+	if node.Without {
+		groupingClause = fmt.Sprintf(" without (%s)", strings.Join(node.Grouping, ", "))
+	} else if len(node.Grouping) > 0 {
+		groupingClause = fmt.Sprintf(" by (%s)", strings.Join(node.Grouping, ", "))
+	}
+	return node.Op.String() + groupingClause
+}
+
+func (node *BinaryExpr) String() string {
+	return fmt.Sprintf("%s %s%s%s %s", node.LHS, node.Op, formatBool(node), node.getMatchingStr(), node.RHS)
+}
+
+// formatBool adds "bool" to the string representation if ReturnBool is true.
+func formatBool(node *BinaryExpr) string {
+	if node.ReturnBool {
+		return " bool"
+	}
+	return ""
+}
+
+func (node *BinaryExpr) getMatchingStr() string {
+	if node.VectorMatching == nil || (len(node.VectorMatching.MatchingLabels) == 0 && !node.VectorMatching.On) {
+		return ""
+	}
+	matchingType := "ignoring"
+	if node.VectorMatching.On {
+		matchingType = "on"
+	}
+	matching := fmt.Sprintf(" %s (%s)", matchingType, strings.Join(node.VectorMatching.MatchingLabels, ", "))
+	if node.VectorMatching.Card == CardManyToOne || node.VectorMatching.Card == CardOneToMany {
+		groupSide := "right"
+		if node.VectorMatching.Card == CardManyToOne {
+			groupSide = "left"
+		}
+		matching += fmt.Sprintf(" group_%s (%s)", groupSide, strings.Join(node.VectorMatching.Include, ", "))
+	}
+	return matching
+}
+
+func (node *Call) String() string {
+	return fmt.Sprintf("%s(%s)", node.Func.Name, node.Args)
+}
+
+func (node *MatrixSelector) String() string {
+	return formatSelector(node.VectorSelector, node.Range, node.VectorSelector.(*VectorSelector))
+}
+
+func formatSelector(vecSelector *VectorSelector, duration time.Duration, original *VectorSelector) string {
+	originalOffset, timestamp, startOrEnd := original.OriginalOffset, original.Timestamp, original.StartOrEnd
+	original.OriginalOffset, original.Timestamp, original.StartOrEnd = 0, nil, 0
+	defer func() {
+		original.OriginalOffset, original.Timestamp, original.StartOrEnd = originalOffset, timestamp, startOrEnd
+	}()
+	offset := formatOffset(vecSelector.OriginalOffset)
+	at := formatTimestamp(vecSelector.Timestamp, vecSelector.StartOrEnd)
+	return fmt.Sprintf("%s[%s]%s%s", vecSelector.String(), model.Duration(duration), at, offset)
+}
+
+func formatOffset(offset time.Duration) string {
+	if offset > 0 {
+		return fmt.Sprintf(" offset %s", model.Duration(offset))
+	} else if offset < 0 {
+		return fmt.Sprintf(" offset -%s", model.Duration(-offset))
+	}
+	return ""
+}
+
+func formatTimestamp(ts *int64, startOrEnd int) string {
+	if ts != nil {
+		return fmt.Sprintf(" @ %.3f", float64(*ts)/1000.0)
+	} else if startOrEnd == START {
+		return " @ start()"
+	} else if startOrEnd == END {
+		return " @ end()"
+	}
+	return ""
+}
+
+func (node *SubqueryExpr) String() string {
+	return fmt.Sprintf("%s%s", node.Expr.String(), node.getSubqueryTimeSuffix())
+}
+
+func (node *NumberLiteral) String() string {
+	return fmt.Sprint(node.Val)
+}
+
+func (node *ParenExpr) String() string {
+	return fmt.Sprintf("(%s)", node.Expr)
+}
+
+func (node *StringLiteral) String() string {
+	return fmt.Sprintf("%q", node.Val)
+}
+
+func (node *UnaryExpr) String() string {
+	return fmt.Sprintf("%s%s", node.Op, node.Expr)
+}
+
+func (node *VectorSelector) String() string {
+	labelStrings := formatLabelMatchers(node.LabelMatchers, node.Name)
+	offset := formatOffset(node.OriginalOffset)
+	at := formatTimestamp(node.Timestamp, node.StartOrEnd)
+	if len(labelStrings) == 0 {
+		return fmt.Sprintf("%s%s%s", node.Name, at, offset)
+	}
+	sort.Strings(labelStrings)
+	return fmt.Sprintf("%s{%s}%s%s", node.Name, strings.Join(labelStrings, ","), at, offset)
+}
+
+func formatLabelMatchers(matchers []*labels.Matcher, name string) []string {
+	var labelStrings []string
+	for _, matcher := range matchers {
+		if matcher.Name == labels.MetricName && matcher.Type == labels.MatchEqual && matcher.Value == name {
+			continue
+		}
+		labelStrings = append(labelStrings, matcher.String())
+	}
+	return labelStrings
+}
