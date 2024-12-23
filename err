@@ -1,18 +1,10 @@
-func (l *Lexer) next() rune {
-	if l.pos >= Pos(len(l.input)) {
-		l.width = 0
-		return eof
+func skipSpaces(l *Lexer) {
+	for {
+		r := l.peek()
+		if !isSpace(r) {
+			break
+		}
+		l.next()
 	}
-	r, w := utf8.DecodeRuneInString(l.input[l.pos:])
-	l.width = Pos(w)
-	l.pos += l.width
-	return r
-}
-
-func (l *Lexer) peek() rune {
-	if l.pos >= Pos(len(l.input)) {
-		return eof
-	}
-	r, _ := utf8.DecodeRuneInString(l.input[l.pos:])
-	return r
+	l.ignore()
 }
