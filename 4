@@ -1,0 +1,503 @@
+
++       for _, test := range tests {
++               t.Run(test.name, func(t *testing.T) {
++                       result := matchSelector(test.selector, test.ingress)
++                       assert.Equal(t, test.expected, result)
++               })
++       }
++}
++
++func TestMatchPattern(t *testing.T) {
++       tests := []struct {
++               name     string
++               pattern  string
++               ingress  *networkingv1.Ingress
++               expected bool
++       }{
++               {
++                       name:    "Match namespace and name",
++                       pattern: "test-namespace/test-name",
++                       ingress: &networkingv1.Ingress{
++                               ObjectMeta: metav1.ObjectMeta{
++                                       Namespace: "test-namespace",
++                                       Name:      "test-name",
++                               },
++                       },
++                       expected: true,
++               },
++               {
++                       name:    "Match only namespace",
++                       pattern: "test-namespace",
++                       ingress: &networkingv1.Ingress{
++                               ObjectMeta: metav1.ObjectMeta{
++                                       Namespace: "test-namespace",
++                                       Name:      "another-name",
++                               },
++                       },
++                       expected: true,
++               },
++               {
++                       name:    "No match with namespace",
++                       pattern: "wrong-namespace",
++                       ingress: &networkingv1.Ingress{
++                               ObjectMeta: metav1.ObjectMeta{
++                                       Namespace: "test-namespace",
++                                       Name:      "test-name",
++                               },
++                       },
++                       expected: false,
++               },
++               {
++                       name:    "No match with namespace and name",
++                       pattern: "test-namespace/wrong-name",
++                       ingress: &networkingv1.Ingress{
++                               ObjectMeta: metav1.ObjectMeta{
++                                       Namespace: "test-namespace",
++                                       Name:      "test-name",
++                               },
++                       },
++                       expected: false,
++               },
++               {
++                       name:    "Wildcard match",
++                       pattern: "test-namespace/*",
++                       ingress: &networkingv1.Ingress{
++                               ObjectMeta: metav1.ObjectMeta{
++                                       Namespace: "test-namespace",
++                                       Name:      "any-name",
++                               },
++                       },
++                       expected: true,
++               },
++               {
++                       name:    "Wildcard match namespace",
++                       pattern: "*/test-name",
++                       ingress: &networkingv1.Ingress{
++                               ObjectMeta: metav1.ObjectMeta{
++                                       Namespace: "any-namespace",
++                                       Name:      "test-name",
++                               },
++                       },
++                       expected: true,
++               },
++               {
++                       name:    "Invalid pattern",
++                       pattern: "test-namespace/[",
++                       ingress: &networkingv1.Ingress{
++                               ObjectMeta: metav1.ObjectMeta{
++                                       Namespace: "test-namespace",
++                                       Name:      "test-name",
++                               },
++                       },
++                       expected: false,
++               },
++               {
++                       name:    "Invalid pattern",
++                       pattern: "//",
++                       ingress: &networkingv1.Ingress{
++                               ObjectMeta: metav1.ObjectMeta{
++                                       Namespace: "test-namespace",
++                                       Name:      "test-name",
++                               },
++                       },
++                       expected: false,
++               },
++       }
++
++       for _, tt := range tests {
++               t.Run(tt.name, func(t *testing.T) {
++                       result := matchPattern(tt.pattern, tt.ingress)
++                       assert.Equal(t, tt.expected, result)
++               })
++       }
++}
++
++func TestMatchString(t *testing.T) {
++       tests := []struct {
++               pattern  string
++               str      string
++               expected bool
++       }{
++               {"*", "test", true},
++               {"test", "test", true},
++               {"test", "different", false},
++               {"prefix-*", "prefix-test", true},
++               {"prefix-*", "different", false},
++               {"*-suffix", "test-suffix", true},
++               {"*-suffix", "test-prefix", false},
++               {"*/test", "namespace/test", true},
++               {"*/test", "namespace/different", false},
++       }
++
++       for _, tt := range tests {
++               t.Run(tester.CaseName(tt), func(t *testing.T) {
++                       got := matchString(tt.pattern, tt.str)
++                       assert.Equal(t, tt.expected, got)
++               })
++       }
++}
+diff --git a/pkg/model/consts.go b/pkg/model/consts.go
+index 79b63b7..f18a551 100644
+--- a/pkg/model/consts.go
++++ b/pkg/model/consts.go
+@@ -3,5 +3,4 @@ package model
+ const (
+        ManagedAnnotationsKey = "annotator.ingress.kubernetes.io/managed-annotations"
+        ReconcileKey          = "annotator.ingress.kubernetes.io/reconcile"
+-       RulesKey              = "annotator.ingress.kubernetes.io/rules"
+ )
+diff --git a/pkg/model/model.go b/pkg/model/model.go
+index 3b0ee2b..b17e433 100644
+--- a/pkg/model/model.go
++++ b/pkg/model/model.go
+@@ -1,5 +1,14 @@
+ package model
+
+-type Rules map[string]Annotations
+-
+ type Annotations map[string]string
++
++type Selector struct {
++       Include string `yaml:"include,omitempty"`
++       Exclude string `yaml:"exclude,omitempty"`
++}
++
++type Rule struct {
++       Description string      `yaml:"description,omitempty"`
++       Selector    Selector    `yaml:"selector"`
++       Annotations Annotations `yaml:"annotations,omitempty"`
++}
+diff --git a/pkg/model/model_test.go b/pkg/model/model_test.go
+index e47821d..9e4cc72 100644
+--- a/pkg/model/model_test.go
++++ b/pkg/model/model_test.go
+@@ -8,24 +8,32 @@ import (
+ )
+
+ func TestUnmarshal(t *testing.T) {
+-       wantRules := Rules{
+-               "oauth2-proxy": Annotations{
+-                       "nginx.ingress.kubernetes.io/auth-signin": "https://oauth2-proxy.example.com/oauth2/start?rd=https://$host$request_uri",
+-                       "nginx.ingress.kubernetes.io/auth-url":    "https://oauth2-proxy.example.com/oauth2/auth",
++       wantRules := []Rule{
++               {
++                       Description: "oauth2-proxy",
++                       Annotations: Annotations{
++                               "nginx.ingress.kubernetes.io/auth-signin": "https://oauth2-proxy.example.com/oauth2/start?rd=https://$host$request_uri",
++                               "nginx.ingress.kubernetes.io/auth-url":    "https://oauth2-proxy.example.com/oauth2/auth",
++                       },
+                },
+-               "private": Annotations{
+-                       "nginx.ingress.kubernetes.io/whitelist-source-range": "192.168.1.0/24,10.0.0.0/16",
++               {
++                       Description: "private",
++                       Annotations: Annotations{
++                               "nginx.ingress.kubernetes.io/whitelist-source-range": "192.168.1.0/24,10.0.0.0/16",
++                       },
+                },
+        }
+        rulesText := `
+-oauth2-proxy:
+-  nginx.ingress.kubernetes.io/auth-signin: "https://oauth2-proxy.example.com/oauth2/start?rd=https://$host$request_uri"
+-  nginx.ingress.kubernetes.io/auth-url: "https://oauth2-proxy.example.com/oauth2/auth"
+-private:
+-  nginx.ingress.kubernetes.io/whitelist-source-range: "192.168.1.0/24,10.0.0.0/16"
++- description: oauth2-proxy
++  annotations:
++    nginx.ingress.kubernetes.io/auth-signin: "https://oauth2-proxy.example.com/oauth2/start?rd=https://$host$request_uri"
++    nginx.ingress.kubernetes.io/auth-url: "https://oauth2-proxy.example.com/oauth2/auth"
++- description: private
++  annotations:
++    nginx.ingress.kubernetes.io/whitelist-source-range: "192.168.1.0/24,10.0.0.0/16"
+ `
+
+-       var rules Rules
++       var rules []Rule
+        err := yaml.Unmarshal([]byte(rulesText), &rules)
+        assert.NoError(t, err)
+        assert.Equal(t, wantRules, rules)
+diff --git a/pkg/rulesstore/rulesstore.go b/pkg/rulesstore/rulesstore.go
+index a6f693d..f041afe 100644
+--- a/pkg/rulesstore/rulesstore.go
++++ b/pkg/rulesstore/rulesstore.go
+@@ -12,12 +12,12 @@ import (
+ )
+
+ type IRulesStore interface {
+-       GetRules() *model.Rules
++       GetRules() []model.Rule
+        UpdateRules(cm *corev1.ConfigMap) error
+ }
+
+ type RulesStore struct {
+-       Rules      *model.Rules
++       Rules      []model.Rule
+        rulesMutex *sync.Mutex
+ }
+
+@@ -31,7 +31,7 @@ func New(cm *corev1.ConfigMap) (*RulesStore, error) {
+        return store, nil
+ }
+
+-func (s *RulesStore) GetRules() *model.Rules {
++func (s *RulesStore) GetRules() []model.Rule {
+        s.rulesMutex.Lock()
+        defer s.rulesMutex.Unlock()
+
+@@ -48,14 +48,14 @@ func (s *RulesStore) UpdateRules(cm *corev1.ConfigMap) error {
+        return nil
+ }
+
+-func (s *RulesStore) updateRules(rules model.Rules) {
++func (s *RulesStore) updateRules(rules []model.Rule) {
+        s.rulesMutex.Lock()
+        defer s.rulesMutex.Unlock()
+
+-       s.Rules = &rules
++       s.Rules = rules
+ }
+
+-func getRulesFromConfigMap(cm *corev1.ConfigMap) (model.Rules, error) {
++func getRulesFromConfigMap(cm *corev1.ConfigMap) ([]model.Rule, error) {
+        if cm == nil {
+                return nil, errors.New("configMap is nil")
+        }
+@@ -65,7 +65,7 @@ func getRulesFromConfigMap(cm *corev1.ConfigMap) (model.Rules, error) {
+                return nil, errors.New("configMap missing 'rules' key")
+        }
+
+-       var rules model.Rules
++       var rules []model.Rule
+        if err := yaml.Unmarshal([]byte(rulesText), &rules); err != nil {
+                return nil, fmt.Errorf("failed to unmarshal rules: %w", err)
+        }
+diff --git a/pkg/rulesstore/rulesstore_test.go b/pkg/rulesstore/rulesstore_test.go
+index 93c04b7..fc58126 100644
+--- a/pkg/rulesstore/rulesstore_test.go
++++ b/pkg/rulesstore/rulesstore_test.go
+@@ -5,17 +5,17 @@ import (
+        "testing"
+
+        "github.com/jmnote/tester/testcase"
++       "github.com/kuoss/ingress-annotator/pkg/model"
+        "github.com/stretchr/testify/assert"
++       "gopkg.in/yaml.v3"
+        corev1 "k8s.io/api/core/v1"
+-
+-       "github.com/kuoss/ingress-annotator/pkg/model"
+ )
+
+ func TestNew(t *testing.T) {
+        tests := []struct {
+                name      string
+                cm        *corev1.ConfigMap
+-               wantRules *model.Rules
++               wantRules []model.Rule
+                wantError string
+        }{
+                {
+@@ -29,12 +29,17 @@ func TestNew(t *testing.T) {
+                        cm: &corev1.ConfigMap{
+                                Data: map[string]string{
+                                        "rules": `
+-rule1:
+-  key1: value1`,
++- description: rule1
++  annotations:
++    key1: value1
++`,
+                                },
+                        },
+-                       wantRules: &model.Rules{
+-                               "rule1": model.Annotations{"key1": "value1"},
++                       wantRules: []model.Rule{
++                               {
++                                       Description: "rule1",
++                                       Annotations: model.Annotations{"key1": "value1"},
++                               },
+                        },
+                        wantError: "",
+                },
+@@ -57,10 +62,10 @@ rule1:
+ }
+
+ func TestGetRules(t *testing.T) {
+-       wantRules := &model.Rules{
+-               "rule1": model.Annotations{"key1": "value1"},
+-       }
+-
++       wantRules := []model.Rule{{
++               Description: "rule1",
++               Annotations: model.Annotations{"key1": "value1"},
++       }}
+        store := &RulesStore{
+                Rules:      wantRules,
+                rulesMutex: &sync.Mutex{},
+@@ -75,7 +80,7 @@ func TestUpdateRules(t *testing.T) {
+        tests := []struct {
+                name      string
+                cm        *corev1.ConfigMap
+-               wantRules *model.Rules
++               wantRules []model.Rule
+                wantError string
+        }{
+                {
+@@ -93,24 +98,35 @@ func TestUpdateRules(t *testing.T) {
+                        cm: &corev1.ConfigMap{
+                                Data: map[string]string{
+                                        "rules": `
+-rule1:
+-  invalid_data`,
+-                               },
++- description: rule1
++  annotations:
++    invalid_data`},
+                        },
+-                       wantError: "failed to extract rules from configMap: failed to unmarshal rules: yaml: unmarshal errors:\n  line 3: cannot unmarshal !!str `invalid...` into model.Annotations",
++                       wantError: "failed to extract rules from configMap: failed to unmarshal rules: yaml: unmarshal errors:\n  line 4: cannot unmarshal !!str `invalid...` into model.Annotations",
+                },
+                {
+                        name: "Valid ConfigMap",
+                        cm: &corev1.ConfigMap{
+                                Data: map[string]string{
+                                        "rules": `
+-rule1:
+-  key1: value1`,
+-                               },
++- description: rule1
++  annotations:
++    key1: value1`},
+                        },
+-                       wantRules: &model.Rules{
+-                               "rule1": model.Annotations{"key1": "value1"},
++                       wantRules: []model.Rule{{
++                               Description: "rule1",
++                               Annotations: model.Annotations{"key1": "value1"},
++                       }},
++               },
++               {
++                       name: "Valid ConfigMap",
++                       cm: &corev1.ConfigMap{
++                               Data: map[string]string{"rules": "- description: rule1\n  annotations:\n    key1: value1"},
+                        },
++                       wantRules: []model.Rule{{
++                               Description: "rule1",
++                               Annotations: model.Annotations{"key1": "value1"},
++                       }},
+                },
+        }
+
+@@ -133,3 +149,59 @@ rule1:
+                })
+        }
+ }
++
++func TestGetRulesFromConfigMap(t *testing.T) {
++       t.Run("Nil ConfigMap", func(t *testing.T) {
++               rules, err := getRulesFromConfigMap(nil)
++               assert.Nil(t, rules)
++               assert.EqualError(t, err, "configMap is nil")
++       })
++
++       t.Run("Missing rules key", func(t *testing.T) {
++               cm := &corev1.ConfigMap{
++                       Data: map[string]string{
++                               "other_key": "value",
++                       },
++               }
++               rules, err := getRulesFromConfigMap(cm)
++               assert.Nil(t, rules)
++               assert.EqualError(t, err, "configMap missing 'rules' key")
++       })
++
++       t.Run("Invalid YAML in rules", func(t *testing.T) {
++               cm := &corev1.ConfigMap{
++                       Data: map[string]string{
++                               "rules": "invalid_yaml: [",
++                       },
++               }
++               rules, err := getRulesFromConfigMap(cm)
++               assert.Nil(t, rules)
++               assert.ErrorContains(t, err, "failed to unmarshal rules")
++       })
++
++       t.Run("Valid rules", func(t *testing.T) {
++               validRules := []model.Rule{
++                       {
++                               Description: "rule1",
++                               Selector: model.Selector{
++                                       Include: "app1",
++                                       Exclude: "app2",
++                               },
++                               Annotations: model.Annotations{
++                                       "key1": "value1",
++                               },
++                       },
++               }
++               rulesYaml, err := yaml.Marshal(validRules)
++               assert.NoError(t, err)
++
++               cm := &corev1.ConfigMap{
++                       Data: map[string]string{
++                               "rules": string(rulesYaml),
++                       },
++               }
++               rules, err := getRulesFromConfigMap(cm)
++               assert.NoError(t, err)
++               assert.Equal(t, validRules, rules)
++       })
++}
+diff --git a/pkg/testutil/mocks/mockrulesstore.go b/pkg/testutil/mocks/mockrulesstore.go
+index 209faa9..fd4bfc5 100644
+--- a/pkg/testutil/mocks/mockrulesstore.go
++++ b/pkg/testutil/mocks/mockrulesstore.go
+@@ -15,7 +15,7 @@ import (
+        model "github.com/kuoss/ingress-annotator/pkg/model"
+        gomock "go.uber.org/mock/gomock"
+        v1 "k8s.io/api/core/v1"
+-       client "sigs.k8s.io/controller-runtime/pkg/client"
++       v10 "k8s.io/api/networking/v1"
+ )
+
+ // MockIRulesStore is a mock of IRulesStore interface.
+@@ -41,30 +41,25 @@ func (m *MockIRulesStore) EXPECT() *MockIRulesStoreMockRecorder {
+        return m.recorder
+ }
+
+-// ExtractRulesFromAnnotations mocks base method.
+-func (m *MockIRulesStore) ExtractRulesFromAnnotations(objs ...client.Object) ([]string, error) {
++// GetAnnotationsForIngress mocks base method.
++func (m *MockIRulesStore) GetAnnotationsForIngress(ingress *v10.Ingress) model.Annotations {
+        m.ctrl.T.Helper()
+-       varargs := []any{}
+-       for _, a := range objs {
+-               varargs = append(varargs, a)
+-       }
+-       ret := m.ctrl.Call(m, "ExtractRulesFromAnnotations", varargs...)
+-       ret0, _ := ret[0].([]string)
+-       ret1, _ := ret[1].(error)
+-       return ret0, ret1
++       ret := m.ctrl.Call(m, "GetAnnotationsForIngress", ingress)
++       ret0, _ := ret[0].(model.Annotations)
++       return ret0
+ }
+
+-// ExtractRulesFromAnnotations indicates an expected call of ExtractRulesFromAnnotations.
+-func (mr *MockIRulesStoreMockRecorder) ExtractRulesFromAnnotations(objs ...any) *gomock.Call {
++// GetAnnotationsForIngress indicates an expected call of GetAnnotationsForIngress.
++func (mr *MockIRulesStoreMockRecorder) GetAnnotationsForIngress(ingress any) *gomock.Call {
+        mr.mock.ctrl.T.Helper()
+-       return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExtractRulesFromAnnotations", reflect.TypeOf((*MockIRulesStore)(nil).ExtractRulesFromAnnotations), objs...)
++       return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAnnotationsForIngress", reflect.TypeOf((*MockIRulesStore)(nil).GetAnnotationsForIngress), ingress)
+ }
+
+ // GetRules mocks base method.
+-func (m *MockIRulesStore) GetRules() *model.Rules {
++func (m *MockIRulesStore) GetRules() []model.Rule {
+        m.ctrl.T.Helper()
+        ret := m.ctrl.Call(m, "GetRules")
+-       ret0, _ := ret[0].(*model.Rules)
++       ret0, _ := ret[0].([]model.Rule)
+        return ret0
+ }
+
