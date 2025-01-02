@@ -1,474 +1,499 @@
-// lexStatements is the top-level state for lexing PromQL expressions.
-func lexStatements(l *Lexer) stateFn {
-	// Handle cases where braces are open.
-	if l.braceOpen {
-		return lexInsideBraces
-	}
-
-	// Handle comments starting with the comment marker.
-	if strings.HasPrefix(l.input[l.pos:], lineComment) {
-		return lexLineComment
-	}
-
-	// Switch on the next character to determine the state transition.
-	switch r := l.next(); {
-	case r == eof:
-		// Handle end-of-file condition.
-		if l.parenDepth != 0 {
-			return l.errorf("unclosed left parenthesis")
-		}
-		if l.bracketOpen {
-			return l.errorf("unclosed left bracket")
-		}
-		l.emit(EOF)
-		return nil
-	case isSpace(r):
-		// Handle whitespace.
-		return lexSpace
-	case r == ',':
-		l.emit(COMMA)
-	case r == '(':
-		l.emit(LEFT_PAREN)
-		l.parenDepth++
-	case r == ')':
-		if l.parenDepth == 0 {
-			return l.errorf("unexpected closing parenthesis ')'")
-		}
-		l.emit(RIGHT_PAREN)
-		l.parenDepth--
-	case r == '{':
-		l.emit(LEFT_BRACE)
-		l.braceOpen = true
-	case r == '}':
-		if !l.braceOpen {
-			return l.errorf("unexpected closing brace '}'")
-		}
-		l.emit(RIGHT_BRACE)
-		l.braceOpen = false
-	case r == '[':
-		l.emit(LEFT_BRACKET)
-		l.bracketOpen = true
-		return lexDuration
-	case r == ']':
-		if !l.bracketOpen {
-			return l.errorf("unexpected closing bracket ']'")
-		}
-		l.emit(RIGHT_BRACKET)
-		l.bracketOpen = false
-	case r == '+':
-		l.emit(ADD)
-	case r == '-':
-		l.emit(SUB)
-	case r == '*':
-		l.emit(MUL)
-	case r == '/':
-		l.emit(DIV)
-	case r == '%':
-		l.emit(MOD)
-	case r == '^':
-		l.emit(POW)
-	case r == '=':
-		switch l.peek() {
-		case '=':
-			l.next()
-			l.emit(EQLC)
-		case '~':
-			return l.errorf("unexpected character after '=': '~'")
-		default:
-			l.emit(EQL)
-		}
-	case r == '!':
-		switch l.peek() {
-		case '=':
-			l.next()
-			l.emit(NEQ)
-		case '~':
-			l.next()
-			l.emit(NEQ_REGEX)
-		default:
-			return l.errorf("unexpected character after '!': %q", l.peek())
-		}
-	case r == '|':
-		switch l.peek() {
-		case '=':
-			l.next()
-			l.emit(PIPE_EQL)
-		case '~':
-			l.next()
-			l.emit(PIPE_REGEX)
-		default:
-			return l.errorf("unexpected character after '|': %q", l.peek())
-		}
-	case r == '<':
-		if l.peek() == '=' {
-			l.next()
-			l.emit(LTE)
-		} else {
-			l.emit(LSS)
-		}
-	case r == '>':
-		if l.peek() == '=' {
-			l.next()
-			l.emit(GTE)
-		} else {
-			l.emit(GTR)
-		}
-	case isDigit(r) || (r == '.' && isDigit(l.peek())):
-		l.backup()
-		return lexNumberOrDuration
-	case r == '"' || r == '\'':
-		l.stringOpen = r
-		return lexString
-	case r == '`':
-		l.stringOpen = r
-		return lexRawString
-	case isAlpha(r) || r == ':':
-		l.backup()
-		return lexKeywordOrIdentifier
-	default:
-		return l.errorf("unexpected character: %q", r)
-	}
-
-	// Continue processing the input.
-	return lexStatements
-}
-
-코드의 품질을 개선하면서 테스트 코드를 모두 통과하도록 리팩토링하려면 아래와 같은 전략으로 접근해야 합니다. 제공된 테스트 케이스와 코드를 기반으로 리팩토링한 주요 변경 사항과 이유를 설명합니다.
-
-
----
-
-리팩토링 전략
-
-1. 가독성 개선:
-
-반복적인 패턴을 함수로 추출.
-
-조건문과 로직을 간결화.
-
-명확한 변수와 함수 이름으로 코드의 의도를 드러냄.
-
-
-
-2. 중복 코드 제거:
-
-비슷한 역할을 하는 코드를 함수화하여 재사용성을 높임.
-
-
-
-3. 로직의 명확성:
-
-테스트 케이스를 분석하여 Lexer의 상태 전환 로직을 명확히 함.
-
-에러 처리와 상태 관리 개선.
-
-
-
-4. 성능 최적화:
-
-불필요한 반복문 제거 및 필요한 경우 반복문 조기 종료.
-
-l.next()와 같은 호출의 중복을 줄임.
-
-
-
-
-
----
-
-리팩토링된 코드
-
-주요 변경 사항
-
-1. Lexer.next와 Lexer.peek 개선
-
-개선 전:
-
-func (l *Lexer) next() rune {
-	if int(l.pos) >= len(l.input) {
-		l.width = 0
-		return eof
-	}
-	r, w := utf8.DecodeRuneInString(l.input[l.pos:])
-	l.width = Pos(w)
-	l.pos += l.width
-	return r
-}
-
-func (l *Lexer) peek() rune {
-	r := l.next()
-	l.backup()
-	return r
-}
-
-개선 후:
-
-func (l *Lexer) next() rune {
-	if l.pos >= Pos(len(l.input)) {
-		l.width = 0
-		return eof
-	}
-	r, w := utf8.DecodeRuneInString(l.input[l.pos:])
-	l.width = Pos(w)
-	l.pos += l.width
-	return r
-}
-
-func (l *Lexer) peek() rune {
-	if l.pos >= Pos(len(l.input)) {
-		return eof
-	}
-	r, _ := utf8.DecodeRuneInString(l.input[l.pos:])
-	return r
-}
-
-개선 내용:
-
-peek에서 backup 호출을 제거하여 불필요한 상태 변경 방지.
-
-next와 peek의 종료 조건을 명확히 표현.
-
-
-이유:
-
-상태 변경 없이 입력 값을 확인하도록 개선하여 함수 호출의 부작용 제거.
-
-더 읽기 쉬운 조건문으로 변경.
-
-
-
----
-
-2. skipSpaces와 반복 제어 개선
-
-개선 전:
-
-func skipSpaces(l *Lexer) {
-	for isSpace(l.peek()) {
-		l.next()
-	}
-	l.ignore()
-}
-
-개선 후:
-
-func skipSpaces(l *Lexer) {
-	for {
-		r := l.peek()
-		if !isSpace(r) {
-			break
-		}
-		l.next()
-	}
-	l.ignore()
-}
-
-개선 내용:
-
-for 루프에서 조건문을 분리하여 코드의 의도를 명확히 함.
-
-
-이유:
-
-반복 조건과 종료 조건을 분리하여 디버깅과 유지보수를 용이하게 함.
-
-
-
----
-
-3. lexKeywordOrIdentifier 리팩토링
-
-개선 전:
-
-func lexKeywordOrIdentifier(l *Lexer) stateFn {
-Loop:
-	for {
-		switch r := l.next(); {
-		case isAlphaNumeric(r) || r == ':':
-			// absorb.
-		default:
-			l.backup()
-			word := l.input[l.start:l.pos]
-			if kw, ok := key[strings.ToLower(word)]; ok {
-				l.emit(kw)
-			} else if !strings.Contains(word, ":") {
-				l.emit(IDENTIFIER)
-			} else {
-				l.emit(METRIC_IDENTIFIER)
-			}
-			break Loop
-		}
-	}
-	if l.seriesDesc && l.peek() != '{' {
-		return lexValueSequence
-	}
-	return lexStatements
-}
-
-개선 후:
-
-func lexKeywordOrIdentifier(l *Lexer) stateFn {
-	for {
-		r := l.next()
-		if !isAlphaNumeric(r) && r != ':' {
-			l.backup()
-			break
-		}
-	}
-
-	word := l.input[l.start:l.pos]
-	switch {
-	case key[strings.ToLower(word)] != 0:
-		l.emit(key[strings.ToLower(word)])
-	case strings.Contains(word, ":"):
-		l.emit(METRIC_IDENTIFIER)
-	default:
-		l.emit(IDENTIFIER)
-	}
-
-	if l.seriesDesc && l.peek() != '{' {
-		return lexValueSequence
-	}
-	return lexStatements
-}
-
-개선 내용:
-
-불필요한 Loop 라벨 제거.
-
-switch 문을 활용하여 조건 처리를 더 간결하게 변경.
-
-
-이유:
-
-코드 가독성을 높이고, 불필요한 제어 흐름 제거.
-
-
-
----
-
-4. 에러 처리 로직 개선
-
-개선 전:
-
-func (l *Lexer) errorf(format string, args ...interface{}) stateFn {
-	*l.itemp = Item{ERROR, l.start, fmt.Sprintf(format, args...)}
-	l.scannedItem = true
-	return nil
-}
-
-개선 후:
-
-func (l *Lexer) errorf(format string, args ...interface{}) stateFn {
-	message := fmt.Sprintf(format, args...)
-	*l.itemp = Item{ERROR, l.start, message}
-	l.scannedItem = true
-	return nil
-}
-
-개선 내용:
-
-에러 메시지 생성 과정을 변수로 분리.
-
-
-이유:
-
-에러 메시지를 로깅하거나 디버깅 시 더 명확히 사용 가능.
-
-
-
----
-
-5. 테스트 친화적 상태 전환
-
-개선 전:
-
-func lexStatements(l *Lexer) stateFn {
-	if l.braceOpen {
-		return lexInsideBraces
-	}
-	// 기존 로직...
-}
-
-개선 후:
-
-func lexStatements(l *Lexer) stateFn {
-	switch {
-	case l.braceOpen:
-		return lexInsideBraces
-	case strings.HasPrefix(l.input[l.pos:], lineComment):
-		return lexLineComment
-	}
-
-	switch r := l.next(); {
-	case r == eof:
-		return handleEOF(l)
-	case isSpace(r):
-		return lexSpace
-	// 기타 로직...
-	}
-	return lexStatements
-}
-
-개선 내용:
-
-종료 조건(EOF)을 별도의 함수로 처리하여 명확히 분리.
-
-switch 문을 적극적으로 활용하여 상태 전환 로직을 간결화.
-
-
-이유:
-
-상태 전환 로직의 복잡도를 줄이고, 새로운 상태 추가 시 확장성을 높임.
-
-
-
----
-
-테스트 코드와의 연계
-
-1. 테스트 케이스 보장:
-
-모든 테스트 케이스를 분석하여 예상되는 상태 전환 및 출력 값을 확인.
-
-개선된 로직에서 각 테스트 케이스에 필요한 상태와 출력 값이 유지되도록 확인.
-
-
-
-2. 성능 테스트:
-
-개선된 로직이 동일한 입력에서 이전과 동일한 성능을 보장하도록 프로파일링 수행.
-
-
-
-3. 회귀 테스트:
-
-추가적인 변경이 테스트 결과에 영향을 미치지 않도록 회귀 테스트를 반복.
-
-
-
-
-
----
-
-기대 효과
-
-1. 가독성 향상:
-
-로직이 간결해지고 명확해져 코드 리뷰와 유지보수가 쉬워짐.
-
-
-
-2. 성능 최적화:
-
-상태 전환 로직의 중복 제거와 불필요한 호출 감소로 성능 향상.
-
-
-
-3. 테스트 친화적 구조:
-
-모든 테스트 케이스를 만족하며 새로운 기능 추가 시에도 유연하게 대처 가능.
-
-
-
-
+$ git diff main...38-central-control|cat
+diff --git a/Makefile b/Makefile
+index 31be5e8..fd05a2f 100644
+--- a/Makefile
++++ b/Makefile
+@@ -61,7 +61,7 @@ vet: ## Run go vet against code.
+
+ .PHONY: test
+ test: manifests generate fmt vet envtest ## Run tests.
+-       KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -v $$(go list ./... | grep -v /e2e) -coverprofile cover.out
++       KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test --failfast -p 1 -v $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+
+ # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
+ .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
+diff --git a/cmd/main.go b/cmd/main.go
+index 3d81b22..44b698b 100644
+--- a/cmd/main.go
++++ b/cmd/main.go
+@@ -40,7 +40,7 @@ import (
+
+        "github.com/kuoss/ingress-annotator/controllers/configmapcontroller"
+        "github.com/kuoss/ingress-annotator/controllers/ingresscontroller"
+-       "github.com/kuoss/ingress-annotator/controllers/namespacecontroller"
++       "github.com/kuoss/ingress-annotator/pkg/matcher"
+        "github.com/kuoss/ingress-annotator/pkg/rulesstore"
+        // +kubebuilder:scaffold:imports
+ )
+@@ -153,21 +153,13 @@ func run(mgr ctrl.Manager, ctx context.Context) error {
+                return fmt.Errorf("unable to create ConfigMapReconciler: %w", err) // test unreachable
+        }
+
+-       ingressReconciler := &ingresscontroller.IngressReconciler{
+-               Client:     mgr.GetClient(),
+-               RulesStore: rulesStore,
+-       }
+-
+-       if err = ingressReconciler.SetupWithManager(mgr); err != nil {
++       if err = (&ingresscontroller.IngressReconciler{
++               Client:  mgr.GetClient(),
++               Matcher: matcher.New(rulesStore),
++       }).SetupWithManager(mgr); err != nil {
+                return fmt.Errorf("unable to create IngressReconciler: %w", err) // test unreachable
+        }
+
+-       if err = (&namespacecontroller.NamespaceReconciler{
+-               Client:            mgr.GetClient(),
+-               IngressReconciler: ingressReconciler,
+-       }).SetupWithManager(mgr); err != nil {
+-               return fmt.Errorf("unable to create NamespaceReconciler: %w", err) // test unreachable
+-       }
+        // +kubebuilder:scaffold:builder
+
+        if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+diff --git a/cmd/main_test.go b/cmd/main_test.go
+index cba1734..21a0fa3 100644
+--- a/cmd/main_test.go
++++ b/cmd/main_test.go
+@@ -127,7 +127,7 @@ func TestRun(t *testing.T) {
+                                ObjectMeta: metav1.ObjectMeta{Namespace: "test-namespace", Name: "ingress-annotator"},
+                                Data:       map[string]string{"rules": "invalid rules"},
+                        },
+-                       wantError: "unable to start rules store: failed to initialize RulesStore: failed to extract rules from configMap: failed to unmarshal rules: yaml: unmarshal errors:\n  line 1: cannot unmarshal !!str `invalid...` into model.Rules",
++                       wantError: "unable to start rules store: failed to initialize RulesStore: failed to extract rules from configMap: failed to unmarshal rules: yaml: unmarshal errors:\n  line 1: cannot unmarshal !!str `invalid...` into []model.Rule",
+                },
+                {
+                        name:      "Error setting up ready check",
+diff --git a/config/rbac/role.yaml b/config/rbac/role.yaml
+index 1eb6f5d..122ccbb 100644
+--- a/config/rbac/role.yaml
++++ b/config/rbac/role.yaml
+@@ -26,30 +26,6 @@ rules:
+   - get
+   - patch
+   - update
+-- apiGroups:
+-  - ""
+-  resources:
+-  - namespaces
+-  verbs:
+-  - get
+-  - list
+-  - patch
+-  - update
+-  - watch
+-- apiGroups:
+-  - ""
+-  resources:
+-  - namespaces/finalizers
+-  verbs:
+-  - update
+-- apiGroups:
+-  - ""
+-  resources:
+-  - namespaces/status
+-  verbs:
+-  - get
+-  - patch
+-  - update
+ - apiGroups:
+   - networking.k8s.io
+   resources:
+diff --git a/controllers/configmapcontroller/configmap_controller_test.go b/controllers/configmapcontroller/configmap_controller_test.go
+index 009c37f..706384a 100644
+--- a/controllers/configmapcontroller/configmap_controller_test.go
++++ b/controllers/configmapcontroller/configmap_controller_test.go
+@@ -13,6 +13,7 @@ import (
+        metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+        "k8s.io/apimachinery/pkg/types"
+        ctrl "sigs.k8s.io/controller-runtime"
++       "sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+        "github.com/kuoss/ingress-annotator/pkg/rulesstore"
+        "github.com/kuoss/ingress-annotator/pkg/testutil/fakeclient"
+@@ -75,7 +76,7 @@ func TestConfigMapReconciler_Reconcile(t *testing.T) {
+                        name:       "Requeue on ConfigMap Get error",
+                        clientOpts: &fakeclient.ClientOpts{GetError: "*"},
+                        cm:         createConfigMap("default", "ingress-annotator", ""),
+-                       newCM:      createConfigMap("default", "ingress-annotator", "rule1:\n  key1: value1"),
++                       newCM:      createConfigMap("default", "ingress-annotator", "- description: rule1\n  annotations:\n    key1: value1"),
+                        nn:         types.NamespacedName{Namespace: "default", Name: "ingress-annotator"},
+                        requestNN:  types.NamespacedName{Namespace: "default", Name: "ingress-annotator"},
+                        want:       ctrl.Result{RequeueAfter: 30 * time.Second},
+@@ -85,7 +86,7 @@ func TestConfigMapReconciler_Reconcile(t *testing.T) {
+                        name:       "Requeue when ConfigMap not found",
+                        clientOpts: &fakeclient.ClientOpts{GetNotFoundError: true},
+                        cm:         createConfigMap("default", "ingress-annotator", ""),
+-                       newCM:      createConfigMap("default", "ingress-annotator", "rule1:\n  key1: value1"),
++                       newCM:      createConfigMap("default", "ingress-annotator", "- description: rule1\n  annotations:\n    key1: value1"),
+                        nn:         types.NamespacedName{Namespace: "default", Name: "ingress-annotator"},
+                        requestNN:  types.NamespacedName{Namespace: "default", Name: "ingress-annotator"},
+                        want:       ctrl.Result{RequeueAfter: 30 * time.Second},
+@@ -94,39 +95,39 @@ func TestConfigMapReconciler_Reconcile(t *testing.T) {
+                        name:       "Error during Ingress list should result in requeue",
+                        clientOpts: &fakeclient.ClientOpts{ListError: true},
+                        cm:         createConfigMap("default", "ingress-annotator", ""),
+-                       newCM:      createConfigMap("default", "ingress-annotator", "rule1:\n  key1: value1"),
++                       newCM:      createConfigMap("default", "ingress-annotator", "- description: rule1\n  annotations:\n    key1: value1"),
+                        nn:         types.NamespacedName{Namespace: "default", Name: "ingress-annotator"},
+                        requestNN:  types.NamespacedName{Namespace: "default", Name: "ingress-annotator"},
+-                       want:       ctrl.Result{},
++                       want:       reconcile.Result{},
+                        wantError:  "failed to annotateAllIngresses: failed to list ingresses: mocked ListError",
+                },
+                {
+                        name:      "Unmarshal error on invalid ConfigMap data",
+-                       cm:        createConfigMap("default", "ingress-annotator", "rule1:\n  key1: value1"),
++                       cm:        createConfigMap("default", "ingress-annotator", "- description: rule1\n  annotations:\n    key1: value1"),
+                        newCM:     createConfigMap("default", "ingress-annotator", "invalid rules"),
+                        nn:        types.NamespacedName{Namespace: "default", Name: "ingress-annotator"},
+                        requestNN: types.NamespacedName{Namespace: "default", Name: "ingress-annotator"},
+                        want:      ctrl.Result{RequeueAfter: 30 * time.Second},
+-                       wantError: "failed to update rules in rules store: failed to extract rules from configMap: failed to unmarshal rules: yaml: unmarshal errors:\n  line 1: cannot unmarshal !!str `invalid...` into model.Rules",
++                       wantError: "failed to update rules in rules store: failed to extract rules from configMap: failed to unmarshal rules: yaml: unmarshal errors:\n  line 1: cannot unmarshal !!str `invalid...` into []model.Rule",
+                },
+                {
+                        name:      "No requeue when ConfigMap has no changes",
+-                       cm:        createConfigMap("default", "ingress-annotator", "rule1:\n  key1: value1"),
+-                       newCM:     createConfigMap("default", "ingress-annotator", "rule1:\n  key1: value1"),
++                       cm:        createConfigMap("default", "ingress-annotator", "- description: rule1\n  annotations:\n    key1: value1"),
++                       newCM:     createConfigMap("default", "ingress-annotator", "- description: rule1\n  annotations:\n    key1: value1"),
+                        nn:        types.NamespacedName{Namespace: "default", Name: "ingress-annotator"},
+                        requestNN: types.NamespacedName{Namespace: "default", Name: "ingress-annotator"},
+                        want:      ctrl.Result{},
+                },
+                {
+                        name:      "Process valid ConfigMap without errors or requeue",
+-                       cm:        createConfigMap("default", "ingress-annotator", "rule1:\n  key1: value1"),
++                       cm:        createConfigMap("default", "ingress-annotator", "- description: rule1\n  annotations:\n    key1: value1"),
+                        nn:        types.NamespacedName{Namespace: "default", Name: "ingress-annotator"},
+                        requestNN: types.NamespacedName{Namespace: "default", Name: "ingress-annotator"},
+                        want:      ctrl.Result{},
+                },
+                {
+                        name:      "No errors when request name differs from ConfigMap name",
+-                       cm:        createConfigMap("default", "ingress-annotator", "rule1:\n  key1: value1"),
++                       cm:        createConfigMap("default", "ingress-annotator", "- description: rule1\n  annotations:\n    key1: value1"),
+                        nn:        types.NamespacedName{Namespace: "default", Name: "ingress-annotator"},
+                        requestNN: types.NamespacedName{Namespace: "default", Name: "xxx"},
+                        want:      ctrl.Result{},
+diff --git a/controllers/ingresscontroller/ingress_controller.go b/controllers/ingresscontroller/ingress_controller.go
+index d2d5ea5..0f77827 100644
+--- a/controllers/ingresscontroller/ingress_controller.go
++++ b/controllers/ingresscontroller/ingress_controller.go
+@@ -19,7 +19,6 @@ package ingresscontroller
+ import (
+        "context"
+        "encoding/json"
+-       "strings"
+        "time"
+
+        "github.com/go-logr/logr"
+@@ -29,21 +28,20 @@ import (
+        ctrl "sigs.k8s.io/controller-runtime"
+        "sigs.k8s.io/controller-runtime/pkg/client"
+
++       "github.com/kuoss/ingress-annotator/pkg/matcher"
+        "github.com/kuoss/ingress-annotator/pkg/model"
+-       "github.com/kuoss/ingress-annotator/pkg/rulesstore"
+        "github.com/kuoss/ingress-annotator/pkg/util"
+ )
+
+ type ingressScope struct {
+-       logger             logr.Logger
+-       namespace          *corev1.Namespace
+-       ingress            *networkingv1.Ingress
+-       updatedAnnotations model.Annotations
++       logger    logr.Logger
++       namespace *corev1.Namespace
++       ingress   *networkingv1.Ingress
+ }
+
+ type IngressReconciler struct {
+        client.Client
+-       RulesStore rulesstore.IRulesStore
++       *matcher.Matcher
+ }
+
+ // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;update;patch
+@@ -74,15 +72,6 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
+                return ctrl.Result{}, nil
+        }
+
+-       // ensure remove annotation key 'reconcile'
+-       if _, exists := ingress.Annotations[model.ReconcileKey]; exists {
+-               delete(ingress.Annotations, model.ReconcileKey)
+-               if err := r.Update(ctx, &ingress); err != nil {
+-                       return ctrl.Result{}, err
+-               }
+-               return ctrl.Result{Requeue: true}, nil
+-       }
+-
+        // Fetch Namespace resource
+        var namespace corev1.Namespace
+        if err := r.Get(ctx, client.ObjectKey{Name: ingress.Namespace}, &namespace); err != nil {
+@@ -91,10 +80,9 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
+
+        // Initialize ingressScope
+        scope := &ingressScope{
+-               logger:             logger,
+-               namespace:          &namespace,
+-               ingress:            &ingress,
+-               updatedAnnotations: copyAnnotations(ingress.Annotations), // Copy to avoid mutating original map
++               logger:    logger,
++               namespace: &namespace,
++               ingress:   &ingress,
+        }
+
+        // Reconcile Ingress
+@@ -102,87 +90,69 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
+ }
+
+ func (r *IngressReconciler) reconcileIngress(ctx context.Context, scope *ingressScope) (ctrl.Result, error) {
+-       originalAnnotations := copyAnnotations(scope.updatedAnnotations)
+-       r.removeManagedAnnotations(scope)
+-       r.addNewAnnotations(scope)
++       ingress := scope.ingress
++       logger := scope.logger
+
+-       // Early exit if there are no changes to annotations.
+-       if annotationsEqual(originalAnnotations, scope.updatedAnnotations) {
++       toBeAnnotations := r.GetToBeAnnotations(ctx, scope)
++
++       // Early exit silently if there are no changes to annotations.
++       if annotationsEqual(toBeAnnotations, ingress.Annotations) {
+                return ctrl.Result{}, nil
+        }
+
+-       // Update the Ingress resource with new annotations.
+-       scope.ingress.Annotations = scope.updatedAnnotations
+-       if err := r.Update(ctx, scope.ingress); err != nil {
+-               scope.logger.Error(err, "Failed to update Ingress with new annotations")
++       ingress.Annotations = toBeAnnotations
++       if err := r.Update(ctx, ingress); err != nil {
++               logger.Error(err, "Failed to update Ingress with to-be annotations")
+                return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+        }
+
+-       scope.logger.Info("Successfully reconciled Ingress with new annotations")
++       logger.Info("Successfully reconciled Ingress with to-be annotations")
+        return ctrl.Result{}, nil
+ }
+
+-func copyAnnotations(annotations map[string]string) map[string]string {
+-       if annotations == nil {
+-               return make(map[string]string)
+-       }
+-       copy := make(map[string]string, len(annotations))
+-       for k, v := range annotations {
+-               copy[k] = v
+-       }
+-       return copy
+-}
++func (r *IngressReconciler) GetToBeAnnotations(ctx context.Context, scope *ingressScope) model.Annotations {
++       ingress := scope.ingress
++       logger := scope.logger
++
++       toBeAnnotations := copyAnnotations(ingress.Annotations)
++       delete(toBeAnnotations, model.ReconcileKey)
+
+-func (r *IngressReconciler) removeManagedAnnotations(scope *ingressScope) {
+-       managedAnnotations := make(model.Annotations)
+-       if value, ok := scope.ingress.Annotations[model.ManagedAnnotationsKey]; ok && value != "" {
++       // remove managed annotations if exists
++       if value, exists := toBeAnnotations[model.ManagedAnnotationsKey]; exists {
++               managedAnnotations := make(model.Annotations)
+                if err := json.Unmarshal([]byte(value), &managedAnnotations); err != nil {
+-                       scope.logger.Error(err, "Warning: Failed to unmarshal managed annotations")
++                       logger.Error(err, "Warning: Failed to unmarshal managed annotations")
++               } else {
++                       for key, value := range managedAnnotations {
++                               if currentValue, exists := toBeAnnotations[key]; exists && currentValue == value {
++                                       delete(toBeAnnotations, key)
++                               }
++                       }
+                }
++               delete(toBeAnnotations, model.ManagedAnnotationsKey)
+        }
+
+-       for key, value := range managedAnnotations {
+-               if currentValue, exists := scope.updatedAnnotations[key]; exists && currentValue == value {
+-                       delete(scope.updatedAnnotations, key)
++       // add annotations by rules matched
++       annotationsByRules := r.Matcher.GetAnnotationsForIngress(ingress)
++       if len(annotationsByRules) > 0 {
++               for key, value := range annotationsByRules {
++                       toBeAnnotations[key] = value
+                }
++               b := util.MustMarshalJSON(annotationsByRules)
++               toBeAnnotations[model.ManagedAnnotationsKey] = string(b) + "\n"
+        }
+-       delete(scope.updatedAnnotations, model.ManagedAnnotationsKey)
++       return toBeAnnotations
+ }
+
+-func (r *IngressReconciler) addNewAnnotations(scope *ingressScope) {
+-       newAnnotations := r.getNewAnnotations(scope)
+-       for key, value := range newAnnotations {
+-               scope.updatedAnnotations[key] = value
+-       }
+-       if len(newAnnotations) == 0 {
+-               return
++func copyAnnotations(annotations map[string]string) map[string]string {
++       if annotations == nil {
++               return make(map[string]string)
+        }
+-
+-       b := util.MustMarshalJSON(newAnnotations)
+-       scope.updatedAnnotations[model.ManagedAnnotationsKey] = string(b) + "\n"
+-}
+-
+-func (r *IngressReconciler) getNewAnnotations(scope *ingressScope) model.Annotations {
+-       ruleNames := r.getRuleNames(scope)
+-       rules := r.RulesStore.GetRules()
+-       newAnnotations := make(model.Annotations)
+-
+-       for _, ruleName := range ruleNames {
+-               if annotations, exists := (*rules)[ruleName]; exists {
+-                       for k, v := range annotations {
+-                               newAnnotations[k] = v
+-                       }
+-               } else {
+-                       scope.logger.Info("Warning: no ruleName in rules", "ruleName", ruleName)
+-               }
++       copy := make(map[string]string, len(annotations))
++       for k, v := range annotations {
++               copy[k] = v
+        }
+-       return newAnnotations
+-}
+-
+-func (r *IngressReconciler) getRuleNames(scope *ingressScope) []string {
+-       namespaceRuleNames := getRuleNamesFromObject(scope.namespace, model.RulesKey)
+-       ingressRuleNames := getRuleNamesFromObject(scope.ingress, model.RulesKey)
+-       return mergeRuleNames(namespaceRuleNames, ingressRuleNames)
++       return copy
+ }
+
+ func annotationsEqual(a, b map[string]string) bool {
+@@ -196,38 +166,3 @@ func annotationsEqual(a, b map[string]string) bool {
+        }
+        return true
+ }
+-
+-func mergeRuleNames(names1, names2 []string) []string {
+-       seen := make(map[string]bool)
+-       result := []string{}
+-
+-       for _, name := range names1 {
+-               if !seen[name] {
+-                       seen[name] = true
+-                       result = append(result, name)
+-               }
+-       }
+-
+-       for _, name := range names2 {
+-               if !seen[name] {
+-                       seen[name] = true
+-                       result = append(result, name)
+-               }
+-       }
+-
+-       return result
+-}
+-
+-func getRuleNamesFromObject(obj client.Object, key string) []string {
+-       if value, ok := obj.GetAnnotations()[key]; ok && value != "" {
+-               names := strings.Split(value, ",")
+-               var cleaned []string
+-               for _, name := range names {
+-                       if trimmedName := strings.TrimSpace(name); trimmedName != "" {
+-                               cleaned = append(cleaned, trimmedName)
+-                       }
+-               }
+-               return cleaned
+-       }
+-       return []string{}
+-}
+diff --git a/controllers/ingresscontroller/ingress_controller_test.go b/controllers/ingresscontroller/ingress_controller_test.go
+index d394f45..95ec29c 100644
+--- a/controllers/ingresscontroller/ingress_controller_test.go
++++ b/controllers/ingresscontroller/ingress_controller_test.go
+@@ -5,6 +5,7 @@ import (
+        "testing"
+        "time"
+
++       "github.com/go-logr/logr"
+        "github.com/jmnote/tester/testcase"
+        "github.com/stretchr/testify/assert"
+        "go.uber.org/mock/gomock"
+@@ -14,173 +15,219 @@ import (
+        "k8s.io/apimachinery/pkg/types"
+        ctrl "sigs.k8s.io/controller-runtime"
+
++       "github.com/kuoss/ingress-annotator/pkg/matcher"
+        "github.com/kuoss/ingress-annotator/pkg/model"
+        "github.com/kuoss/ingress-annotator/pkg/testutil/fakeclient"
+        "github.com/kuoss/ingress-annotator/pkg/testutil/mocks"
+ )
+
+-func TestIngressReconciler_SetupWithManager(t *testing.T) {
++func TestSetupWithManager(t *testing.T) {
+        mockCtrl := gomock.NewController(t)
+        defer mockCtrl.Finish()
+
+        store := mocks.NewMockIRulesStore(mockCtrl)
++       matcher := matcher.New(store)
+
+        client := fakeclient.NewClient(nil)
+        reconciler := &IngressReconciler{
+-               Client:     client,
+-               RulesStore: store,
++               Client:  client,
++               Matcher: matcher,
+        }
+
+        err := reconciler.SetupWithManager(fakeclient.NewManager())
+        assert.NoError(t, err)
+ }
+
+-func TestIngressReconciler_Reconcile(t *testing.T) {
++func TestReconcile_ok(t *testing.T) {
+        mockCtrl := gomock.NewController(t)
+        defer mockCtrl.Finish()
+
+        testCases := []struct {
+                name               string
+                clientOpts         *fakeclient.ClientOpts
+-               requestNN          *types.NamespacedName
+                ingressAnnotations map[string]string
+                deletionTimestamp  *metav1.Time
+                finalizers         []string
+                wantResult         ctrl.Result
+                wantAnnotations    map[string]string
+-               wantError          string
+-               wantGetError       string
+        }{
+                {
+-                       name:       "IngressExistsButNoAnnotations_ShouldReturnDefaultResult",
+-                       requestNN:  &types.NamespacedName{Namespace: "default", Name: "my-ingress"},
+-                       wantResult: ctrl.Result{},
+-               },
+-               {
+-                       name:              "IngressWithDeletionTimestampAndFinalizer_ShouldHandleDeletion",
++                       name:              "HandleDeletion_WhenIngressHasDeletionTimestampAndFinalizer",
+                        deletionTimestamp: &metav1.Time{Time: time.Now()},
+                        finalizers:        []string{"test-finalizer"},
+-                       requestNN:         &types.NamespacedName{Namespace: "default", Name: "my-ingress"},
+-                       wantResult:        ctrl.Result{},
+-               },
+-               {
+-                       name:         "IngressDoesNotExist_ShouldReturnNotFoundError",
+-                       requestNN:    &types.NamespacedName{Namespace: "default", Name: "xxx"},
+-                       wantResult:   ctrl.Result{},
+-                       wantGetError: `ingresses.networking.k8s.io "xxx" not found`,
++
++                       wantResult: ctrl.Result{},
+                },
+                {
+-                       name: "ReconcileAnnotationTrue_ShouldRequeue",
