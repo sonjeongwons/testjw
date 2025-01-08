@@ -1,135 +1,185 @@
-아래는 요청하신 코드를 바탕으로 클린 코드와 리팩토링 관점에서의 리뷰 코멘트입니다. 따뜻한 격려와 함께 구체적인 기술 팁도 포함했으니 참고해보세요!
+리팩토링과 클린코드 관점에서의 리뷰 코멘트
 
 
 ---
 
-1. updateFunctionStatus 메서드
+1. initializeApiConfig 메서드
 
-@PutMapping("status/{name}")
-@Operation(summary = "펑션 상태 변경", description = "펑션의 상태 정보를 업데이트")
-public ResponseEntity<FunctionDTO.Response> updateFunctionStatus(@Valid @RequestBody FunctionDTO.Modify functionDtos, @PathVariable("name") String name) throws IOException {
-    FunctionDTO.Response response = functionService.updateFunctionStatus(functionDtos, name);
-    return ResponseEntity.status(HttpStatus.OK).body(response);
+private void initializeApiConfig(String endpointUrl, String accessKey, String secretKey, String projectId, String masterKey) {
+    this.kmsApiBaseUri = endpointUrl;
+    this.accessKey = accessKey;
+    this.accessSecretKey = secretKey;
+    this.method = "POST";
+    this.headerProjectId = projectId;
+    this.headerClientType = "OpenApi";
+    this.keyName = masterKey; // masterKey는 null일 수 있음.
 }
 
 코멘트:
 
-"펑션의 상태 정보를 업데이트"라는 기능이 잘 드러나는 깔끔한 메서드네요! 👍 하지만 메서드 이름을 조금 더 구체적으로, 예를 들어 updateFunctionStatusByName처럼 하면 name이라는 PathVariable의 의미를 명확히 전달할 수 있을 것 같아요.
+이 메서드는 API 설정을 초기화하는 역할을 잘 수행하고 있네요! 👏 단, masterKey가 null일 수 있다는 점을 명확히 하기 위해 JavaDoc 주석을 추가하면 더 좋을 것 같아요.
 
-또한 functionDtos 객체를 좀 더 작은 단위의 객체로 나눠서 처리할 수 있다면 가독성이 더 좋아질 것 같아요. 예를 들어, 상태 업데이트에 꼭 필요한 필드만 담긴 DTO를 별도로 만들면 좋습니다.
+또한, String 대신 Optional<String>을 사용하는 것도 고려해볼 수 있습니다. 이렇게 하면 null 처리를 명시적으로 다룰 수 있습니다.
+
 
 예시 코드:
 
-
-public ResponseEntity<FunctionDTO.Response> updateFunctionStatus(@Valid @RequestBody FunctionStatusUpdateRequest request, @PathVariable String name) {
-    FunctionDTO.Response response = functionService.updateStatus(request, name);
-    return ResponseEntity.ok(response);
-}
-
-이렇게 하면 FunctionDTO.Modify가 너무 많은 필드를 포함하고 있을 가능성을 줄이고, 의도를 분명히 전달할 수 있어요.
-
-
----
-
-2. registerFunctionCode 메서드
-
-@PostMapping("source-code/{functionKey}")
-@Operation(summary = "펑션 코드 등록", description = "펑션 코드를 등록한다.")
-public ResponseEntity<FunctionDTO.Response> registerFunctionCode(@Valid @RequestBody FunctionDTO.Register reqDto, @PathVariable("functionKey") String functionKey) throws IOException, ParseException {
-    FunctionDTO.Response response = functionService.registerFunctionCode(reqDto, functionKey);
-    return ResponseEntity.status(HttpStatus.CREATED).body(response);
-}
-
-코멘트:
-
-요청 바디(reqDto)와 경로 변수(functionKey)가 명확하게 구분되어 있어 잘 작성하셨어요! 💡 다만, 예외 처리(IOException, ParseException)를 컨트롤러 레벨에서 전역적으로 처리하는 방식을 도입하면 코드가 더 간결해질 것 같아요.
-
-예를 들어, @ControllerAdvice를 활용해 공통 예외 핸들링 로직을 만들면 컨트롤러 메서드의 집중도를 높일 수 있습니다:
-
-
-@ExceptionHandler({IOException.class, ParseException.class})
-public ResponseEntity<String> handleIOException(Exception ex) {
-    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
+private void initializeApiConfig(String endpointUrl, String accessKey, String secretKey, String projectId, Optional<String> masterKey) {
+    this.kmsApiBaseUri = endpointUrl;
+    this.accessKey = accessKey;
+    this.accessSecretKey = secretKey;
+    this.method = "POST";
+    this.headerProjectId = projectId;
+    this.headerClientType = "OpenApi";
+    this.keyName = masterKey.orElse(null); // masterKey가 없을 경우 기본값 처리
 }
 
 
 ---
 
-3. switchLogging 메서드
+2. callKmsApi 메서드
 
-@PutMapping("cloudlogging/{functionKey}")
-@Operation(summary = "로깅 ON/OFF", description = "클라우드 모니터링을 위한 로깅 ON/OFF")
-public ResponseEntity<CloudLoggingDTO.Response> switchLogging(@Valid @RequestBody CloudLoggingDTO.Modify cloudLoggingDtos, @PathVariable("functionKey") String functionKey) throws IOException {
-    CloudLoggingDTO.Response response = functionService.switchLogging(cloudLoggingDtos, functionKey);
-    return ResponseEntity.status(HttpStatus.CREATED).body(response);
+private JSONObject callKmsApi(String endpointTemplate, JSONObject payload) throws Exception {
+    String endpoint = String.format(endpointTemplate, keyName);
+    String url = kmsApiBaseUri + endpoint;
+    String timestamp = String.valueOf(System.currentTimeMillis());
+    String signature = generateHmacSignature(url, timestamp);
+
+    return performHttpPost(url, payload.toJSONString(), buildHeaders(timestamp, signature));
 }
 
 코멘트:
 
-클라우드 로깅 관련 기능이 잘 구현되어 있네요! 👏 하지만 switchLogging이라는 이름은 ON/OFF 여부를 명확히 나타내지 않아서, 조금 더 구체적인 이름을 사용하는 것이 좋습니다. 예를 들어, toggleLogging 또는 setLoggingState처럼 이름을 변경해보는 것을 추천합니다.
+API 호출 로직이 깔끔하게 분리되어 있어 좋습니다! 👍
 
-또한 로깅 상태를 ON/OFF로 변경하는 로직이 boolean 값을 활용하고 있다면, 요청 바디에 isEnabled와 같은 필드가 있는지 확인해보세요. 요청 구조를 간소화하면 더 직관적인 API가 됩니다.
-
-
-
----
-
-4. SecurityConstants의 SECURITY_EXCLUDE_URLS
-
-public static final String[] SECURITY_EXCLUDE_URLS = {
-    "/v3/api-docs/**", "/swagger-ui/index.html",
-    "/login",
-    "/api/v1/function/knative/*",
-    "/h2-console/**",
-    "/api/v1/function/status/*" // 함수 상태 알림 업데이트 예외 처리 (scf-watcher -> scf-manager)
-};
-
-코멘트:
-
-이 상수는 잘 설계되어 있지만, URL을 하드코딩하기보다는 환경 설정 파일(application.yml 등)로 관리하거나 Enum으로 추출하면 더 유지보수하기 좋습니다. 💡
-
-예를 들어, YAML 파일에서 관리:
+그러나 String.format과 keyName 의존성을 줄이기 위해 URI 빌더를 사용하면 코드의 가독성과 확장성이 더 좋아질 수 있습니다.
 
 
-security:
-  exclude-urls:
-    - /v3/api-docs/**
-    - /swagger-ui/index.html
-    - /login
-    - /api/v1/function/knative/*
-    - /h2-console/**
-    - /api/v1/function/status/*
+예시 코드:
 
-그리고 이를 로드하는 메서드를 만들어 사용:
+private JSONObject callKmsApi(String endpointTemplate, JSONObject payload) throws Exception {
+    String url = UriComponentsBuilder.fromUriString(kmsApiBaseUri)
+        .path(endpointTemplate)
+        .buildAndExpand(keyName)
+        .toUriString();
 
+    String timestamp = String.valueOf(System.currentTimeMillis());
+    String signature = generateHmacSignature(url, timestamp);
 
-@Configuration
-public class SecurityConfig {
-    @Value("${security.exclude-urls}")
-    private List<String> excludeUrls;
+    return performHttpPost(url, payload.toJSONString(), buildHeaders(timestamp, signature));
 }
 
 
 ---
 
-전체적인 칭찬 및 제안
+3. generateHmacSignature 메서드
 
-1. 칭찬: 코드의 구조와 주석이 잘 정리되어 있어 다른 개발자가 이해하기 쉬운 환경을 제공하고 있습니다! 💪
+private String generateHmacSignature(String url, String timestamp) {
+    try {
+        String body = method + url + timestamp + accessKey + headerProjectId + headerClientType;
+        byte[] message = body.getBytes(StandardCharsets.UTF_8);
+        byte[] secretKey = accessSecretKey.getBytes(StandardCharsets.UTF_8);
+
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(secretKey, "HmacSHA256"));
+        return encodeBase64(mac.doFinal(message));
+    } catch (Exception e) {
+        throw new RuntimeException("Failed to calculate HMAC-SHA256 signature", e);
+    }
+}
+
+코멘트:
+
+HMAC 생성 로직이 명확하고 간결합니다. 👌 다만, generateHmacSignature가 내부적으로 어떤 프로세스를 다루는지 알기 어렵기 때문에 메서드 이름을 조금 더 구체적으로 변경하는 것이 좋을 것 같습니다. 예를 들어, createHmacSha256Signature처럼요.
+
+또한, Exception을 RuntimeException으로 래핑하는 대신, 더 구체적인 사용자 정의 예외를 던지면 디버깅에 더 유용할 수 있습니다.
 
 
-2. 제안: 코드의 재사용성을 더 높이기 위해 DTO, Enum, 상수를 잘 분리하고, Exception 처리를 더 세분화하면 좋습니다.
+
+---
+
+4. transferEnvEncrypt 메서드
+
+public String transferEnvEncrypt(DataKeyDTO.envEncrpyt reqDto, String functionKey) throws Exception {
+    initializeApiConfig(reqDto.getEndpointUrl(), reqDto.getAccessKey(), reqDto.getSecretKey(), reqDto.getProjectId(), reqDto.getMasterKey());
+    Map<String, String> envelope = buildEncryptionEnvelope(reqDto, functionKey);
+    return encryptWithKey(convertMapToJson(envelope), scfEncryptKey);
+}
+
+코멘트:
+
+기능이 잘 분리되어 있어 테스트 가능성이 높아 보입니다! 특히 buildEncryptionEnvelope와 같은 메서드로 로직이 나눠진 점이 훌륭합니다. 🎉
+
+하지만 transferEnvEncrypt라는 이름은 "데이터를 암호화한다"는 행위를 정확히 나타내지 못하는 것 같습니다. 더 명확한 이름으로 encryptEnvironmentVariables를 추천드립니다.
+
+또, 마지막에 encryptWithKey 메서드가 호출되는데, 암호화 실패 시의 예외 처리가 없어서 이를 처리할 예외 핸들링 로직을 추가하면 안전할 것 같습니다.
 
 
-3. 마지막으로: 이렇게 잘 작성된 코드가 팀의 다른 멤버들에게 큰 도움이 될 것 같아요. 항상 응원합니다! 😊
+
+---
+
+5. performHttpPost 메서드
+
+private JSONObject performHttpPost(String url, String body, Map<String, String> headers) throws Exception {
+    HttpsURLConnection connection = null;
+    try {
+        URL endpoint = new URL(url);
+        connection = (HttpsURLConnection) endpoint.openConnection();
+        connection.setRequestMethod("POST");
+        connection.setDoOutput(true);
+        headers.forEach(connection::setRequestProperty);
+
+        try (OutputStream os = connection.getOutputStream()) {
+            os.write(body.getBytes(StandardCharsets.UTF_8));
+        }
+
+        int responseCode = connection.getResponseCode();
+        InputStream responseStream = (responseCode == 200)
+                ? connection.getInputStream()
+                : connection.getErrorStream();
+
+        return (JSONObject) new JSONParser().parse(new InputStreamReader(responseStream, StandardCharsets.UTF_8));
+    } finally {
+        if (connection != null) connection.disconnect();
+    }
+}
+
+코멘트:
+
+HTTP 요청 처리를 매우 깔끔하게 구현하셨습니다. 🌟
+
+그러나, 응답 코드가 200이 아닌 경우의 에러 처리를 메서드 내부에서 한 번 더 구체적으로 처리하면, 상위 호출 메서드에서 예외를 효율적으로 처리할 수 있을 것 같습니다.
+
+예를 들어, 응답 코드가 4xx 또는 5xx일 경우, 사용자 정의 예외를 던지는 방식도 고려해볼 수 있습니다.
+
+
+예시 코드:
+
+if (responseCode >= 400) {
+    throw new HttpClientErrorException(responseCode, "Error response received: " + responseCode);
+}
+
+
+---
+
+칭찬 및 제안
+
+1. 칭찬: 메서드가 명확하게 분리되어 있어서 가독성과 유지보수성이 매우 뛰어납니다. 👏
+
+
+2. 제안: 주요 로직에서 공통적으로 사용하는 메서드(initializeApiConfig, buildHeaders)는 상위 클래스나 유틸 클래스로 추출하면 재사용성을 더욱 높일 수 있습니다.
+
+
+3. 마지막으로: 이번 리팩토링이 코드의 안전성과 가독성을 모두 향상시킬 것으로 확신합니다. 멋진 작업이에요! 😊
 
 
 
 
 ---
 
-Q1. DTO와 관련된 로직을 클린 코드 관점에서 더 개선하려면 어떻게 해야 할까?
+Q1. generateHmacSignature 메서드에서 예외 처리를 더 세분화하려면 어떤 방법이 있을까?
 
-Q2. SecurityConstants에 있는 URL 예외 처리를 더 유연하게 설계할 방법은 무엇인가?
+Q2. performHttpPost 메서드에 타임아웃 설정을 추가하면 어떤 장점이 있을까?
 
-Q3. 클라우드 로깅 ON/OFF 기능에 대한 API 설계와 성능 최적화를 위해 어떤 추가적인 접근 방식을 고려할 수 있을까?
+Q3. 공통 설정 메서드를 상위 클래스로 추출하면 어떤 구조적인 이점이 있을까?
 
