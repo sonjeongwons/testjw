@@ -1,270 +1,845 @@
-$ git diff develop..refactoring-kmsservice|cat
-diff --git a/.github/CODEOWNERS b/.github/CODEOWNERS
-new file mode 100644
-index 0000000..15e02cb
---- /dev/null
-+++ b/.github/CODEOWNERS
-@@ -0,0 +1,5 @@
-+# 모든 file에 대한 code owners 지정
-+* @bluefriday @gyeongyeol @jeongwonson @cloudpark
-+
-+# java file에 대한 code owners 지정
-+*.java @bluefriday @gyeongyeol @jeongwonson @cloudpark
-diff --git a/.github/ISSUE_TEMPLATE/github-issue-template.md b/.github/ISSUE_TEMPLATE/github-issue-template.md
-index b1c86bb..73a2d39 100644
---- a/.github/ISSUE_TEMPLATE/github-issue-template.md
-+++ b/.github/ISSUE_TEMPLATE/github-issue-template.md
-@@ -7,13 +7,14 @@ assignees: ''
+$ git diff develop...refactoring-kmsservice|cat
+diff --git a/src/main/java/com/scf/manager/mvc/service/KmsService.java b/src/main/java/com/scf/manager/mvc/service/KmsService.java
+index 34da597..d6c64d8 100644
+--- a/src/main/java/com/scf/manager/mvc/service/KmsService.java
++++ b/src/main/java/com/scf/manager/mvc/service/KmsService.java
+@@ -73,255 +73,175 @@ public class KmsService {
+     @Value("${SCF_KEY}")
+     private String scfEncryptKey;
 
- ---
-
--## 목적
-->
-+## 이슈 내용
-+>
-+
-+
-+
-+
-+## 기타
-+>
-
--## 작업 상세 내용
--- [ ] 상세1
-
--## 참고 사항
--- [ ] 예시
-
--## 연관 브랜치 이름
-\ No newline at end of file
-diff --git a/.github/pull_request_template.md b/.github/pull_request_template.md
-index 409362b..956103b 100644
---- a/.github/pull_request_template.md
-+++ b/.github/pull_request_template.md
-@@ -1,11 +1,21 @@
--## 연관 이슈
--이슈번호 : (없으면 n/a)
-+## PR 개요
-+// 이 PR의 목적은 무엇인지 혹은 왜 이 PR이 필요한지 기재
-
--## PR 체크리스트
--다음 항목을 모두 만족하는지 한번 더 확인해주세요.
-
--- [ ] 어떤 배경으로 해당 Branch가 생성되었는지 충분한 설명이 있습니까?
--- [ ] 해당 내용에 대해 충분히 테스트가 되었나요?
-
--## PR 요청내용
--내용 기입
-+## 개발 내용
-+// 실제 어느 부분을 작업했는지 기재
-+
-+
-+
-+## 작업 전 결과
-+// 이전에는 어떻게 동작했었는지
-+
-+
-+
-+## 작업 후 결과
-+// 이후에는 어떻게 동작하는지
-+
-+
-+
-+## 기타
-\ No newline at end of file
-diff --git a/CODEOWNERS b/CODEOWNERS
-deleted file mode 100644
-index e8d8ac0..0000000
---- a/CODEOWNERS
-+++ /dev/null
-@@ -1,5 +0,0 @@
--# 모든 file에 대한 code owners 지정
--* @bluefriday @gyeongyeol @jeongwonson
+-    // URI
+-    private static String KMS_API_BASE_URI;
+-    // END POINT
+-    private static String KMS_API_DECRYPT = "/kms/v1/decrypt/%s";
+-    private static String KMS_API_CREATE_DATAKEY = "/kms/v1/datakey/plaintext/%s";
+-    // 샘플용 KEY TAG
+-    private static String KEY_NAME;
 -
--# java file에 대한 code owners 지정
--*.java @bluefriday @gyeongyeol @jeongwonson @jmyung
-\ No newline at end of file
-diff --git a/README.md b/README.md
-index d448d26..c5dcd07 100644
---- a/README.md
-+++ b/README.md
-@@ -4,26 +4,56 @@ SCP Functions Service manager module
- 환경 구성 참조링크
- https://devops.sdsdev.co.kr/confluence/x/zBukH
-
--## Cloud Functions
--* 이희창(팀장)
--* 손정원
--* 최경열
--* 명제상 (코드리뷰어)
--* 박운한
+-    private static String accessKey;
+-    private static String accessSecretKey;
+-    private static String method;
+-    private static String headerProjectId;
+-    private static String headerClientType;
+-    public JSONObject createDataKey(DataKeyDTO.Register reqDto) throws Exception {
+-        KMS_API_BASE_URI = reqDto.getEndpointUrl();
+-        accessKey=reqDto.getAccessKey();
+-        accessSecretKey=reqDto.getSecretKey();
+-        method="POST";
+-        headerProjectId=reqDto.getProjectId();
+-        headerClientType="OpenApi";
+-        KEY_NAME = reqDto.getMasterKey();
 -
--## 그라운드 룰
--1. 코드리뷰시, 서로를 존중하는 말 사용하기.
--2. 테스트 커버리지는 최소 70%는 달성한다.
--3. 코드 push 전, 빌드 및 단위 테스트를 수행한다.
--4. 코드 push 전 항목별 SAM지표 4.0 이상을 확인한다.
--5. 리팩토링 목적의 PR인 경우, 회귀(Regression) 테스트를 반드시 수행한다. (추가로 가능하다면 Junit Test를 생성)
--6. 소스 로직이나 기술 내용에 대하여, Git comment로 질문과 답변을 주고 받아 과제원들이 공유하기 쉽게 한다.
--7. 리뷰어로 할당 최대한 빠른 시간 내에 리뷰를 수행하여, PR요청자가 머지할 수 있도록 돕는다. 단, 리뷰를 수행할 수 없는 상황에서는 리뷰어 해제하고, 코멘트를 남긴다.
--
--## Git Branch, PR, Merge 정책
--1. Git flow 기반 branch 정책을 사용하며, 이중 development, feature, bugfix 를 사용하며, release branch는 제외한다.
--2. development는 2명이상 approve, master는 1명이상 approve 되면 merge한다.
--3. feature branch는 merge 완료 후 삭제한다.
-+## Cloud Functions🧑‍💻
-+* 이희창(팀장)👍
-+* 손정원👍
-+* 최경열👍
-+* 박운한👍
-+
-+## 그라운드 룰📄
-+### GIT BRANCH 전략💯
-+1. 개발하기 전 "Issue" 페이지에 개발 내용 정리하고 개발 진행하기
-+2. "main" 브랜치에서 직접 개발하지 않고 브랜치 신규 생성하여 로컬 리파지토리에서 작업하기
-+3. 테스트코드를 적극 활용하여 개발 내용 검증하기
-+4. 테스트 완료된 신규 브랜치는 "main" 브랜치에 merge 전 팀원들에게 PR 요청하기
-+5. merge 완료된 신규 브랜치는 삭제하기
-+
-+### COMMIT 전략💯
-+1. Commit 은 의미있는 최소한의 기능 단위로 수행하기
-+2. Commit 메세지는 팀원들이 이해 가능할 수 있는 메세지로 요약하여 작성하기
-+3. Commit 전에 코드 포맷팅을 활용하여, 가독성을 향상 시키고, Confilct 를 최소화 하기
-+
-+### PR 전략💯
-+1. 관련 Issue 1개당 1개 PR로 개발하기
-+2. PR에 대한 내용 작성 시 PR 템플릿을 활용하여 자세히 내용 기술하기
-+3. PR 생성 시 Label을 사용하여 어떤 유형의 PR인지 표기하기
-+   - 새 기능 : Feature✨
-+   - 리팩토링 : Refacotring♻️
-+   - 테스트 : Test✅
-+   - 버그 수정 : Bugfix🐛
-+   - 긴급 수정 : Hotfix🚑
-+   - 보안이슈 반영 : Security🔒
-+   - 성능 개선 : Performance⚡️
-+   - 문서 추가/수정 : Documentation📝
-+   - 코드/파일 삭제 : Remove🔥
-+   - 변경내용 되돌리기 : Rewind⏪
-+   - 브랜치 합병 : Merge🔀
-+4. PR은 되도록 단일 기능에 관한 수정으로 하기
-+5. PR 생성 후 팀원들에게 메신저 통해 PR 검토요청하기
-+
-+### MERGE 전략💯
-+1. PR에 대한 merge승인 수는 2명
-+2. merge 충돌 시 마지막 코드 담당자와 상의 후 merge 처리하기
-+
-+### 코드리뷰 전략💯
-+1. 모든 리뷰어와 요청자는 수평적이고 동등한 위치를 가진다고 생각하기
-+2. 형식적으로 코드리뷰를 하지않고 수정한 부분에 대해 꼼꼼히 확인하고 코멘트하기
-+3. 리뷰 요청에 대해서 가급적 당일에 코드리뷰 해주기 (늦어도 다음날까지 진행하되 PR생성 후 24시간 이내 진행하기)
-+4. 리뷰 작성 시 이모지를 적극적으로 활용하기 (gitmoji | An emoji guide for your commit messages)
-+5. 리뷰어는 퇴근 1시간 전 혹시 모를 코드리뷰가 있는지 확인하기
-+6. 생각이 다른 내용이나 잘못된 내용이라도 비판이나 비난보다는 칭찬과 격려로 코멘트시작 후 대안 제시하기
-+7. commit 메세지 및 PR내용은 의미있고 이해하기 쉽게 자세히 작성하기
-+8. 리뷰어가 제안한 사항에 대한 반영여부는 요청자가 결정하기
-
- ## 코딩스타일, 컨벤션 40
--* CoCook 코딩 스타일을 따른다. https://devops.sdsdev.co.kr/confluence/display/SPC/Coding+Style
-+* CoCook 코딩 스타일(Java) 을 따른다. https://devops.sdsdev.co.kr/confluence/display/SPC/Coding+Style
-diff --git a/img.png b/img.png
-new file mode 100644
-index 0000000..0fcd33e
-Binary files /dev/null and b/img.png differ
-diff --git a/src/main/java/com/scf/manager/common/enums/TypeEnums.java b/src/main/java/com/scf/manager/common/enums/TypeEnums.java
-index 7443df4..6300f10 100644
---- a/src/main/java/com/scf/manager/common/enums/TypeEnums.java
-+++ b/src/main/java/com/scf/manager/common/enums/TypeEnums.java
-@@ -6,6 +6,7 @@ public enum TypeEnums {
-     ;
-     public enum FunctionStatus implements EnumModel {
-         NOT_READY("준비중"),
-+        DEPLOYING("배포중"),
-         READY("준비완료"),
-         ;
-         private final String statusMsg;
-diff --git a/src/main/java/com/scf/manager/config/security/SecurityConstants.java b/src/main/java/com/scf/manager/config/security/SecurityConstants.java
-index 10d6d3f..a148a79 100644
---- a/src/main/java/com/scf/manager/config/security/SecurityConstants.java
-+++ b/src/main/java/com/scf/manager/config/security/SecurityConstants.java
-@@ -17,7 +17,8 @@ public class SecurityConstants {
-             "/v3/api-docs/**", "/swagger-ui/index.html",
-             "/login",
-             "/api/v1/function/knative/*",
--            "/h2-console/**"
-+            "/h2-console/**",
-+            "/api/v1/function/status/*" // 함수 상태 알림 업데이트 예외 처리 (scf-watcher -> scf-manager)
-     };
-
-     public static final String[] SECURITY_EXCLUDE_URLS = {
-diff --git a/src/main/java/com/scf/manager/mvc/api/BaseImageApiController.java b/src/main/java/com/scf/manager/mvc/api/BaseImageApiController.java
-index 6c6493e..1fc0f29 100644
---- a/src/main/java/com/scf/manager/mvc/api/BaseImageApiController.java
-+++ b/src/main/java/com/scf/manager/mvc/api/BaseImageApiController.java
-@@ -6,13 +6,13 @@ import io.swagger.v3.oas.annotations.Operation;
- import io.swagger.v3.oas.annotations.Parameter;
- import io.swagger.v3.oas.annotations.Parameters;
- import io.swagger.v3.oas.annotations.tags.Tag;
-+import jakarta.validation.Valid;
- import lombok.RequiredArgsConstructor;
- import lombok.extern.slf4j.Slf4j;
- import org.springframework.http.HttpStatus;
- import org.springframework.http.ResponseEntity;
- import org.springframework.web.bind.annotation.*;
-
--import jakarta.validation.Valid;
- import java.util.List;
-
- @Slf4j
-diff --git a/src/main/java/com/scf/manager/mvc/api/FunctionApiController.java b/src/main/java/com/scf/manager/mvc/api/FunctionApiController.java
-index fabc868..59797b9 100644
---- a/src/main/java/com/scf/manager/mvc/api/FunctionApiController.java
-+++ b/src/main/java/com/scf/manager/mvc/api/FunctionApiController.java
-@@ -68,16 +68,10 @@ public class FunctionApiController {
-      **/
-     @PostMapping("")
-     @Operation(summary = "펑션 기본정보 등록", description = "펑션 기본정보를 등록한다.")
--    public ResponseEntity<FunctionDTO.Response> registerFunction(@Valid @RequestBody FunctionDTO.Register reqDto) throws IOException {
-+    public ResponseEntity<FunctionDTO.Response> registerFunction(@Valid @RequestBody FunctionDTO.Register reqDto) throws IOException, ParseException {
-         FunctionDTO.Response response = functionService.registerFunction(reqDto);
-         return ResponseEntity.status(HttpStatus.CREATED).body(response);
-     }
--    @PutMapping("")
--    @Operation(summary = "펑션 기본정보 수정", description = "펑션 기본정보를 수정한다.")
--    public ResponseEntity<FunctionDTO.Response> modifyFunction(@Valid @RequestBody FunctionDTO.Modify reqDto) throws IOException {
--        FunctionDTO.Response response = functionService.modifyFunction(reqDto);
--        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+-        // 새로운 데이터 키 생성을 요청
+-        JSONObject encryptedDataKey = getDataKey();
+-        return encryptedDataKey;
 -    }
-     @GetMapping("/{functionKey}")
-     @Operation(summary = "펑션 단건 조회", description = "펑션 단건 상세정보탭조회")
-     @Parameters({
-@@ -87,6 +81,13 @@ public class FunctionApiController {
-         FunctionDTO.Response response = functionService.searchFunction(functionKey);
-         return ResponseEntity.status(HttpStatus.OK).body(response);
++    private static final String KMS_API_DECRYPT = "/kms/v1/decrypt/%s";
++    private static final String KMS_API_CREATE_DATAKEY = "/kms/v1/datakey/plaintext/%s";
+
++    private String kmsApiBaseUri;
++    private String keyName;
++    private String accessKey;
++    private String accessSecretKey;
++    private String method;
++    private String headerProjectId;
++    private String headerClientType;
+
+-    private static JSONObject getDataKey() throws Exception {
+-        String endPoint = String.format(KMS_API_CREATE_DATAKEY, KEY_NAME);
+-        JSONObject data = new JSONObject();
+-        data.put("requestPlainKey", false);
++    public JSONObject createDataKey(DataKeyDTO.Register reqDto) throws Exception {
++        initializeApiConfig(reqDto.getEndpointUrl(), reqDto.getAccessKey(), reqDto.getSecretKey(), reqDto.getProjectId(), reqDto.getMasterKey());
++        return callKmsApi(KMS_API_CREATE_DATAKEY, buildCreateDataKeyPayload());
++    }
+
+-        // OpenAPI 호출
+-        JSONObject respJsonObject = callApi(endPoint, data.toJSONString());
+-        //return respJsonObject.get("dataKey").toString();
+-        return respJsonObject;
++    public String transferEnvEncrypt(DataKeyDTO.envEncrpyt reqDto, String functionKey) throws Exception {
++        initializeApiConfig(reqDto.getEndpointUrl(), reqDto.getAccessKey(), reqDto.getSecretKey(), reqDto.getProjectId(), reqDto.getMasterKey());
++        Map<String, String> envelope = buildEncryptionEnvelope(reqDto, functionKey);
++        return encryptWithKey(convertMapToJson(envelope), scfEncryptKey);
      }
-+    @PutMapping("status/{name}")
-+    @Operation(summary = "펑션 상태 변경", description = "펑션의 상태 정보를 업데이트")
-+    public ResponseEntity<FunctionDTO.Response> updateFunctionStatus(@Valid @RequestBody FunctionDTO.Modify functionDtos, @PathVariable("name") String name) throws IOException {
-+        FunctionDTO.Response response = functionService.updateFunctionStatus(functionDtos, name);
-+        return ResponseEntity.status(HttpStatus.OK).body(response);
+
+-    private static JSONObject callApi(String endPoint, String data) throws Exception {
+-        String host = KMS_API_BASE_URI + endPoint;
+-        String timestamp = Long.toString(System.currentTimeMillis());
+-        String signature = makeHmacSignature(host, timestamp);
+-        InputStream in = null;
+-        BufferedReader reader = null;
+-        HttpsURLConnection httpsConn = null;
++    public String transferEnvDecrypt(DataKeyDTO.envDecrpyt reqDto) throws Exception {
++        initializeApiConfig(reqDto.getEndpointUrl(), reqDto.getAccessKey(), reqDto.getSecretKey(), reqDto.getProjectId(), null);
++        String decryptedJson = decryptWithKey(reqDto.getCipherText(), scfEncryptKey);
++        Map<String, String> decryptedData = convertJsonToMap(decryptedJson);
++        String decryptedDataKey = callDecryptDataKey(decryptedData.get("encryptedDataKey"));
++        return decryptEnvValue(decryptedData.get("cipherEnv"), decryptedDataKey);
++    }
+
+-        try {
+-            // HTTPS URL 연결
+-            URL url = new URL(host);
+-            httpsConn = (HttpsURLConnection) url.openConnection();
+-
+-            // Hostname verification 설정
+-            httpsConn.setHostnameVerifier(new HostnameVerifier() {
+-                @Override
+-                public boolean verify(String hostname, SSLSession session) {
+-                    // Ignore host name verification. It always returns true.
+-                    return true;
+-                }
+-            });
+-
+-            httpsConn.setDoInput(true);
+-            httpsConn.setUseCaches(false);
+-            httpsConn.setRequestMethod("POST");
+-            httpsConn.setRequestProperty("X-Cmp-ProjectId", headerProjectId);
+-            httpsConn.setRequestProperty("X-Cmp-AccessKey", accessKey);
+-            httpsConn.setRequestProperty("X-Cmp-Signature", signature);
+-            httpsConn.setRequestProperty("X-Cmp-ClientType", headerClientType);
+-            httpsConn.setRequestProperty("X-Cmp-Timestamp", timestamp);
+-            httpsConn.setRequestProperty("Content-Type", "application/json; utf-8");
+-            httpsConn.setRequestProperty("Accept", "application/json");
+-            httpsConn.setDoOutput(true); // OutputStream을 사용해서 post body 데이터 전송
+-            try (OutputStream os = httpsConn.getOutputStream()) {
+-                byte request_data[] = data.getBytes("utf-8");
+-                os.write(request_data);
+-                os.close();
+-            } catch (Exception e) {
+-                e.printStackTrace();
+-            }
++    // ===== Helper Methods =====
+
+-        } catch (Exception e) {
+-            System.out.println("error : " + e);
+-        } finally {
+-            if (reader != null) {
+-                reader.close();
+-            }
+-            if (httpsConn != null) {
+-                httpsConn.disconnect();
+-            }
+-        }
++    private void initializeApiConfig(String endpointUrl, String accessKey, String secretKey, String projectId, String masterKey) {
++        this.kmsApiBaseUri = endpointUrl;
++        this.accessKey = accessKey;
++        this.accessSecretKey = secretKey;
++        this.method = "POST";
++        this.headerProjectId = projectId;
++        this.headerClientType = "OpenApi";
++        this.keyName = masterKey; // masterKey는 null일 수 있음.
++    }
+
+-        int responseCode = httpsConn.getResponseCode();
++    private JSONObject buildCreateDataKeyPayload() {
++        JSONObject data = new JSONObject();
++        data.put("requestPlainKey", false);
++        return data;
++    }
+
+-        // 호스트 연결
+-        httpsConn.connect();
+-        httpsConn.setInstanceFollowRedirects(true);
++    private Map<String, String> buildEncryptionEnvelope(DataKeyDTO.envEncrpyt reqDto, String functionKey) throws Exception {
++        SecretKey secretKey = createSecretKeyFromBase64(reqDto.getPlainText());
++        byte[] cipherEnv = encryptData(reqDto.getEnvValue().getBytes(StandardCharsets.UTF_8), secretKey);
++        return Map.of(
++                "envKey", reqDto.getEnvKey(),
++                "cipherEnv", encodeBase64(cipherEnv),
++                "functionKey", functionKey,
++                "masterKey", reqDto.getMasterKey(),
++                "encryptedDataKey", reqDto.getDataKey()
++        );
++    }
+
+-        // response 반환
+-        if (responseCode == HttpsURLConnection.HTTP_OK) { // 정상 호출 200
+-            in = httpsConn.getInputStream();
+-        } else { // 에러 발생
+-            in = httpsConn.getErrorStream();
+-        }
++    private JSONObject callKmsApi(String endpointTemplate, JSONObject payload) throws Exception {
++        String endpoint = String.format(endpointTemplate, keyName);
++        String url = kmsApiBaseUri + endpoint;
++        String timestamp = String.valueOf(System.currentTimeMillis());
++        String signature = generateHmacSignature(url, timestamp);
+
+-        JSONParser parser = new JSONParser();
+-        JSONObject repsObj = (JSONObject) parser.parse(new InputStreamReader(in, "UTF-8"));
+-        String jsonString = repsObj.toString();
+-        log.info("API call after sonny" + jsonString);
+-        return repsObj;
++        return performHttpPost(url, payload.toJSONString(), buildHeaders(timestamp, signature));
++    }
+
++    private Map<String, String> buildHeaders(String timestamp, String signature) {
++        return Map.of(
++                "X-Cmp-ProjectId", headerProjectId,
++                "X-Cmp-AccessKey", accessKey,
++                "X-Cmp-Signature", signature,
++                "X-Cmp-ClientType", headerClientType,
++                "X-Cmp-Timestamp", timestamp,
++                "Content-Type", "application/json; utf-8",
++                "Accept", "application/json"
++        );
+     }
+
+-    public static String makeHmacSignature(String url, String timestamp) {
+-        String body = method + url + timestamp + accessKey + headerProjectId + headerClientType;
+-        String encodeBase64Str;
++    private String callDecryptDataKey(String encryptedDataKey) throws Exception {
++        JSONObject payload = new JSONObject();
++        payload.put("cipherText", encryptedDataKey);
++        JSONObject response = callKmsApi(KMS_API_DECRYPT, payload);
++        return (String) response.get("decryptedData");
++    }
+
++    private String generateHmacSignature(String url, String timestamp) {
+         try {
+-            byte[] message = body.getBytes("UTF-8");
+-            byte[] secretKey = accessSecretKey.getBytes("UTF-8");
++            String body = method + url + timestamp + accessKey + headerProjectId + headerClientType;
++            byte[] message = body.getBytes(StandardCharsets.UTF_8);
++            byte[] secretKey = accessSecretKey.getBytes(StandardCharsets.UTF_8);
+
+             Mac mac = Mac.getInstance("HmacSHA256");
+-            SecretKeySpec secretKeySpec = new SecretKeySpec(secretKey, "HmacSHA256");
+-            mac.init(secretKeySpec);
+-            byte[] hmacSha256 = mac.doFinal(message);
+-            encodeBase64Str = encodeBase64(hmacSha256);
++            mac.init(new SecretKeySpec(secretKey, "HmacSHA256"));
++            return encodeBase64(mac.doFinal(message));
+         } catch (Exception e) {
+-            throw new RuntimeException("Failed to calculate hmac-sha256", e);
++            throw new RuntimeException("Failed to calculate HMAC-SHA256 signature", e);
+         }
+-
+-        return encodeBase64Str;
+     }
+
+-    private static String encodeBase64(byte[] bytesToEncode) {
+-        return Base64.getEncoder().encodeToString(bytesToEncode);
++    private SecretKey createSecretKeyFromBase64(String base64Key) {
++        byte[] keyBytes = decodeBase64(base64Key);
++        return new SecretKeySpec(keyBytes, "AES");
+     }
+
+-    private static byte[] decodeBase64(String stringToDecode) {
+-        return Base64.getDecoder().decode(stringToDecode);
+-    }
+-
+-    public String transferEnvEncrypt(DataKeyDTO.envEncrpyt reqDto, String functionKey) throws Exception {
+-        KMS_API_BASE_URI = reqDto.getEndpointUrl();
+-        accessKey=reqDto.getAccessKey();
+-        accessSecretKey=reqDto.getSecretKey();
+-        method="POST";
+-        headerProjectId=reqDto.getProjectId();
+-        headerClientType="OpenApi";
+-        KEY_NAME = reqDto.getMasterKey();
+-
+-        // 암호화를 할 데이터 전송
+-        return encryptEnv(reqDto,functionKey);
+-    }
+-
+-    public String encryptEnv(DataKeyDTO.envEncrpyt reqDto, String functionKey) throws Exception {
+-        Object obj=reqDto.getEnvValue();
+-        String dataKey=reqDto.getPlainText();
+-        Map<String, String> envelope = new HashMap<>();
+-
+-        // 생성된 데이터 키를 AES-CBC 방식으로 암호화
+-        // Cipher Class 사용
+-        SecretKey secretKey = new SecretKeySpec(decodeBase64(dataKey), "AES");
++    private byte[] encryptData(byte[] data, SecretKey secretKey) throws Exception {
+         Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+         cipher.init(Cipher.ENCRYPT_MODE, secretKey);
+-        byte[] cipherEnv = cipher.doFinal(obj.toString().getBytes());
+-        envelope.put("envKey",reqDto.getEnvKey());
+-        envelope.put("cipherEnv", encodeBase64(cipherEnv));
+-        envelope.put("functionKey",functionKey);
+-        envelope.put("masterKey",reqDto.getMasterKey());
+-        envelope.put("encryptedDataKey",reqDto.getDataKey());
+-
+-        return encryptWithKey(JSONObject.toJSONString(envelope), scfEncryptKey);
+-    }
+-
+-    // 지정된 키를 사용하여 데이터를 AES 알고리즘으로 암호화
+-    private static String encryptWithKey(String targetData, String managerKey) throws Exception {
+-        // Base64 디코딩된 키
+-        byte[] managerKeyBytes = Arrays.copyOf(managerKey.getBytes(StandardCharsets.UTF_8), 16);
+-        // SecretKey 객체 생성
+-        SecretKey secretKey = new SecretKeySpec(managerKeyBytes, "AES");
+-        // Cipher 객체 초기화
+-        Cipher cipher = Cipher.getInstance("AES");
+-        cipher.init(Cipher.ENCRYPT_MODE, secretKey);
+-        // 데이터 암호화
+-        byte[] encryptedBytes = cipher.doFinal(targetData.getBytes());
+-        // 암호화된 데이터를 Base64로 인코딩하여 반환
+-        return encodeBase64(encryptedBytes);
++        return cipher.doFinal(data);
+     }
+
+-    public String decryptDataKey(String sealedKey) throws Exception {
+-        String endPoint = String.format(KMS_API_DECRYPT, KEY_NAME);
+-        JSONObject data = new JSONObject();
+-        data.put("cipherText", sealedKey);
+-        JSONObject respJsonObject = callApi(endPoint, data.toJSONString());
+-        String plaintext = (respJsonObject.get("decryptedData")).toString();
+-        return plaintext;
++    private String decryptEnvValue(String encryptedValue, String key) throws Exception {
++        SecretKey secretKey = createSecretKeyFromBase64(key);
++        byte[] encryptedBytes = decodeBase64(encryptedValue);
++        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
++        cipher.init(Cipher.DECRYPT_MODE, secretKey);
++        return new String(cipher.doFinal(encryptedBytes), StandardCharsets.UTF_8);
+     }
+
+-    public String transferEnvDecrypt(DataKeyDTO.envDecrpyt reqDto) throws Exception {
+-        KMS_API_BASE_URI = reqDto.getEndpointUrl();
+-        accessKey=reqDto.getAccessKey();
+-        accessSecretKey=reqDto.getSecretKey();
+-        method="POST";
+-        headerProjectId=reqDto.getProjectId();
+-        headerClientType="OpenApi";
+-
++    private JSONObject performHttpPost(String url, String body, Map<String, String> headers) throws Exception {
++        HttpsURLConnection connection = null;
++        try {
++            URL endpoint = new URL(url);
++            connection = (HttpsURLConnection) endpoint.openConnection();
++            connection.setRequestMethod("POST");
++            connection.setDoOutput(true);
++            headers.forEach(connection::setRequestProperty);
++
++            try (OutputStream os = connection.getOutputStream()) {
++                os.write(body.getBytes(StandardCharsets.UTF_8));
++            }
+
+-        String decryptedEnv = decryptEnv(reqDto.getCipherText());
++            int responseCode = connection.getResponseCode();
++            InputStream responseStream = (responseCode == 200)
++                    ? connection.getInputStream()
++                    : connection.getErrorStream();
+
+-        return decryptedEnv;
++            return (JSONObject) new JSONParser().parse(new InputStreamReader(responseStream, StandardCharsets.UTF_8));
++        } finally {
++            if (connection != null) connection.disconnect();
++        }
+     }
+
+-    public String decryptEnv(String cipherText) throws Exception {
+-        String decryptedCipherText=decryptWithKey(cipherText,scfEncryptKey);
+-        // JSON 문자열을 Map으로 변환
+-        Map<String, String> resultMap = convertJsonToMap(decryptedCipherText);
+-
+-        // "encryptedDataKey"에 해당하는 값을 추출
+-        String encryptedDataKey = resultMap.get("encryptedDataKey");
+-        String masterKey = resultMap.get("masterKey");
+-        String cipherEnv = resultMap.get("cipherEnv");
+-        KEY_NAME = masterKey;
+-        String decryptedDataKey = decryptDataKey(encryptedDataKey);
+-        //TODO 복호화 하는 부분 코딩해야함 - 240611 - Sonny
+-        // ↓↓↓↓ 복호화 추가 TBD ↓↓↓↓
+-
+-        //decryptedDataKey를 통해 cipherEnv를 복호화하는 로직 추가 필요
+-
+-        // ↑↑↑↑ 복호화 추가 TBD ↑↑↑↑
+-
+-        // 추후 return 값으로 cipherEnv에 대한 복호화 변수값 반환 필요
+-        return decryptedCipherText;
++    private String encryptWithKey(String targetData, String key) throws Exception {
++        SecretKey secretKey = createSecretKeyFromBase64(key);
++        byte[] encryptedBytes = encryptData(targetData.getBytes(StandardCharsets.UTF_8), secretKey);
++        return encodeBase64(encryptedBytes);
+     }
+
+-    private static String decryptWithKey(String targetData, String managerKey) throws Exception {
+-        // Base64 디코딩된 키
+-        //byte[] decodedKey = Base64.getDecoder().decode(mangerKey);
+-        byte[] managerKeyBytes = Arrays.copyOf(managerKey.getBytes(StandardCharsets.UTF_8), 16);
+-        // SecretKey 객체 생성
+-        SecretKey secretKey = new SecretKeySpec(managerKeyBytes, "AES");
+-        // 암호문 Base64 디코딩
+-        byte[] encryptedBytes = Base64.getDecoder().decode(targetData);
+-        // Cipher 객체 초기화
++    private String decryptWithKey(String encryptedData, String key) throws Exception {
++        SecretKey secretKey = createSecretKeyFromBase64(key);
++        byte[] encryptedBytes = decodeBase64(encryptedData);
+         Cipher cipher = Cipher.getInstance("AES");
+         cipher.init(Cipher.DECRYPT_MODE, secretKey);
++        return new String(cipher.doFinal(encryptedBytes), StandardCharsets.UTF_8);
++    }
++
++    private String encodeBase64(byte[] bytes) {
++        return Base64.getEncoder().encodeToString(bytes);
++    }
+
+-        // 복호화 수행
+-        byte[] decryptedBytes = cipher.doFinal(encryptedBytes);
++    private byte[] decodeBase64(String base64String) {
++        return Base64.getDecoder().decode(base64String);
++    }
+
+-        // 복호화된 데이터를 문자열로 변환
+-        return new String(decryptedBytes);
++    private String convertMapToJson(Map<String, String> map) {
++        return new JSONObject(map).toJSONString();
+     }
++
+ }
+diff --git a/src/main/java/com/scf/manager/mvc/service/KnativeService.java b/src/main/java/com/scf/manager/mvc/service/KnativeService.java
+index 8b35d45..ac4bdf2 100644
+--- a/src/main/java/com/scf/manager/mvc/service/KnativeService.java
++++ b/src/main/java/com/scf/manager/mvc/service/KnativeService.java
+@@ -65,6 +65,47 @@ public class KnativeService {
+     private final static String phpManagerCode = Base64.getEncoder().encodeToString(getSourceCodeFromFile("codetemplates/handler/php/index.php").getBytes());
+     private final static String golangManagerCode = Base64.getEncoder().encodeToString(getSourceCodeFromFile("codetemplates/handler/golang/manager.go").getBytes());
+
++    public void makeIstioResource(Function function) throws IOException, ParseException {
++
++        //펑션 토큰 확인
++        FunctionEnvironment functionEnvironment = functionEnvironmentRepository.findByFunction(function).stream().filter(h -> h.getType().equals("token")).findFirst().orElseThrow(()->new RuntimeException("토큰정보를 확인해주십 시오."));
++        log.info("functionEnvironment = " + functionEnvironment);
++        //istio ip등록
++        List<AllowIp> allowIps = allowIpRepository.findByFunction(function);
++
++        if ("Y".equals(function.getPublicAccessAclYn())) {
++            List<String> ips = new ArrayList<>();
++            if(CollectionUtils.isEmpty(allowIps)){
++                //전체차단
++                ips = new ArrayList<>();
++            }else{
++                ips = allowIps.stream().map(ip -> ip.getName()).collect(Collectors.toList());
++            }
++            istioCallService.makeIstioPolicy(function.getName(), ips);
++        } else  if ("N".equals(function.getPublicAccessAclYn())) {
++            istioClient.v1beta1().authorizationPolicies().inNamespace("istio-system").withName(function.getName()).delete();
++        }
++        //istio jwk등록
++        if("Y".equals(functionEnvironment.getValue())){
++            log.info("functionEnvironment = " + functionEnvironment);
++            KeyManager keyManagerOptional = keyManagerRepository.findByFunctionAndDelYn(function,"N").orElseThrow(() -> new ResourceNotFoundException("키매니저 정보를 확인해주십시오."));
++
++            String token = function.getToken();
++
++            istioCallService.enrollIstioToken(function.getName(),"{'keys':["+keyManagerOptional.getJwk()+"]}", token);
++        }else if("N".equals(functionEnvironment.getValue())) {
++            istioClient.v1beta1()
++                    .requestAuthentications()
++                    .inNamespace(function.getName())
++                    .withName(function.getName()).delete();
++            istioClient.v1beta1()
++                    .authorizationPolicies()
++                    .inNamespace(function.getName())
++                    .withName(function.getName()).delete();
++        }
++    }
++
++
+
+     public void callIstioAndKnative(Function function) throws IOException, ParseException {
+
+@@ -297,7 +338,7 @@ public class KnativeService {
+                 commands.add("java");
+                 commands.add("-jar");
+                 commands.add("/usr/lib/" + managerFileName); // API Controller <-> Handler 분리
+-                mountPath = "/usr/src/less";
++                mountPath = "/usr/src/serverless";
+
+                 // CLASS_NAME, METHOD_NAME 환경변수에 추가
+                 SourceFile sourceFile = sourceFileRepository.findByFunction(function).orElseThrow(() -> new ResourceNotFoundException("유효한 소스파일 데이터가 존재하지 않습니다."));
+diff --git a/src/main/java/com/scf/manager/mvc/service/SourceFileService.java b/src/main/java/com/scf/manager/mvc/service/SourceFileService.java
+index 8740352..c09ba94 100644
+--- a/src/main/java/com/scf/manager/mvc/service/SourceFileService.java
++++ b/src/main/java/com/scf/manager/mvc/service/SourceFileService.java
+@@ -66,7 +66,7 @@ public class SourceFileService {
+     }
+
+     @Transactional
+-    public SourceFileDTO.Response saveSourceFile(SourceFileDTO.Register reqDto, String functionKey) throws IOException {
++    public SourceFileDTO.Response saveSourceFile(SourceFileDTO.Register reqDto, String functionKey) throws IOException, ParseException {
+         Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("펑션이 존재하지 않습니다."));
+         SourceFile sourceFile = sourceFileRepository.findByFunction(function).orElse(null);
+
+@@ -137,13 +137,10 @@ public class SourceFileService {
+         }
+
+         // 소스 파일 업데이트 시에도 ksvc가 만들어져야함. 단 READY 상태가 아니라면 만들어지면 안됨.
+-        if(function.isReady()){
+-            try{
+-                knativeService.callIstioAndKnative(function);
+-            }catch (Exception e){
+-                e.printStackTrace();
+-                log.info("\"\" = " + "비동기 임시 에러처리");
+-            }
++        if(function.isReady()) {
++            function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
++            functionRepository.save(function);
++            knativeService.callIstioAndKnative(function);
+         }
+
+         return sourceFile.toDto();
+diff --git a/src/main/java/com/scf/manager/mvc/service/TriggerService.java b/src/main/java/com/scf/manager/mvc/service/TriggerService.java
+index d42f499..1da84ed 100644
+--- a/src/main/java/com/scf/manager/mvc/service/TriggerService.java
++++ b/src/main/java/com/scf/manager/mvc/service/TriggerService.java
+@@ -70,6 +70,8 @@ public class TriggerService {
+
+     private final static String defaultEnvoyFilterYaml = getSourceCodeFromFile("codetemplates/envoyfilter/defaultEnvoyFilter.yaml");
+     private final static String fnEgressEnvoyFilterYaml = getSourceCodeFromFile("codetemplates/envoyfilter/fnEgressEnvoyFilter.yaml");
++    private final static String scfWatcherCustomResourceYaml = getSourceCodeFromFile("codetemplates/customResource/scfWatcher.yaml");
++    private final static String istioRateLimitEnvoyFilterYaml = getSourceCodeFromFile("codetemplates/envoyfilter/istioRateLimitEnvoyFilter.yaml");
+
+     @Value("${apigw.ip.cidr}")
+     private String apigwIPCIDR;
+@@ -303,12 +305,20 @@ public class TriggerService {
+
+         //2023.09.06 heechang
+         //트리거가 NOT_READY 였던 경우에 한하여, READY로 변경해주고, 사용자 namespace 및 ksvc 생성
+-        if(function.getFunctionStatus().equals(TypeEnums.FunctionStatus.NOT_READY)){
+-            function.setFunctionStatus(TypeEnums.FunctionStatus.READY);
++        //2024.08.27 gyeongyeol
++        //함수 상태가 READY인 경우 Ksvc 재생성하지 않고 트리거 관련 리소스만 재배포 (접근제어)
++        if(function.isNotReady()){
++            function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
++            functionRepository.save(function);
++
+             createUserNamespace(function);
+             createUserPVC(function);
+             createUserEnvoyFilter(function);
++            createScfWatcherCustomResource(function);
+             knativeService.callIstioAndKnative(function);
++        } else if (function.isReady()){
++            // ksvc는 기존 상태를 유지하기 때문에 함수 상태도 READY로 유지
++            knativeService.makeIstioResource(function);
+         }
+
+         // 2023.11.24 gyeongyeol
+@@ -477,6 +487,10 @@ public class TriggerService {
+                 return defaultEnvoyFilterYaml.replace("$envoyfilterName$", envoyfilterName).replace("$namespaceName$", namespaceName);
+             case "egress-inside-fn-filter":
+                 return fnEgressEnvoyFilterYaml.replace("$envoyfilterName$", envoyfilterName).replace("$namespaceName$", namespaceName);
++            case "istio-rate-limit-filter":
++                return fnEgressEnvoyFilterYaml.replace("$envoyfilterName$", envoyfilterName).replace("$namespaceName$", namespaceName)
++                        .replace("$TOKEN_PER_FILL$", "10") // Transaction의 갯수 (10)
++                        .replace("$FILL_INTERVAL$", "1s"); // 기준 (1초) -> 10 TPS로 설정
+             default:
+                 throw new RuntimeException("지원하지 않는 EnvoyFilter입니다");
+         }
+@@ -488,8 +502,13 @@ public class TriggerService {
+
+         String defaultEnvoyFilterYaml = generateEnvoyFilterYaml("request-headers-filter", namespaceName);
+         String egressEnvoyFilterYaml = generateEnvoyFilterYaml("egress-inside-fn-filter", namespaceName);
++        String istioRateLimitEnvoyFilterYaml = generateEnvoyFilterYaml("istio-rate-limit-filter", namespaceName);
+
+-        String[] envoyFilterYamls = {defaultEnvoyFilterYaml, egressEnvoyFilterYaml};
++        String[] envoyFilterYamls = {
++                defaultEnvoyFilterYaml,
++                egressEnvoyFilterYaml,
++                istioRateLimitEnvoyFilterYaml
++        };
+
+         applyEnvoyFilterYaml(envoyFilterYamls, namespaceName, "createOrReplace");
+     }
+@@ -528,6 +547,37 @@ public class TriggerService {
+         }
+     }
+
++    public void createScfWatcherCustomResource(Function function) {
++        String namedScfWatcherCustomResourceYaml = generateScfWatcherCustomResourceYaml(function.getName());
++        applyScfWatcherCustomResourceYaml(namedScfWatcherCustomResourceYaml, function.getName(), "createOrReplace");
++    }
++
++    public static String generateScfWatcherCustomResourceYaml(String name){
++        return scfWatcherCustomResourceYaml.replace("$name$", name);
++    }
++
++    public static void applyScfWatcherCustomResourceYaml(String scfWatcherCustomResourceYamlContent, String functionName, String type) {
++        try (KubernetesClient client = new DefaultKubernetesClient()) {
++
++            // YAML 문자열을 InputStream으로 변환
++            try (InputStream yamlStream = IOUtils.toInputStream(scfWatcherCustomResourceYamlContent, StandardCharsets.UTF_8)) {
++                // YAML 문자열을 Kubernetes 클러스터에 배포
++                if (type.equals("createOrReplace")){
++                    client.load(yamlStream).createOrReplace();
++                    log.info("ScfWatcher CustomResource 생성 : " + functionName);
++                } else if (type.equals("delete")) {
++                    client.load(yamlStream).delete();
++                    log.info("ScfWatcher CustomResource 삭제 : " + functionName);
++                } else {
++                    throw new RuntimeException("지원하지 않는 ScfWatcher CustomResource 적용방법 입니다");
++                }
++            } catch (KubernetesClientException | IOException e) {
++                log.error("ScfWatcher CustomResource 생성 중 오류 : " + functionName + e.getMessage());
++                e.printStackTrace();
++            }
++        }
 +    }
 +
 
-     @PutMapping("allowip/{functionKey}")
-     @Operation(summary = "허용아이피 수정", description = "허용아이피를 수정처리 ")
-@@ -98,7 +99,6 @@ public class FunctionApiController {
-     @PutMapping("cloudlogging/{functionKey}")
-     @Operation(summary = "로깅 ON/OFF", description = "클라우드 모니터링을 위한 로깅 ON/OFF")
-     public ResponseEntity<CloudLoggingDTO.Response> switchLogging(@Valid @RequestBody CloudLoggingDTO.Modify cloudLoggingDtos, @PathVariable("functionKey") String functionKey) throws IOException {
--        //AllowIpDTO.AllowIpResponse response = functionService.updateAllowIps(allowIpDtos, functionKey);
-         CloudLoggingDTO.Response response = functionService.switchLogging(cloudLoggingDtos, functionKey);
-         return ResponseEntity.status(HttpStatus.CREATED).body(response);
-     }
-@@ -111,7 +111,7 @@ public class FunctionApiController {
-     }
-     @PostMapping("source-code/{functionKey}")
-     @Operation(summary = "펑션 코드 등록", description = "펑션 코드를 등록한다.")
--    public ResponseEntity<FunctionDTO.Response> registerFunctionCode(@Valid @RequestBody FunctionDTO.Register reqDto, @PathVariable("functionKey") String functionKey) throws IOException {
-+    public ResponseEntity<FunctionDTO.Response> registerFunctionCode(@Valid @RequestBody FunctionDTO.Register reqDto, @PathVariable("functionKey") String functionKey) throws IOException, ParseException {
-         FunctionDTO.Response response = functionService.
+ }
 
+diff --git a/src/main/resources/application.yml b/src/main/resources/application.yml
+index 939f228..7463613 100644
+--- a/src/main/resources/application.yml
++++ b/src/main/resources/application.yml
+@@ -28,26 +28,32 @@ spring:
+         - common
+         - develop_database
+         - dev_monitoring
++        - develop_apim
+       stage:
+         - common
+         - stage_database
+         - stage_monitoring
++        - stage_apim
+       maint:
+         - common
+-        - stage_database
+-        - stage_monitoring
++        - maint_database
++        - maint_monitoring
++        - maint_apim
+       production:
+         - common
+         - production_database
+         - production_monitoring
++        - production_apim
+       government:
+         - common
+         - government_database
+         - government_monitoring
++        - government_apim
+       samsung:
+         - common
+         - samsung_database
+         - samsung_monitoring
++        - samsung_apim
+   jpa:
+     open-in-view: false
+     database-platform: org.hibernate.dialect.PostgreSQLDialect
+@@ -116,6 +122,18 @@ spring:
+     hibernate:
+       ddl-auto: ${POSTGRESQL_DDL_AUTO}
+ ---
++spring:
++  config:
++    activate:
++      on-profile: "maint_database"
++  datasource:
++    url: jdbc:postgresql://${POSTGRESQL_DEV_HOST}:${POSTGRESQL_DEV_PORT}/${POSTGRESQL_DATABASE}
++    username: ${POSTGRESQL_DEV_USERNAME}
++    password: ${POSTGRESQL_DEV_PWD}
++  jpa:
++    hibernate:
++      ddl-auto: ${POSTGRESQL_DDL_AUTO}
++---
+ spring:
+   config:
+     activate:
+@@ -213,6 +231,19 @@ monitoring:
+   lethe:
+     letheHttpApi: "http://lethe.kube-system.svc.cluster.local:6060/api/v1/query_range"
+ ---
++spring:
++  config:
++    activate:
++      on-profile: "maint_monitoring"
++monitoring:
++  http:
++    timeout: 60000
++  prometheus:
++    prometheusHttpApi: "http://prometheus.kube-system.svc.cluster.local:9090/api/v1/query"
++    prometheusHttpApiForRange: "http://prometheus.kube-system.svc.cluster.local:9090/api/v1/query_range"
++  lethe:
++    letheHttpApi: "http://lethe.kube-system.svc.cluster.local:6060/api/v1/query_range"
++---
+ spring:
+   config:
+     activate:
+@@ -252,3 +283,57 @@ monitoring:
+   lethe:
+     letheHttpApi: "http://lethe.kube-system.svc.cluster.local:6060/api/v1/query_range"
+ ---
++spring:
++  config:
++    activate:
++      on-profile: "develop_apim"
++apim:
++  http:
++    timeout: 60000
++  endpoint: "http://api.dev.cloudplatform.io"
++---
++spring:
++  config:
++    activate:
++      on-profile: "stage_apim"
++apim:
++  http:
++    timeout: 60000
++  endpoint: "http://api.stage.cloudplatform.io"
++---
++spring:
++  config:
++    activate:
++      on-profile: "maint_apim"
++apim:
++  http:
++    timeout: 60000
++  endpoint: "http://api.maint.cloudplatform.io"
++---
++spring:
++  config:
++    activate:
++      on-profile: "production_apim"
++apim:
++  http:
++    timeout: 60000
++  endpoint: "http://cloudapi.comm.samsungsdscloud.com"
++---
++spring:
++  config:
++    activate:
++      on-profile: "government_apim"
++apim:
++  http:
++    timeout: 60000
++  endpoint: "http://gov-cloudapi.comm.samsungsdscloud.com"
++---
++spring:
++  config:
++    activate:
++      on-profile: "samsung_apim"
++apim:
++  http:
++    timeout: 60000
++  endpoint: "http://s-cloudapi.comm.samsungsdscloud.com"
++---
+diff --git a/src/main/resources/codetemplates/customResource/scfWatcher.yaml b/src/main/resources/codetemplates/customResource/scfWatcher.yaml
+new file mode 100644
+index 0000000..25e1274
+--- /dev/null
++++ b/src/main/resources/codetemplates/customResource/scfWatcher.yaml
+@@ -0,0 +1,8 @@
++apiVersion: module.scf.scp.samsungsds.com/v1
++kind: ScfWatcher
++metadata:
++  name: $name$
++  namespace: $name$
++spec:
++  ksvcName: $name$
++  ksvcNamespace: $name$
+\ No newline at end of file
+diff --git a/src/main/resources/codetemplates/envoyfilter/istioRateLimitEnvoyFilter.yaml b/src/main/resources/codetemplates/envoyfilter/istioRateLimitEnvoyFilter.yaml
+index d5023c5..82ce2cc 100644
+--- a/src/main/resources/codetemplates/envoyfilter/istioRateLimitEnvoyFilter.yaml
++++ b/src/main/resources/codetemplates/envoyfilter/istioRateLimitEnvoyFilter.yaml
+@@ -43,8 +43,8 @@ spec:
+                 stat_prefix: http_local_rate_limiter
+                 token_bucket:
+                   max_tokens: 10
+-                  tokens_per_fill: 10
+-                  fill_interval: 1s
++                  tokens_per_fill: $TOKEN_PER_FILL$
++                  fill_interval: $FILL_INTERVAL$
+                 filter_enabled:
+                   runtime_key: local_rate_limit_enabled
+                   default_value:
+diff --git a/src/main/resources/codetemplates/handler/nodejs/manager.js b/src/main/resources/codetemplates/handler/nodejs/manager.js
+index f38e48b..f37770f 100644
+--- a/src/main/resources/codetemplates/handler/nodejs/manager.js
++++ b/src/main/resources/codetemplates/handler/nodejs/manager.js
+@@ -19,7 +19,7 @@ app.all("/*", async (req, res) => {
+         }
+     } catch (error) {
+         console.error('An Error Occurred: ', error);
+-        res.status(500);
++        res.status(500).send('Internal Server Error');
+     }
+ })
 
+diff --git a/src/main/resources/codetemplates/handler/php/index.php b/src/main/resources/codetemplates/handler/php/index.php
+index e34798b..b69ad16 100644
+--- a/src/main/resources/codetemplates/handler/php/index.php
++++ b/src/main/resources/codetemplates/handler/php/index.php
+@@ -3,14 +3,20 @@ include 'phpfunction.php';
+
+ $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+ # Route to Function Code (GET, POST, PUT, DELETE, etc)
+-$result = handle_request();
+-header("Content-Type:application/json");
++try{
++    $result = handle_request();
++    header("Content-Type:application/json");
+
+-if (is_array($result) && array_key_exists('statusCode', $result) && array_key_exists('body', $result)) {
+-    http_response_code($result['statusCode']);
+-    echo json_encode($result['body']);
+-} else {
+-    http_response_code(200);
+-    echo json_encode($result);
++    if (is_array($result) && array_key_exists('statusCode', $result) && array_key_exists('body', $result)) {
++        http_response_code($result['statusCode']);
++        echo json_encode($result['body']);
++    } else {
++        http_response_code(200);
++        echo json_encode($result);
++    }
++}
++catch (\Exception $e) {
++    http_response_code(500);
++    echo "Internal Server Error";
+ }
+ ?>
+\ No newline at end of file
+diff --git a/src/main/resources/codetemplates/handler/python/manager.py b/src/main/resources/codetemplates/handler/python/manager.py
+index e41d3de..69d84b5 100644
+--- a/src/main/resources/codetemplates/handler/python/manager.py
++++ b/src/main/resources/codetemplates/handler/python/manager.py
+@@ -10,12 +10,15 @@ HTTP_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'CONNECT', 'OPTIONS', 'T
+ @app.route('/', defaults={'path': ''}, methods=HTTP_METHODS)
+ @app.route('/<path:path>', methods=HTTP_METHODS)
+ def function_route(path):
+-    data = pythonfunction.handle_request(request)
+-    if type(data) is dict and data['statusCode'] is not None and data['body'] is not None:
+-        return Response(data['body'], status=data['statusCode'], mimetype='application/json')
+-    else:
+-        return Response(data, status=200, mimetype='application/json')
+-
++    try:
++        data = pythonfunction.handle_request(request)
++        if type(data) is dict and data['statusCode'] is not None and data['body'] is not None:
++            return Response(data['body'], status=data['statusCode'], mimetype='application/json')
++        else:
++            return Response(data, status=200, mimetype='application/json')
++    except Exception as e:
++        print('An Error Occurred: ', e)
++        return Response('Internal Server Error', status=500, mimetype='text/plain')
+ # DO NOT DELETE BELOW LINES #
+ if __name__ == '__main__':
+     app.run(host="0.0.0.0", port="8080")
+\ No newline at end of file
+diff --git a/workspace/db/schema/TBL_FUNCTION b/workspace/db/schema/TBL_FUNCTION
+index 56aff23..116bf7f 100644
+--- a/workspace/db/schema/TBL_FUNCTION
++++ b/workspace/db/schema/TBL_FUNCTION
+@@ -5,7 +5,7 @@ create table TBL_FUNCTION (
+         modifier_seq int8,
+         modify_at timestamp,
+         content TEXT,
+-        del_yn varchar(255),
++        del_yn varchar(255) DEFAULT 'N',
+         display_name varchar(255),
+         end_point_type varchar(255),
+         function_key varchar(255),
+@@ -22,4 +22,4 @@ create table TBL_FUNCTION (
+         user_id varchar(255),
+         member_seq int8,
+         primary key (function_seq)
+-    );
+\ No newline at end of file
++    );
+
+j1.son@j1-son002 MINGW64 /c/project/functions-manager (refactoring-kmsservice)
