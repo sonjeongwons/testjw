@@ -1,393 +1,243 @@
-$ git diff develop...refactoring-kmsservice|cat
-diff --git a/src/main/java/com/scf/manager/mvc/service/KmsService.java b/src/main/java/com/scf/manager/mvc/service/KmsService.java
-index 34da597..d6c64d8 100644
---- a/src/main/java/com/scf/manager/mvc/service/KmsService.java
-+++ b/src/main/java/com/scf/manager/mvc/service/KmsService.java
-@@ -73,255 +73,175 @@ public class KmsService {
-     @Value("${SCF_KEY}")
-     private String scfEncryptKey;
+package com.scf.manager.mvc.service;
 
--    // URI
--    private static String KMS_API_BASE_URI;
--    // END POINT
--    private static String KMS_API_DECRYPT = "/kms/v1/decrypt/%s";
--    private static String KMS_API_CREATE_DATAKEY = "/kms/v1/datakey/plaintext/%s";
--    // 샘플용 KEY TAG
--    private static String KEY_NAME;
--
--    private static String accessKey;
--    private static String accessSecretKey;
--    private static String method;
--    private static String headerProjectId;
--    private static String headerClientType;
--    public JSONObject createDataKey(DataKeyDTO.Register reqDto) throws Exception {
--        KMS_API_BASE_URI = reqDto.getEndpointUrl();
--        accessKey=reqDto.getAccessKey();
--        accessSecretKey=reqDto.getSecretKey();
--        method="POST";
--        headerProjectId=reqDto.getProjectId();
--        headerClientType="OpenApi";
--        KEY_NAME = reqDto.getMasterKey();
--
--        // 새로운 데이터 키 생성을 요청
--        JSONObject encryptedDataKey = getDataKey();
--        return encryptedDataKey;
--    }
-+    private static final String KMS_API_DECRYPT = "/kms/v1/decrypt/%s";
-+    private static final String KMS_API_CREATE_DATAKEY = "/kms/v1/datakey/plaintext/%s";
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.JWSSigner;
+import com.nimbusds.jose.crypto.RSASSASigner;
+import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
+import com.scf.manager.common.exception.ResourceNotFoundException;
+import com.scf.manager.common.util.AppUtil;
+import com.scf.manager.common.util.UrlUtil;
+import com.scf.manager.mvc.domain.AllowIp;
+import com.scf.manager.mvc.domain.Function;
+import com.scf.manager.mvc.domain.FunctionEnvironment;
+import com.scf.manager.mvc.dto.*;
+import com.scf.manager.mvc.repository.AllowIpRepository;
+import com.scf.manager.mvc.repository.FunctionEnvironmentRepository;
+import com.scf.manager.mvc.repository.FunctionRepository;
+import com.scf.manager.mvc.repository.KeyManagerRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.builder.CompareToBuilder;
+import org.springframework.data.domain.Page;
+import org.springframework.transaction.annotation.Transactional;
 
-+    private String kmsApiBaseUri;
-+    private String keyName;
-+    private String accessKey;
-+    private String accessSecretKey;
-+    private String method;
-+    private String headerProjectId;
-+    private String headerClientType;
+import java.io.IOException;
+import java.text.ParseException;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
--    private static JSONObject getDataKey() throws Exception {
--        String endPoint = String.format(KMS_API_CREATE_DATAKEY, KEY_NAME);
--        JSONObject data = new JSONObject();
--        data.put("requestPlainKey", false);
-+    public JSONObject createDataKey(DataKeyDTO.Register reqDto) throws Exception {
-+        initializeApiConfig(reqDto.getEndpointUrl(), reqDto.getAccessKey(), reqDto.getSecretKey(), reqDto.getProjectId(), reqDto.getMasterKey());
-+        return callKmsApi(KMS_API_CREATE_DATAKEY, buildCreateDataKeyPayload());
-+    }
+import static com.scf.manager.common.constants.Constants.*;
+import static com.scf.manager.common.constants.ExceptionConst.FILE_TYPE_EXCEPTION;
 
--        // OpenAPI 호출
--        JSONObject respJsonObject = callApi(endPoint, data.toJSONString());
--        //return respJsonObject.get("dataKey").toString();
--        return respJsonObject;
-+    public String transferEnvEncrypt(DataKeyDTO.envEncrpyt reqDto, String functionKey) throws Exception {
-+        initializeApiConfig(reqDto.getEndpointUrl(), reqDto.getAccessKey(), reqDto.getSecretKey(), reqDto.getProjectId(), reqDto.getMasterKey());
-+        Map<String, String> envelope = buildEncryptionEnvelope(reqDto, functionKey);
-+        return encryptWithKey(convertMapToJson(envelope), scfEncryptKey);
-     }
+@Slf4j
+@org.springframework.stereotype.Service
+@RequiredArgsConstructor
+public class FunctionEnvironmentService {
 
--    private static JSONObject callApi(String endPoint, String data) throws Exception {
--        String host = KMS_API_BASE_URI + endPoint;
--        String timestamp = Long.toString(System.currentTimeMillis());
--        String signature = makeHmacSignature(host, timestamp);
--        InputStream in = null;
--        BufferedReader reader = null;
--        HttpsURLConnection httpsConn = null;
-+    public String transferEnvDecrypt(DataKeyDTO.envDecrpyt reqDto) throws Exception {
-+        initializeApiConfig(reqDto.getEndpointUrl(), reqDto.getAccessKey(), reqDto.getSecretKey(), reqDto.getProjectId(), null);
-+        String decryptedJson = decryptWithKey(reqDto.getCipherText(), scfEncryptKey);
-+        Map<String, String> decryptedData = convertJsonToMap(decryptedJson);
-+        String decryptedDataKey = callDecryptDataKey(decryptedData.get("encryptedDataKey"));
-+        return decryptEnvValue(decryptedData.get("cipherEnv"), decryptedDataKey);
-+    }
+    private final FunctionRepository functionRepository;
+    private final FunctionEnvironmentRepository functionEnvironmentRepository;
+    private final FunctionService functionService;
+    private final KnativeService knativeService;
 
--        try {
--            // HTTPS URL 연결
--            URL url = new URL(host);
--            httpsConn = (HttpsURLConnection) url.openConnection();
--
--            // Hostname verification 설정
--            httpsConn.setHostnameVerifier(new HostnameVerifier() {
--                @Override
--                public boolean verify(String hostname, SSLSession session) {
--                    // Ignore host name verification. It always returns true.
--                    return true;
--                }
--            });
--
--            httpsConn.setDoInput(true);
--            httpsConn.setUseCaches(false);
--            httpsConn.setRequestMethod("POST");
--            httpsConn.setRequestProperty("X-Cmp-ProjectId", headerProjectId);
--            httpsConn.setRequestProperty("X-Cmp-AccessKey", accessKey);
--            httpsConn.setRequestProperty("X-Cmp-Signature", signature);
--            httpsConn.setRequestProperty("X-Cmp-ClientType", headerClientType);
--            httpsConn.setRequestProperty("X-Cmp-Timestamp", timestamp);
--            httpsConn.setRequestProperty("Content-Type", "application/json; utf-8");
--            httpsConn.setRequestProperty("Accept", "application/json");
--            httpsConn.setDoOutput(true); // OutputStream을 사용해서 post body 데이터 전송
--            try (OutputStream os = httpsConn.getOutputStream()) {
--                byte request_data[] = data.getBytes("utf-8");
--                os.write(request_data);
--                os.close();
--            } catch (Exception e) {
--                e.printStackTrace();
--            }
-+    // ===== Helper Methods =====
 
--        } catch (Exception e) {
--            System.out.println("error : " + e);
--        } finally {
--            if (reader != null) {
--                reader.close();
--            }
--            if (httpsConn != null) {
--                httpsConn.disconnect();
--            }
--        }
-+    private void initializeApiConfig(String endpointUrl, String accessKey, String secretKey, String projectId, String masterKey) {
-+        this.kmsApiBaseUri = endpointUrl;
-+        this.accessKey = accessKey;
-+        this.accessSecretKey = secretKey;
-+        this.method = "POST";
-+        this.headerProjectId = projectId;
-+        this.headerClientType = "OpenApi";
-+        this.keyName = masterKey; // masterKey는 null일 수 있음.
-+    }
+    @Transactional
+    public FunctionDTO.Response registerFunctionToken(String functionKey) throws ParseException, JOSEException, JsonProcessingException {
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("펑션키가 존재하지않습니다."));
 
--        int responseCode = httpsConn.getResponseCode();
-+    private JSONObject buildCreateDataKeyPayload() {
-+        JSONObject data = new JSONObject();
-+        data.put("requestPlainKey", false);
-+        return data;
-+    }
+        TokenDTO.Register reqDto = new TokenDTO.Register();
+        reqDto.setFunction(function);
+        reqDto.setKeyId(function.getFunctionKey());
 
--        // 호스트 연결
--        httpsConn.connect();
--        httpsConn.setInstanceFollowRedirects(true);
-+    private Map<String, String> buildEncryptionEnvelope(DataKeyDTO.envEncrpyt reqDto, String functionKey) throws Exception {
-+        SecretKey secretKey = createSecretKeyFromBase64(reqDto.getPlainText());
-+        byte[] cipherEnv = encryptData(reqDto.getEnvValue().getBytes(StandardCharsets.UTF_8), secretKey);
-+        return Map.of(
-+                "envKey", reqDto.getEnvKey(),
-+                "cipherEnv", encodeBase64(cipherEnv),
-+                "functionKey", functionKey,
-+                "masterKey", reqDto.getMasterKey(),
-+                "encryptedDataKey", reqDto.getDataKey()
-+        );
-+    }
+        RSAKey rsaJWK = RSAKey.parse(functionService.registerJWK(reqDto));
 
--        // response 반환
--        if (responseCode == HttpsURLConnection.HTTP_OK) { // 정상 호출 200
--            in = httpsConn.getInputStream();
--        } else { // 에러 발생
--            in = httpsConn.getErrorStream();
--        }
-+    private JSONObject callKmsApi(String endpointTemplate, JSONObject payload) throws Exception {
-+        String endpoint = String.format(endpointTemplate, keyName);
-+        String url = kmsApiBaseUri + endpoint;
-+        String timestamp = String.valueOf(System.currentTimeMillis());
-+        String signature = generateHmacSignature(url, timestamp);
+        JWSSigner signer = new RSASSASigner(rsaJWK);
 
--        JSONParser parser = new JSONParser();
--        JSONObject repsObj = (JSONObject) parser.parse(new InputStreamReader(in, "UTF-8"));
--        String jsonString = repsObj.toString();
--        log.info("API call after sonny" + jsonString);
--        return repsObj;
-+        return performHttpPost(url, payload.toJSONString(), buildHeaders(timestamp, signature));
-+    }
+        JWTClaimsSet claimsSet = new JWTClaimsSet.Builder()
+                .subject(function.getName())
+                .issuer("https://scp.com")
+                .expirationTime(new Date(new Date().getTime() + YEAR_SIZE_100))
+                .build();
 
-+    private Map<String, String> buildHeaders(String timestamp, String signature) {
-+        return Map.of(
-+                "X-Cmp-ProjectId", headerProjectId,
-+                "X-Cmp-AccessKey", accessKey,
-+                "X-Cmp-Signature", signature,
-+                "X-Cmp-ClientType", headerClientType,
-+                "X-Cmp-Timestamp", timestamp,
-+                "Content-Type", "application/json; utf-8",
-+                "Accept", "application/json"
-+        );
-     }
+        SignedJWT signedJWT = new SignedJWT(
+                new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(rsaJWK.getKeyID()).build(),
+                claimsSet);
 
--    public static String makeHmacSignature(String url, String timestamp) {
--        String body = method + url + timestamp + accessKey + headerProjectId + headerClientType;
--        String encodeBase64Str;
-+    private String callDecryptDataKey(String encryptedDataKey) throws Exception {
-+        JSONObject payload = new JSONObject();
-+        payload.put("cipherText", encryptedDataKey);
-+        JSONObject response = callKmsApi(KMS_API_DECRYPT, payload);
-+        return (String) response.get("decryptedData");
-+    }
+        // Compute the RSA signature
+        signedJWT.sign(signer);
 
-+    private String generateHmacSignature(String url, String timestamp) {
-         try {
--            byte[] message = body.getBytes("UTF-8");
--            byte[] secretKey = accessSecretKey.getBytes("UTF-8");
-+            String body = method + url + timestamp + accessKey + headerProjectId + headerClientType;
-+            byte[] message = body.getBytes(StandardCharsets.UTF_8);
-+            byte[] secretKey = accessSecretKey.getBytes(StandardCharsets.UTF_8);
+        String token = signedJWT.serialize();
+        function.updateToken(token);
 
-             Mac mac = Mac.getInstance("HmacSHA256");
--            SecretKeySpec secretKeySpec = new SecretKeySpec(secretKey, "HmacSHA256");
--            mac.init(secretKeySpec);
--            byte[] hmacSha256 = mac.doFinal(message);
--            encodeBase64Str = encodeBase64(hmacSha256);
-+            mac.init(new SecretKeySpec(secretKey, "HmacSHA256"));
-+            return encodeBase64(mac.doFinal(message));
-         } catch (Exception e) {
--            throw new RuntimeException("Failed to calculate hmac-sha256", e);
-+            throw new RuntimeException("Failed to calculate HMAC-SHA256 signature", e);
-         }
--
--        return encodeBase64Str;
-     }
+        return function.toDto();
+    }
 
--    private static String encodeBase64(byte[] bytesToEncode) {
--        return Base64.getEncoder().encodeToString(bytesToEncode);
-+    private SecretKey createSecretKeyFromBase64(String base64Key) {
-+        byte[] keyBytes = decodeBase64(base64Key);
-+        return new SecretKeySpec(keyBytes, "AES");
-     }
 
--    private static byte[] decodeBase64(String stringToDecode) {
--        return Base64.getDecoder().decode(stringToDecode);
--    }
--
--    public String transferEnvEncrypt(DataKeyDTO.envEncrpyt reqDto, String functionKey) throws Exception {
--        KMS_API_BASE_URI = reqDto.getEndpointUrl();
--        accessKey=reqDto.getAccessKey();
--        accessSecretKey=reqDto.getSecretKey();
--        method="POST";
--        headerProjectId=reqDto.getProjectId();
--        headerClientType="OpenApi";
--        KEY_NAME = reqDto.getMasterKey();
--
--        // 암호화를 할 데이터 전송
--        return encryptEnv(reqDto,functionKey);
--    }
--
--    public String encryptEnv(DataKeyDTO.envEncrpyt reqDto, String functionKey) throws Exception {
--        Object obj=reqDto.getEnvValue();
--        String dataKey=reqDto.getPlainText();
--        Map<String, String> envelope = new HashMap<>();
--
--        // 생성된 데이터 키를 AES-CBC 방식으로 암호화
--        // Cipher Class 사용
--        SecretKey secretKey = new SecretKeySpec(decodeBase64(dataKey), "AES");
-+    private byte[] encryptData(byte[] data, SecretKey secretKey) throws Exception {
-         Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-         cipher.init(Cipher.ENCRYPT_MODE, secretKey);
--        byte[] cipherEnv = cipher.doFinal(obj.toString().getBytes());
--        envelope.put("envKey",reqDto.getEnvKey());
--        envelope.put("cipherEnv", encodeBase64(cipherEnv));
--        envelope.put("functionKey",functionKey);
--        envelope.put("masterKey",reqDto.getMasterKey());
--        envelope.put("encryptedDataKey",reqDto.getDataKey());
--
--        return encryptWithKey(JSONObject.toJSONString(envelope), scfEncryptKey);
--    }
--
--    // 지정된 키를 사용하여 데이터를 AES 알고리즘으로 암호화
--    private static String encryptWithKey(String targetData, String managerKey) throws Exception {
--        // Base64 디코딩된 키
--        byte[] managerKeyBytes = Arrays.copyOf(managerKey.getBytes(StandardCharsets.UTF_8), 16);
--        // SecretKey 객체 생성
--        SecretKey secretKey = new SecretKeySpec(managerKeyBytes, "AES");
--        // Cipher 객체 초기화
--        Cipher cipher = Cipher.getInstance("AES");
--        cipher.init(Cipher.ENCRYPT_MODE, secretKey);
--        // 데이터 암호화
--        byte[] encryptedBytes = cipher.doFinal(targetData.getBytes());
--        // 암호화된 데이터를 Base64로 인코딩하여 반환
--        return encodeBase64(encryptedBytes);
-+        return cipher.doFinal(data);
-     }
+    public FunctionEnvironmentDTO.Response registerFunctionEnvironment(FunctionEnvironmentDTO.Register reqDto, Function function,AtomicInteger envCountChecker) {
 
--    public String decryptDataKey(String sealedKey) throws Exception {
--        String endPoint = String.format(KMS_API_DECRYPT, KEY_NAME);
--        JSONObject data = new JSONObject();
--        data.put("cipherText", sealedKey);
--        JSONObject respJsonObject = callApi(endPoint, data.toJSONString());
--        String plaintext = (respJsonObject.get("decryptedData")).toString();
--        return plaintext;
-+    private String decryptEnvValue(String encryptedValue, String key) throws Exception {
-+        SecretKey secretKey = createSecretKeyFromBase64(key);
-+        byte[] encryptedBytes = decodeBase64(encryptedValue);
-+        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-+        cipher.init(Cipher.DECRYPT_MODE, secretKey);
-+        return new String(cipher.doFinal(encryptedBytes), StandardCharsets.UTF_8);
-     }
+        checkEnvironmentColdStart(reqDto);
+        checkEnvironmentEnv(reqDto, envCountChecker);
+        checkEnvironmentMemory(reqDto);
+        checkEnvironmentLimit(reqDto);
+        checkEnvironmentUrl(reqDto);
+        checkEnvironmentToken(reqDto);
 
--    public String transferEnvDecrypt(DataKeyDTO.envDecrpyt reqDto) throws Exception {
--        KMS_API_BASE_URI = reqDto.getEndpointUrl();
--        accessKey=reqDto.getAccessKey();
--        accessSecretKey=reqDto.getSecretKey();
--        method="POST";
--        headerProjectId=reqDto.getProjectId();
--        headerClientType="OpenApi";
--
-+    private JSONObject performHttpPost(String url, String body, Map<String, String> headers) throws Exception {
-+        HttpsURLConnection connection = null;
-+        try {
-+            URL endpoint = new URL(url);
-+            connection = (HttpsURLConnection) endpoint.openConnection();
-+            connection.setRequestMethod("POST");
-+            connection.setDoOutput(true);
-+            headers.forEach(connection::setRequestProperty);
-+
-+            try (OutputStream os = connection.getOutputStream()) {
-+                os.write(body.getBytes(StandardCharsets.UTF_8));
-+            }
+        reqDto.setFunctionSeq(function.getFunctionSeq());
+        FunctionEnvironment functionEnvironment = functionEnvironmentRepository.save(FunctionEnvironment.register(reqDto));
 
--        String decryptedEnv = decryptEnv(reqDto.getCipherText());
-+            int responseCode = connection.getResponseCode();
-+            InputStream responseStream = (responseCode == 200)
-+                    ? connection.getInputStream()
-+                    : connection.getErrorStream();
+        return functionEnvironment.toDto();
+    }
 
--        return decryptedEnv;
-+            return (JSONObject) new JSONParser().parse(new InputStreamReader(responseStream, StandardCharsets.UTF_8));
-+        } finally {
-+            if (connection != null) connection.disconnect();
-+        }
-     }
+    private static void checkEnvironmentToken(FunctionEnvironmentDTO.Register reqDto) {
+        if ("token".equals(reqDto.getType())) {
+            if("Y".equals(reqDto.getValue()) && StringUtils.isEmpty(reqDto.getKey())){
+                throw new RuntimeException("토큰값이 Y 인경우 키를 입력해주십시오.");
+            }
 
--    public String decryptEnv(String cipherText) throws Exception {
--        String decryptedCipherText=decryptWithKey(cipherText,scfEncryptKey);
--        // JSON 문자열을 Map으로 변환
--        Map<String, String> resultMap = convertJsonToMap(decryptedCipherText);
--
--        // "encryptedDataKey"에 해당하는 값을 추출
--        String encryptedDataKey = resultMap.get("encryptedDataKey");
--        String masterKey = resultMap.get("masterKey");
--        String cipherEnv = resultMap.get("cipherEnv");
--        KEY_NAME = masterKey;
--        String decryptedDataKey = decryptDataKey(encryptedDataKey);
--        //TODO 복호화 하는 부분 코딩해야함 - 240611 - Sonny
--        // ↓↓↓↓ 복호화 추가 TBD ↓↓↓↓
--
--        //decryptedDataKey를 통해 cipherEnv를 복호화하는 로직 추가 필요
--
--        // ↑↑↑↑ 복호화 추가 TBD ↑↑↑↑
--
--        // 추후 return 값으로 cipherEnv에 대한 복호화 변수값 반환 필요
--        return decryptedCipherText;
-+    private String encryptWithKey(String targetData, String key) throws Exception {
-+        SecretKey secretKey = createSecretKeyFromBase64(key);
-+        byte[] encryptedBytes = encryptData(targetData.getBytes(StandardCharsets.UTF_8), secretKey);
-+        return encodeBase64(encryptedBytes);
-     }
+            if("N".equals(reqDto.getValue()) && StringUtils.isNotEmpty(reqDto.getKey())){
+                throw new RuntimeException("토큰값이 N 인경우 키를 입력할 수 없습니다.");
+            }
 
--    private static String decryptWithKey(String targetData, String managerKey) throws Exception {
--        // Base64 디코딩된 키
--        //byte[] decodedKey = Base64.getDecoder().decode(mangerKey);
--        byte[] managerKeyBytes = Arrays.copyOf(managerKey.getBytes(StandardCharsets.UTF_8), 16);
--        // SecretKey 객체 생성
--        SecretKey secretKey = new SecretKeySpec(managerKeyBytes, "AES");
--        // 암호문 Base64 디코딩
--        byte[] encryptedBytes = Base64.getDecoder().decode(targetData);
--        // Cipher 객체 초기화
-+    private String decryptWithKey(String encryptedData, String key) throws Exception {
-+        SecretKey secretKey = createSecretKeyFromBase64(key);
-+        byte[] encryptedBytes = decodeBase64(encryptedData);
-         Cipher cipher = Cipher.getInstance("AES");
-         cipher.init(Cipher.DECRYPT_MODE, secretKey);
-+        return new String(cipher.doFinal(encryptedBytes), StandardCharsets.UTF_8);
-+    }
-+
-+    private String encodeBase64(byte[] bytes) {
-+        return Base64.getEncoder().encodeToString(bytes);
-+    }
+            if(!"Y".equals(reqDto.getValue()) && !"N".equals(reqDto.getValue())) {
+                throw new RuntimeException("토큰사용여부 값을 확인해주십시오.");
+            }
+        }
+    }
 
--        // 복호화 수행
--        byte[] decryptedBytes = cipher.doFinal(encryptedBytes);
-+    private byte[] decodeBase64(String base64String) {
-+        return Base64.getDecoder().decode(base64String);
-+    }
+    private static void checkEnvironmentUrl(FunctionEnvironmentDTO.Register reqDto) {
+        if ("url".equals(reqDto.getType())) {
+            if (!"http".equals(reqDto.getKey()) && !"https".equals(reqDto.getKey()))
+                throw new RuntimeException("키의 허용값은 http 또는 https 입니다.");
+            if (StringUtils.isEmpty(reqDto.getValue())) throw new RuntimeException("함수 주소값이 입력되지않았습니다.");
+        }
+    }
 
--        // 복호화된 데이터를 문자열로 변환
--        return new String(decryptedBytes);
-+    private String convertMapToJson(Map<String, String> map) {
-+        return new JSONObject(map).toJSONString();
-     }
-+
- }
+    private static void checkEnvironmentLimit(FunctionEnvironmentDTO.Register reqDto) {
+        if ("limit".equals(reqDto.getType())) {
+            if (!"minute".equals(reqDto.getKey()) && !"second".equals(reqDto.getKey()))
+                throw new RuntimeException("제한시간의 key는 minute 과 second 로 입력해야합니다.");
+            if (!StringUtils.isNumeric(reqDto.getValue())) throw new RuntimeException("제한시간을 숫자타입으로 입력해주세요.");
+        }
+    }
 
-j1.son@j1-son002 MINGW64 /c/project/functions-manager (refactoring-kmsservice)
+    private static void checkEnvironmentMemory(FunctionEnvironmentDTO.Register reqDto) {
+        if ("memory".equals(reqDto.getType())) {
+            if (!StringUtils.isNumeric(reqDto.getValue())) throw new RuntimeException("메모리의 값을 숫자타입으로 입력해주십시오.");
+            if (Integer.parseInt(reqDto.getValue()) < MIN_MEMORY_VALUE) {
+                throw new RuntimeException("메모리의 값을 128이상 입력해주십시오");
+            }
+        }
+    }
+
+    private static void checkEnvironmentEnv(FunctionEnvironmentDTO.Register reqDto, AtomicInteger envCountChecker) {
+        if ("env".equals(reqDto.getType())) {
+            envCountChecker.getAndIncrement();
+            log.info("envCountChecker = " + envCountChecker);
+            if (StringUtils.isEmpty(reqDto.getKey())) {
+                throw new RuntimeException("환경변수의 키를 공백으로 넣을 수 없습니다.");
+            }
+            if(reqDto.getKey().contains(" ")){
+                throw new RuntimeException("환경변수의 키는 공백을 포함할 수 없습니다.");
+            }
+            String first = reqDto.getKey().substring(0,1);
+
+            if (Pattern.matches("^[\\d]$", first)) {
+                throw new RuntimeException("환경변수의 키는 숫자로 시작할 수 없습니다.");
+            }
+            if(!Pattern.matches("^[a-zA-Z0-9._-]*$", reqDto.getKey())){
+                throw new RuntimeException("환경변수는 영문 a-z,A-Z 숫자0-9 특수문자._- 외에는 입력할 수 없습니다.");
+            }
+
+            if(reqDto.getKey().length() > MIN_KEY_LENGTH){
+                throw new RuntimeException("키의 길이는 50자를 넘을수 없습니다.");
+            }
+            if(StringUtils.isEmpty(reqDto.getValue()) && reqDto.getValue().length()>50){
+                throw new RuntimeException("value 의 길이는 50자를 넘을수 없습니다.");
+            }
+        }
+    }
+
+    private static void checkEnvironmentColdStart(FunctionEnvironmentDTO.Register reqDto) {
+        if ("coldStartYn".equals(reqDto.getType())) {
+            if (!"Y".equals(reqDto.getValue()) && !"N".equals(reqDto.getValue()))
+                throw new RuntimeException("콜드스타트여부는 Y 또는 N으로 입력해주세요");
+        }
+    }
+
+    @Transactional
+    public List<FunctionEnvironmentDTO.Response> registerAll(List<FunctionEnvironmentDTO.Register> reqDto, String functionKey) throws IOException, ParseException {
+        // id가 update ,없으면 insert
+        // update시 변경여부가 있는체크해야함.
+        // 기존 구성과 전체 내역을 비교해서 변경건이 있는지를 체크해야함
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new RuntimeException("펑션키를 입력해주세요"));
+        List<FunctionEnvironment> functions = functionEnvironmentRepository.findByFunction(function);
+
+
+
+
+        List<FunctionEnvironmentDTO.Register> dbItems = functions.stream().map(f -> FunctionEnvironmentDTO.Register.builder().key(f.getKey()).value(f.getValue()).type(f.getType()).functionSeq(function.getFunctionSeq()).build()).collect(Collectors.toList());
+        //화면에서는 url값 따로 안넘겨줌. #신승훈프로와 협의
+        List<UrlDTO> urlDTOs = UrlUtil.generateUrl(function.getName(), function.getRegion(),"none");
+        urlDTOs.stream().forEach(urlDTO -> reqDto.add(FunctionEnvironmentDTO.Register.builder().type("url").key(urlDTO.getProtocol()).value(urlDTO.getUrl()).build()));
+
+        sortFunctionEnvironment(reqDto);
+        sortFunctionEnvironment(dbItems);
+
+        if (checkEnvironmentKeyValueUpdate(reqDto, dbItems)) {
+            functionEnvironmentRepository.deleteByFunction(function);
+            AtomicInteger counter = new AtomicInteger(0);
+
+
+            reqDto.stream().forEach(dto -> registerFunctionEnvironment(dto, function,counter));
+            if(counter.get() > MAX_NUM_ENV) {
+                throw new RuntimeException("환경변수는 50개를 초과할 수 없습니다.");
+            }
+            knativeService.callIstioAndKnative(function);
+
+        }
+
+        functions = functionEnvironmentRepository.findByFunction(function);
+
+        return functions.stream().map(FunctionEnvironment::toDto).collect(Collectors.toList());
+    }
+
+
+    private boolean checkEnvironmentKeyValueUpdate(List<FunctionEnvironmentDTO.Register> reqItems, List<FunctionEnvironmentDTO.Register> dbItems) {
+        if (reqItems.size() != dbItems.size()) {
+            return true;
+        }
+
+        for (int i = 0; i < reqItems.size(); i++) {
+            if (!StringUtils.equals(reqItems.get(i).getType(), dbItems.get(i).getType()) ||
+                    !StringUtils.equals(reqItems.get(i).getKey(), dbItems.get(i).getKey())||
+                    !StringUtils.equals(reqItems.get(i).getValue(), dbItems.get(i).getValue())
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void sortFunctionEnvironment(List<FunctionEnvironmentDTO.Register> items) {
+        Collections.sort(items, new Comparator<FunctionEnvironmentDTO.Register>() {
+            @Override
+            public int compare(FunctionEnvironmentDTO.Register p1, FunctionEnvironmentDTO.Register p2) {
+                return new CompareToBuilder().append(p1.getType(), p2.getType()).append(p1.getKey(), p2.getKey()).append(p1.getValue(), p2.getValue()).toComparison();
+            }
+        });
+    }
+
+    public List<FunctionEnvironmentDTO.Response> searchFunctionEnvironment(String functionKey) {
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new RuntimeException("펑션키를 입력해주세요"));
+        List<FunctionEnvironment> environments = functionEnvironmentRepository.findByFunction(function);
+        return environments.stream().map(FunctionEnvironment::toDto).collect(Collectors.toList());
+    }
+
+}
