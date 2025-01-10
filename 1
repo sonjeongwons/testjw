@@ -1,243 +1,164 @@
-package com.scf.manager.mvc.service;
+안녕하세요 팀원 여러분! 😊
+코드 작성하시느라 정말 고생 많으셨습니다. 전체적으로 비즈니스 로직이 명확하고 각 기능이 잘 구현되어 있어서 정말 인상 깊었습니다. 다만, 조금 더 가독성과 유지보수성을 높일 수 있는 몇 가지 개선 아이디어를 공유드릴게요. 몇 가지 피드백과 제안 사항을 드리지만, 이미 잘 작성된 코드라 약간의 다듬기 정도라고 생각하시면 좋을 것 같아요!
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.nimbusds.jose.JOSEException;
-import com.nimbusds.jose.JWSAlgorithm;
-import com.nimbusds.jose.JWSHeader;
-import com.nimbusds.jose.JWSSigner;
-import com.nimbusds.jose.crypto.RSASSASigner;
-import com.nimbusds.jose.jwk.RSAKey;
-import com.nimbusds.jwt.JWTClaimsSet;
-import com.nimbusds.jwt.SignedJWT;
-import com.scf.manager.common.exception.ResourceNotFoundException;
-import com.scf.manager.common.util.AppUtil;
-import com.scf.manager.common.util.UrlUtil;
-import com.scf.manager.mvc.domain.AllowIp;
-import com.scf.manager.mvc.domain.Function;
-import com.scf.manager.mvc.domain.FunctionEnvironment;
-import com.scf.manager.mvc.dto.*;
-import com.scf.manager.mvc.repository.AllowIpRepository;
-import com.scf.manager.mvc.repository.FunctionEnvironmentRepository;
-import com.scf.manager.mvc.repository.FunctionRepository;
-import com.scf.manager.mvc.repository.KeyManagerRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.builder.CompareToBuilder;
-import org.springframework.data.domain.Page;
-import org.springframework.transaction.annotation.Transactional;
+1. registerFunctionToken 메서드 관련
+이 메서드에서 JWT 생성, 서명, 저장 로직이 모두 한곳에 몰려 있어서 조금 복잡해 보였어요.
+JWT 생성 로직을 별도의 메서드로 분리하면 코드가 훨씬 간결해지고 재사용성도 좋아질 것 같아요.
 
-import java.io.IOException;
-import java.text.ParseException;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
+제안:
 
-import static com.scf.manager.common.constants.Constants.*;
-import static com.scf.manager.common.constants.ExceptionConst.FILE_TYPE_EXCEPTION;
+JWT 생성 로직을 generateToken(Function function) 메서드로 분리.
+가독성이 좋아지고, 향후 다른 메서드에서도 토큰 생성이 필요할 때 재사용 가능해질 거예요.
+java
+코드 복사
+@Transactional
+public FunctionDTO.Response registerFunctionToken(String functionKey) throws ParseException, JOSEException, JsonProcessingException {
+    Function function = functionRepository.findByFunctionKey(functionKey)
+            .orElseThrow(() -> new ResourceNotFoundException("펑션키가 존재하지않습니다."));
+    
+    String token = generateToken(function); // 토큰 생성 로직 분리
+    function.updateToken(token);
 
-@Slf4j
-@org.springframework.stereotype.Service
-@RequiredArgsConstructor
-public class FunctionEnvironmentService {
+    return function.toDto();
+}
 
-    private final FunctionRepository functionRepository;
-    private final FunctionEnvironmentRepository functionEnvironmentRepository;
-    private final FunctionService functionService;
-    private final KnativeService knativeService;
+private String generateToken(Function function) throws JOSEException, JsonProcessingException {
+    TokenDTO.Register reqDto = new TokenDTO.Register();
+    reqDto.setFunction(function);
+    reqDto.setKeyId(function.getFunctionKey());
 
+    RSAKey rsaJWK = RSAKey.parse(functionService.registerJWK(reqDto));
+    JWSSigner signer = new RSASSASigner(rsaJWK);
 
-    @Transactional
-    public FunctionDTO.Response registerFunctionToken(String functionKey) throws ParseException, JOSEException, JsonProcessingException {
-        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("펑션키가 존재하지않습니다."));
+    JWTClaimsSet claimsSet = new JWTClaimsSet.Builder()
+            .subject(function.getName())
+            .issuer("https://scp.com")
+            .expirationTime(new Date(new Date().getTime() + YEAR_SIZE_100))
+            .build();
 
-        TokenDTO.Register reqDto = new TokenDTO.Register();
-        reqDto.setFunction(function);
-        reqDto.setKeyId(function.getFunctionKey());
+    SignedJWT signedJWT = new SignedJWT(
+            new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(rsaJWK.getKeyID()).build(),
+            claimsSet);
 
-        RSAKey rsaJWK = RSAKey.parse(functionService.registerJWK(reqDto));
+    signedJWT.sign(signer);
+    return signedJWT.serialize();
+}
+효과:
 
-        JWSSigner signer = new RSASSASigner(rsaJWK);
+메서드의 책임을 분리해 이해하기 쉬워지고, 테스트 코드 작성도 훨씬 간단해질 거예요.
+2. registerFunctionEnvironment 메서드 관련
+현재 이 메서드에서 여러 검증 로직(checkEnvironmentX)들이 호출되고 있는데, 검증 로직들이 함수 안에 섞여 있어서 복잡해 보였어요.
+이 검증 로직들을 Validator 클래스로 묶으면 가독성도 좋아지고, 나중에 추가 검증 로직이 필요해도 확장하기 쉬울 것 같아요.
 
-        JWTClaimsSet claimsSet = new JWTClaimsSet.Builder()
-                .subject(function.getName())
-                .issuer("https://scp.com")
-                .expirationTime(new Date(new Date().getTime() + YEAR_SIZE_100))
-                .build();
+제안:
 
-        SignedJWT signedJWT = new SignedJWT(
-                new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(rsaJWK.getKeyID()).build(),
-                claimsSet);
+EnvironmentValidator라는 클래스를 만들어 검증 로직을 분리.
+메인 로직은 "검증 → 저장 → DTO 반환" 순서로 간결하게 유지.
+java
+코드 복사
+public FunctionEnvironmentDTO.Response registerFunctionEnvironment(FunctionEnvironmentDTO.Register reqDto, Function function, AtomicInteger envCountChecker) {
+    EnvironmentValidator.validate(reqDto, envCountChecker); // 검증 로직 외부로 분리
+    reqDto.setFunctionSeq(function.getFunctionSeq());
 
-        // Compute the RSA signature
-        signedJWT.sign(signer);
+    FunctionEnvironment functionEnvironment = functionEnvironmentRepository.save(FunctionEnvironment.register(reqDto));
+    return functionEnvironment.toDto();
+}
 
-        String token = signedJWT.serialize();
-        function.updateToken(token);
-
-        return function.toDto();
-    }
-
-
-    public FunctionEnvironmentDTO.Response registerFunctionEnvironment(FunctionEnvironmentDTO.Register reqDto, Function function,AtomicInteger envCountChecker) {
-
+// Validator 클래스 예시
+public class EnvironmentValidator {
+    public static void validate(FunctionEnvironmentDTO.Register reqDto, AtomicInteger envCountChecker) {
         checkEnvironmentColdStart(reqDto);
         checkEnvironmentEnv(reqDto, envCountChecker);
         checkEnvironmentMemory(reqDto);
         checkEnvironmentLimit(reqDto);
         checkEnvironmentUrl(reqDto);
         checkEnvironmentToken(reqDto);
-
-        reqDto.setFunctionSeq(function.getFunctionSeq());
-        FunctionEnvironment functionEnvironment = functionEnvironmentRepository.save(FunctionEnvironment.register(reqDto));
-
-        return functionEnvironment.toDto();
     }
 
-    private static void checkEnvironmentToken(FunctionEnvironmentDTO.Register reqDto) {
-        if ("token".equals(reqDto.getType())) {
-            if("Y".equals(reqDto.getValue()) && StringUtils.isEmpty(reqDto.getKey())){
-                throw new RuntimeException("토큰값이 Y 인경우 키를 입력해주십시오.");
-            }
-
-            if("N".equals(reqDto.getValue()) && StringUtils.isNotEmpty(reqDto.getKey())){
-                throw new RuntimeException("토큰값이 N 인경우 키를 입력할 수 없습니다.");
-            }
-
-            if(!"Y".equals(reqDto.getValue()) && !"N".equals(reqDto.getValue())) {
-                throw new RuntimeException("토큰사용여부 값을 확인해주십시오.");
-            }
-        }
-    }
-
-    private static void checkEnvironmentUrl(FunctionEnvironmentDTO.Register reqDto) {
-        if ("url".equals(reqDto.getType())) {
-            if (!"http".equals(reqDto.getKey()) && !"https".equals(reqDto.getKey()))
-                throw new RuntimeException("키의 허용값은 http 또는 https 입니다.");
-            if (StringUtils.isEmpty(reqDto.getValue())) throw new RuntimeException("함수 주소값이 입력되지않았습니다.");
-        }
-    }
-
-    private static void checkEnvironmentLimit(FunctionEnvironmentDTO.Register reqDto) {
-        if ("limit".equals(reqDto.getType())) {
-            if (!"minute".equals(reqDto.getKey()) && !"second".equals(reqDto.getKey()))
-                throw new RuntimeException("제한시간의 key는 minute 과 second 로 입력해야합니다.");
-            if (!StringUtils.isNumeric(reqDto.getValue())) throw new RuntimeException("제한시간을 숫자타입으로 입력해주세요.");
-        }
-    }
-
-    private static void checkEnvironmentMemory(FunctionEnvironmentDTO.Register reqDto) {
-        if ("memory".equals(reqDto.getType())) {
-            if (!StringUtils.isNumeric(reqDto.getValue())) throw new RuntimeException("메모리의 값을 숫자타입으로 입력해주십시오.");
-            if (Integer.parseInt(reqDto.getValue()) < MIN_MEMORY_VALUE) {
-                throw new RuntimeException("메모리의 값을 128이상 입력해주십시오");
-            }
-        }
-    }
-
-    private static void checkEnvironmentEnv(FunctionEnvironmentDTO.Register reqDto, AtomicInteger envCountChecker) {
-        if ("env".equals(reqDto.getType())) {
-            envCountChecker.getAndIncrement();
-            log.info("envCountChecker = " + envCountChecker);
-            if (StringUtils.isEmpty(reqDto.getKey())) {
-                throw new RuntimeException("환경변수의 키를 공백으로 넣을 수 없습니다.");
-            }
-            if(reqDto.getKey().contains(" ")){
-                throw new RuntimeException("환경변수의 키는 공백을 포함할 수 없습니다.");
-            }
-            String first = reqDto.getKey().substring(0,1);
-
-            if (Pattern.matches("^[\\d]$", first)) {
-                throw new RuntimeException("환경변수의 키는 숫자로 시작할 수 없습니다.");
-            }
-            if(!Pattern.matches("^[a-zA-Z0-9._-]*$", reqDto.getKey())){
-                throw new RuntimeException("환경변수는 영문 a-z,A-Z 숫자0-9 특수문자._- 외에는 입력할 수 없습니다.");
-            }
-
-            if(reqDto.getKey().length() > MIN_KEY_LENGTH){
-                throw new RuntimeException("키의 길이는 50자를 넘을수 없습니다.");
-            }
-            if(StringUtils.isEmpty(reqDto.getValue()) && reqDto.getValue().length()>50){
-                throw new RuntimeException("value 의 길이는 50자를 넘을수 없습니다.");
-            }
-        }
-    }
-
-    private static void checkEnvironmentColdStart(FunctionEnvironmentDTO.Register reqDto) {
-        if ("coldStartYn".equals(reqDto.getType())) {
-            if (!"Y".equals(reqDto.getValue()) && !"N".equals(reqDto.getValue()))
-                throw new RuntimeException("콜드스타트여부는 Y 또는 N으로 입력해주세요");
-        }
-    }
-
-    @Transactional
-    public List<FunctionEnvironmentDTO.Response> registerAll(List<FunctionEnvironmentDTO.Register> reqDto, String functionKey) throws IOException, ParseException {
-        // id가 update ,없으면 insert
-        // update시 변경여부가 있는체크해야함.
-        // 기존 구성과 전체 내역을 비교해서 변경건이 있는지를 체크해야함
-        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new RuntimeException("펑션키를 입력해주세요"));
-        List<FunctionEnvironment> functions = functionEnvironmentRepository.findByFunction(function);
-
-
-
-
-        List<FunctionEnvironmentDTO.Register> dbItems = functions.stream().map(f -> FunctionEnvironmentDTO.Register.builder().key(f.getKey()).value(f.getValue()).type(f.getType()).functionSeq(function.getFunctionSeq()).build()).collect(Collectors.toList());
-        //화면에서는 url값 따로 안넘겨줌. #신승훈프로와 협의
-        List<UrlDTO> urlDTOs = UrlUtil.generateUrl(function.getName(), function.getRegion(),"none");
-        urlDTOs.stream().forEach(urlDTO -> reqDto.add(FunctionEnvironmentDTO.Register.builder().type("url").key(urlDTO.getProtocol()).value(urlDTO.getUrl()).build()));
-
-        sortFunctionEnvironment(reqDto);
-        sortFunctionEnvironment(dbItems);
-
-        if (checkEnvironmentKeyValueUpdate(reqDto, dbItems)) {
-            functionEnvironmentRepository.deleteByFunction(function);
-            AtomicInteger counter = new AtomicInteger(0);
-
-
-            reqDto.stream().forEach(dto -> registerFunctionEnvironment(dto, function,counter));
-            if(counter.get() > MAX_NUM_ENV) {
-                throw new RuntimeException("환경변수는 50개를 초과할 수 없습니다.");
-            }
-            knativeService.callIstioAndKnative(function);
-
-        }
-
-        functions = functionEnvironmentRepository.findByFunction(function);
-
-        return functions.stream().map(FunctionEnvironment::toDto).collect(Collectors.toList());
-    }
-
-
-    private boolean checkEnvironmentKeyValueUpdate(List<FunctionEnvironmentDTO.Register> reqItems, List<FunctionEnvironmentDTO.Register> dbItems) {
-        if (reqItems.size() != dbItems.size()) {
-            return true;
-        }
-
-        for (int i = 0; i < reqItems.size(); i++) {
-            if (!StringUtils.equals(reqItems.get(i).getType(), dbItems.get(i).getType()) ||
-                    !StringUtils.equals(reqItems.get(i).getKey(), dbItems.get(i).getKey())||
-                    !StringUtils.equals(reqItems.get(i).getValue(), dbItems.get(i).getValue())
-            ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void sortFunctionEnvironment(List<FunctionEnvironmentDTO.Register> items) {
-        Collections.sort(items, new Comparator<FunctionEnvironmentDTO.Register>() {
-            @Override
-            public int compare(FunctionEnvironmentDTO.Register p1, FunctionEnvironmentDTO.Register p2) {
-                return new CompareToBuilder().append(p1.getType(), p2.getType()).append(p1.getKey(), p2.getKey()).append(p1.getValue(), p2.getValue()).toComparison();
-            }
-        });
-    }
-
-    public List<FunctionEnvironmentDTO.Response> searchFunctionEnvironment(String functionKey) {
-        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new RuntimeException("펑션키를 입력해주세요"));
-        List<FunctionEnvironment> environments = functionEnvironmentRepository.findByFunction(function);
-        return environments.stream().map(FunctionEnvironment::toDto).collect(Collectors.toList());
-    }
-
+    // 기존의 개별 check 메서드들 포함
 }
+효과:
+
+registerFunctionEnvironment 메서드가 깔끔해지고 검증 로직이 독립적으로 관리되어 가독성, 유지보수성, 테스트 편의성이 향상됩니다.
+3. registerAll 메서드 관련
+이 메서드는 정말 많은 책임을 담당하고 있네요!
+변경 여부 확인, 환경변수 등록, 삭제 등 다양한 작업이 한꺼번에 이루어지고 있어서 코드 읽기가 조금 힘들었어요.
+
+제안:
+
+변경 여부 확인 로직을 별도 메서드로 분리.
+환경변수 업데이트 로직도 별도 메서드로 분리.
+java
+코드 복사
+@Transactional
+public List<FunctionEnvironmentDTO.Response> registerAll(List<FunctionEnvironmentDTO.Register> reqDto, String functionKey) throws IOException, ParseException {
+    Function function = functionRepository.findByFunctionKey(functionKey)
+            .orElseThrow(() -> new RuntimeException("펑션키를 입력해주세요"));
+
+    List<FunctionEnvironment> existingFunctions = functionEnvironmentRepository.findByFunction(function);
+    List<FunctionEnvironmentDTO.Register> dbItems = mapToRegisterDTOs(existingFunctions, function);
+
+    if (isEnvironmentUpdated(reqDto, dbItems)) {
+        updateFunctionEnvironments(reqDto, function);
+        knativeService.callIstioAndKnative(function);
+    }
+
+    List<FunctionEnvironment> updatedFunctions = functionEnvironmentRepository.findByFunction(function);
+    return updatedFunctions.stream().map(FunctionEnvironment::toDto).collect(Collectors.toList());
+}
+
+private boolean isEnvironmentUpdated(List<FunctionEnvironmentDTO.Register> reqItems, List<FunctionEnvironmentDTO.Register> dbItems) {
+    if (reqItems.size() != dbItems.size()) return true;
+
+    for (int i = 0; i < reqItems.size(); i++) {
+        if (!reqItems.get(i).equals(dbItems.get(i))) return true;
+    }
+    return false;
+}
+
+private void updateFunctionEnvironments(List<FunctionEnvironmentDTO.Register> reqDto, Function function) {
+    functionEnvironmentRepository.deleteByFunction(function);
+    AtomicInteger counter = new AtomicInteger(0);
+    reqDto.forEach(dto -> registerFunctionEnvironment(dto, function, counter));
+    if (counter.get() > MAX_NUM_ENV) {
+        throw new RuntimeException("환경변수는 50개를 초과할 수 없습니다.");
+    }
+}
+효과:
+
+메서드 길이가 짧아져서 읽기 쉬워지고, 각 로직이 분리되어 유지보수가 쉬워집니다.
+나중에 환경변수 업데이트 로직만 테스트하거나 변경할 때도 편리해집니다.
+4. 공통 검증 로직 개선
+checkEnvironmentToken, checkEnvironmentUrl 등에서 비슷한 검증 로직이 반복되고 있는 게 보여요.
+이런 패턴을 공통화하면 중복 코드가 줄어들고, 검증 로직 추가/수정 시 작업량이 줄어들 것 같아요.
+
+제안:
+
+공통 검증 메서드 validateEnvironment를 만들어 활용.
+java
+코드 복사
+private static void validateEnvironment(String type, String value, Predicate<String> condition, String errorMessage) {
+    if (!condition.test(value)) {
+        throw new RuntimeException(errorMessage);
+    }
+}
+
+private static void checkEnvironmentToken(FunctionEnvironmentDTO.Register reqDto) {
+    if ("token".equals(reqDto.getType())) {
+        validateEnvironment(reqDto.getValue(), val -> "Y".equals(val) || "N".equals(val), "토큰사용여부 값을 확인해주십시오.");
+        if ("Y".equals(reqDto.getValue())) {
+            validateEnvironment(reqDto.getKey(), StringUtils::isNotEmpty, "토큰값이 Y 인경우 키를 입력해주십시오.");
+        } else if ("N".equals(reqDto.getValue())) {
+            validateEnvironment(reqDto.getKey(), StringUtils::isEmpty, "토큰값이 N 인경우 키를 입력할 수 없습니다.");
+        }
+    }
+}
+효과:
+
+반복되는 검증 로직이 줄어들어 코드가 간결해지고 유지보수성이 높아집니다.
+마무리
+작성해주신 코드는 비즈니스 로직이 잘 담겨 있고, 구조도 깔끔한 편이라 수정 없이도 충분히 활용 가능해 보입니다.
+다만, 가독성과 유지보수를 위해 위와 같은 개선을 더하면 장기적으로 큰 효과를 볼 수 있을 거예요!
+꼼꼼히 작성해주셔서 감사드리고, 항상 수고 많으십니다. 💪
+
+혹시 추가로 설명이 필요하거나 다른 아이디어가 있으시면 편하게 말씀해주세요! 🙏
