@@ -1,3 +1,17 @@
+수정된 FileManagerApiController 코드
+수정된 Controller 코드는 FileManagerService의 리팩토링된 메서드 구조와 정합성을 유지하도록 수정되었습니다. 주로 다음과 같은 사항을 수정했습니다:
+
+saveFile과 uploadFiles 메서드 이름 변경에 따른 Controller 메서드 수정
+
+saveImage → uploadSingleFile, uploadMultipleFiles로 변경하여 더 명확한 이름을 사용했습니다.
+ResponseEntity에서 적절한 상태 코드를 반환하도록 수정
+
+파일 저장 성공 시 201 CREATED를 반환.
+Swagger 주석 내용 수정
+
+다건 등록과 단건 등록의 차이를 명확히 했습니다.
+java
+코드 복사
 package com.scf.manager.mvc.api;
 
 import com.scf.manager.mvc.dto.FileManagerDTO;
@@ -6,6 +20,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -14,35 +29,35 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import jakarta.validation.Valid;
 import java.io.UnsupportedEncodingException;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
 
 @Slf4j
-@Tag(name = "파일매니저 관리 API",description = "파일매니저 관리 API")
+@Tag(name = "파일매니저 관리 API", description = "파일매니저 관리 API")
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/filemanager")
 public class FileManagerApiController {
-	private final FileManagerService fileManagerService;
+
+    private final FileManagerService fileManagerService;
 
     @PostMapping("")
-    @Operation(summary = "파일매니저 단건 등록", description = "파일매니저 단건을 등록합니다")
+    @Operation(summary = "파일매니저 단건 등록", description = "파일매니저 단건을 등록합니다.")
     public ResponseEntity<FileManagerDTO.Response> registerFileManager(@Valid @RequestBody FileManagerDTO.Register reqDto) {
         FileManagerDTO.Response response = fileManagerService.registerFileManager(reqDto);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping("")
-    @Operation(summary = "파일매니저 전체 목록 조회", description = "파일매니저 전체 목록을 조회합니다")
+    @Operation(summary = "파일매니저 전체 목록 조회", description = "파일매니저 전체 목록을 조회합니다.")
     public ResponseEntity<Page<FileManagerDTO.Response>> searchAllFileManager(FileManagerDTO.Search reqDto) {
         Page<FileManagerDTO.Response> response = fileManagerService.searchAllFileManager(reqDto);
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
     @GetMapping("/{fileSeq}")
-    @Operation(summary = "파일매니저 단건 조회", description = "파일매니저 단건을 조회합니다")
+    @Operation(summary = "파일매니저 단건 조회", description = "파일매니저 단건을 조회합니다.")
     @Parameters({
             @Parameter(name = "fileSeq", description = "파일 일련번호", required = true, example = "1"),
     })
@@ -52,24 +67,47 @@ public class FileManagerApiController {
     }
 
     @PutMapping("/{fileSeq}")
-    @Operation(summary = "파일매니저 단건 수정", description = "파일매니저 단건을 수정합니다")
+    @Operation(summary = "파일매니저 단건 수정", description = "파일매니저 단건을 수정합니다.")
     @Parameters({
             @Parameter(name = "fileSeq", description = "파일 일련번호", required = true, example = "1"),
     })
-    public ResponseEntity<FileManagerDTO.Response> modifyFileManager(@PathVariable("fileSeq") Long fileSeq
-                                          , @Valid @RequestBody FileManagerDTO.Modify reqDto) {
+    public ResponseEntity<FileManagerDTO.Response> modifyFileManager(@PathVariable("fileSeq") Long fileSeq,
+                                                                      @Valid @RequestBody FileManagerDTO.Modify reqDto) {
         FileManagerDTO.Response response = fileManagerService.modifyFileManager(fileSeq, reqDto);
-        return ResponseEntity.status(HttpStatus.RESET_CONTENT).body(response);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
-    @PostMapping("multiple")
-    @Operation(summary = "파일 다건 등록", description = "파일을 다건으로 등록합니다")
-    public ResponseEntity<List<FileManagerDTO.Response>> saveImage(@RequestPart("files") List<MultipartFile> files) throws UnsupportedEncodingException, NoSuchAlgorithmException {
-        return ResponseEntity.status(HttpStatus.OK).body(fileManagerService.uploadFiles(files));
+    @PostMapping("/multiple")
+    @Operation(summary = "다중 파일 업로드", description = "여러 파일을 한 번에 업로드합니다.")
+    public ResponseEntity<List<FileManagerDTO.Response>> uploadMultipleFiles(@RequestPart("files") List<MultipartFile> files)
+            throws UnsupportedEncodingException, NoSuchAlgorithmException {
+        List<FileManagerDTO.Response> response = fileManagerService.uploadFiles(files);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
-    @PostMapping("single")
-    @Operation(summary = "파일 단건 등록", description = "파일을 다건으로 등록합니다")
-    public ResponseEntity<FileManagerDTO.Response> saveImage(@RequestPart("file") MultipartFile file) throws UnsupportedEncodingException, NoSuchAlgorithmException {
-        return ResponseEntity.status(HttpStatus.OK).body(fileManagerService.uploadFile(file));
+
+    @PostMapping("/single")
+    @Operation(summary = "단일 파일 업로드", description = "단일 파일을 업로드합니다.")
+    public ResponseEntity<FileManagerDTO.Response> uploadSingleFile(@RequestPart("file") MultipartFile file)
+            throws UnsupportedEncodingException, NoSuchAlgorithmException {
+        FileManagerDTO.Response response = fileManagerService.uploadFile(file);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 }
+변경된 사항 요약
+메서드 이름 변경
+
+saveImage → uploadSingleFile, uploadMultipleFiles: 파일 업로드 동작을 더 명확히 표현했습니다.
+HTTP 상태 코드 수정
+
+파일 등록 시 성공적으로 업로드된 경우 201 CREATED 상태 코드로 반환.
+Swagger 주석 수정
+
+Swagger에서 다중 파일과 단일 파일 업로드의 차이를 명확히 설명.
+에러 핸들링 정합성 유지
+
+FileManagerService에서 발생하는 예외를 컨트롤러로 적절히 전달.
+기대 효과
+가독성 향상: 메서드 명명 규칙이 개선되어 코드 의도가 명확해졌습니다.
+정합성 유지: 서비스 레이어와 컨트롤러 간 메서드 호출 구조가 일치하도록 조정했습니다.
+API 사용자 경험 개선: Swagger 문서와 HTTP 상태 코드의 일관성으로 사용자 경험이 향상됩니다.
+코드에 대해 더 궁금한 점이 있거나 추가 개선이 필요하다면 언제든 이야기해주세요! 😊
