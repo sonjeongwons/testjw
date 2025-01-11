@@ -1,185 +1,75 @@
-리팩토링과 클린코드 관점에서의 리뷰 코멘트
+package com.scf.manager.mvc.api;
 
+import com.scf.manager.mvc.dto.FileManagerDTO;
+import com.scf.manager.mvc.service.FileManagerService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.Parameters;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
----
+import jakarta.validation.Valid;
+import java.io.UnsupportedEncodingException;
+import java.security.NoSuchAlgorithmException;
+import java.util.List;
 
-1. initializeApiConfig 메서드
+@Slf4j
+@Tag(name = "파일매니저 관리 API",description = "파일매니저 관리 API")
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/v1/filemanager")
+public class FileManagerApiController {
+	private final FileManagerService fileManagerService;
 
-private void initializeApiConfig(String endpointUrl, String accessKey, String secretKey, String projectId, String masterKey) {
-    this.kmsApiBaseUri = endpointUrl;
-    this.accessKey = accessKey;
-    this.accessSecretKey = secretKey;
-    this.method = "POST";
-    this.headerProjectId = projectId;
-    this.headerClientType = "OpenApi";
-    this.keyName = masterKey; // masterKey는 null일 수 있음.
-}
+    @PostMapping("")
+    @Operation(summary = "파일매니저 단건 등록", description = "파일매니저 단건을 등록합니다")
+    public ResponseEntity<FileManagerDTO.Response> registerFileManager(@Valid @RequestBody FileManagerDTO.Register reqDto) {
+        FileManagerDTO.Response response = fileManagerService.registerFileManager(reqDto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
 
-코멘트:
+    @GetMapping("")
+    @Operation(summary = "파일매니저 전체 목록 조회", description = "파일매니저 전체 목록을 조회합니다")
+    public ResponseEntity<Page<FileManagerDTO.Response>> searchAllFileManager(FileManagerDTO.Search reqDto) {
+        Page<FileManagerDTO.Response> response = fileManagerService.searchAllFileManager(reqDto);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
 
-이 메서드는 API 설정을 초기화하는 역할을 잘 수행하고 있네요! 👏 단, masterKey가 null일 수 있다는 점을 명확히 하기 위해 JavaDoc 주석을 추가하면 더 좋을 것 같아요.
+    @GetMapping("/{fileSeq}")
+    @Operation(summary = "파일매니저 단건 조회", description = "파일매니저 단건을 조회합니다")
+    @Parameters({
+            @Parameter(name = "fileSeq", description = "파일 일련번호", required = true, example = "1"),
+    })
+    public ResponseEntity<FileManagerDTO.Response> searchFileManager(@PathVariable("fileSeq") Long fileSeq) {
+        FileManagerDTO.Response response = fileManagerService.searchFileManager(fileSeq);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
 
-또한, String 대신 Optional<String>을 사용하는 것도 고려해볼 수 있습니다. 이렇게 하면 null 처리를 명시적으로 다룰 수 있습니다.
+    @PutMapping("/{fileSeq}")
+    @Operation(summary = "파일매니저 단건 수정", description = "파일매니저 단건을 수정합니다")
+    @Parameters({
+            @Parameter(name = "fileSeq", description = "파일 일련번호", required = true, example = "1"),
+    })
+    public ResponseEntity<FileManagerDTO.Response> modifyFileManager(@PathVariable("fileSeq") Long fileSeq
+                                          , @Valid @RequestBody FileManagerDTO.Modify reqDto) {
+        FileManagerDTO.Response response = fileManagerService.modifyFileManager(fileSeq, reqDto);
+        return ResponseEntity.status(HttpStatus.RESET_CONTENT).body(response);
+    }
 
-
-예시 코드:
-
-private void initializeApiConfig(String endpointUrl, String accessKey, String secretKey, String projectId, Optional<String> masterKey) {
-    this.kmsApiBaseUri = endpointUrl;
-    this.accessKey = accessKey;
-    this.accessSecretKey = secretKey;
-    this.method = "POST";
-    this.headerProjectId = projectId;
-    this.headerClientType = "OpenApi";
-    this.keyName = masterKey.orElse(null); // masterKey가 없을 경우 기본값 처리
-}
-
-
----
-
-2. callKmsApi 메서드
-
-private JSONObject callKmsApi(String endpointTemplate, JSONObject payload) throws Exception {
-    String endpoint = String.format(endpointTemplate, keyName);
-    String url = kmsApiBaseUri + endpoint;
-    String timestamp = String.valueOf(System.currentTimeMillis());
-    String signature = generateHmacSignature(url, timestamp);
-
-    return performHttpPost(url, payload.toJSONString(), buildHeaders(timestamp, signature));
-}
-
-코멘트:
-
-API 호출 로직이 깔끔하게 분리되어 있어 좋습니다! 👍
-
-그러나 String.format과 keyName 의존성을 줄이기 위해 URI 빌더를 사용하면 코드의 가독성과 확장성이 더 좋아질 수 있습니다.
-
-
-예시 코드:
-
-private JSONObject callKmsApi(String endpointTemplate, JSONObject payload) throws Exception {
-    String url = UriComponentsBuilder.fromUriString(kmsApiBaseUri)
-        .path(endpointTemplate)
-        .buildAndExpand(keyName)
-        .toUriString();
-
-    String timestamp = String.valueOf(System.currentTimeMillis());
-    String signature = generateHmacSignature(url, timestamp);
-
-    return performHttpPost(url, payload.toJSONString(), buildHeaders(timestamp, signature));
-}
-
-
----
-
-3. generateHmacSignature 메서드
-
-private String generateHmacSignature(String url, String timestamp) {
-    try {
-        String body = method + url + timestamp + accessKey + headerProjectId + headerClientType;
-        byte[] message = body.getBytes(StandardCharsets.UTF_8);
-        byte[] secretKey = accessSecretKey.getBytes(StandardCharsets.UTF_8);
-
-        Mac mac = Mac.getInstance("HmacSHA256");
-        mac.init(new SecretKeySpec(secretKey, "HmacSHA256"));
-        return encodeBase64(mac.doFinal(message));
-    } catch (Exception e) {
-        throw new RuntimeException("Failed to calculate HMAC-SHA256 signature", e);
+    @PostMapping("multiple")
+    @Operation(summary = "파일 다건 등록", description = "파일을 다건으로 등록합니다")
+    public ResponseEntity<List<FileManagerDTO.Response>> saveImage(@RequestPart("files") List<MultipartFile> files) throws UnsupportedEncodingException, NoSuchAlgorithmException {
+        return ResponseEntity.status(HttpStatus.OK).body(fileManagerService.uploadFiles(files));
+    }
+    @PostMapping("single")
+    @Operation(summary = "파일 단건 등록", description = "파일을 다건으로 등록합니다")
+    public ResponseEntity<FileManagerDTO.Response> saveImage(@RequestPart("file") MultipartFile file) throws UnsupportedEncodingException, NoSuchAlgorithmException {
+        return ResponseEntity.status(HttpStatus.OK).body(fileManagerService.uploadFile(file));
     }
 }
-
-코멘트:
-
-HMAC 생성 로직이 명확하고 간결합니다. 👌 다만, generateHmacSignature가 내부적으로 어떤 프로세스를 다루는지 알기 어렵기 때문에 메서드 이름을 조금 더 구체적으로 변경하는 것이 좋을 것 같습니다. 예를 들어, createHmacSha256Signature처럼요.
-
-또한, Exception을 RuntimeException으로 래핑하는 대신, 더 구체적인 사용자 정의 예외를 던지면 디버깅에 더 유용할 수 있습니다.
-
-
-
----
-
-4. transferEnvEncrypt 메서드
-
-public String transferEnvEncrypt(DataKeyDTO.envEncrpyt reqDto, String functionKey) throws Exception {
-    initializeApiConfig(reqDto.getEndpointUrl(), reqDto.getAccessKey(), reqDto.getSecretKey(), reqDto.getProjectId(), reqDto.getMasterKey());
-    Map<String, String> envelope = buildEncryptionEnvelope(reqDto, functionKey);
-    return encryptWithKey(convertMapToJson(envelope), scfEncryptKey);
-}
-
-코멘트:
-
-기능이 잘 분리되어 있어 테스트 가능성이 높아 보입니다! 특히 buildEncryptionEnvelope와 같은 메서드로 로직이 나눠진 점이 훌륭합니다. 🎉
-
-하지만 transferEnvEncrypt라는 이름은 "데이터를 암호화한다"는 행위를 정확히 나타내지 못하는 것 같습니다. 더 명확한 이름으로 encryptEnvironmentVariables를 추천드립니다.
-
-또, 마지막에 encryptWithKey 메서드가 호출되는데, 암호화 실패 시의 예외 처리가 없어서 이를 처리할 예외 핸들링 로직을 추가하면 안전할 것 같습니다.
-
-
-
----
-
-5. performHttpPost 메서드
-
-private JSONObject performHttpPost(String url, String body, Map<String, String> headers) throws Exception {
-    HttpsURLConnection connection = null;
-    try {
-        URL endpoint = new URL(url);
-        connection = (HttpsURLConnection) endpoint.openConnection();
-        connection.setRequestMethod("POST");
-        connection.setDoOutput(true);
-        headers.forEach(connection::setRequestProperty);
-
-        try (OutputStream os = connection.getOutputStream()) {
-            os.write(body.getBytes(StandardCharsets.UTF_8));
-        }
-
-        int responseCode = connection.getResponseCode();
-        InputStream responseStream = (responseCode == 200)
-                ? connection.getInputStream()
-                : connection.getErrorStream();
-
-        return (JSONObject) new JSONParser().parse(new InputStreamReader(responseStream, StandardCharsets.UTF_8));
-    } finally {
-        if (connection != null) connection.disconnect();
-    }
-}
-
-코멘트:
-
-HTTP 요청 처리를 매우 깔끔하게 구현하셨습니다. 🌟
-
-그러나, 응답 코드가 200이 아닌 경우의 에러 처리를 메서드 내부에서 한 번 더 구체적으로 처리하면, 상위 호출 메서드에서 예외를 효율적으로 처리할 수 있을 것 같습니다.
-
-예를 들어, 응답 코드가 4xx 또는 5xx일 경우, 사용자 정의 예외를 던지는 방식도 고려해볼 수 있습니다.
-
-
-예시 코드:
-
-if (responseCode >= 400) {
-    throw new HttpClientErrorException(responseCode, "Error response received: " + responseCode);
-}
-
-
----
-
-칭찬 및 제안
-
-1. 칭찬: 메서드가 명확하게 분리되어 있어서 가독성과 유지보수성이 매우 뛰어납니다. 👏
-
-
-2. 제안: 주요 로직에서 공통적으로 사용하는 메서드(initializeApiConfig, buildHeaders)는 상위 클래스나 유틸 클래스로 추출하면 재사용성을 더욱 높일 수 있습니다.
-
-
-3. 마지막으로: 이번 리팩토링이 코드의 안전성과 가독성을 모두 향상시킬 것으로 확신합니다. 멋진 작업이에요! 😊
-
-
-
-
----
-
-Q1. generateHmacSignature 메서드에서 예외 처리를 더 세분화하려면 어떤 방법이 있을까?
-
-Q2. performHttpPost 메서드에 타임아웃 설정을 추가하면 어떤 장점이 있을까?
-
-Q3. 공통 설정 메서드를 상위 클래스로 추출하면 어떤 구조적인 이점이 있을까?
-
