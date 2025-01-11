@@ -1,128 +1,250 @@
-코드 리뷰 코멘트 – FunctionMetricService 클래스
-안녕하세요 팀원 여러분! 😊
-코드 작성하시느라 정말 고생 많으셨습니다. 전체적으로 기능이 잘 구현되어 있고, Prometheus와 통신하며 매트릭 데이터를 수집하는 구조가 명확합니다. 다만, 코드를 조금 더 간결하고 유지보수하기 쉽게 만들 수 있는 몇 가지 리팩토링 아이디어를 공유드리려고 합니다. 이 아이디어들은 가독성을 높이고, 중복을 줄이며, 장기적인 확장성을 고려한 것들이니 참고 부탁드려요!
+package com.scf.manager.mvc.service;
 
-1. 중복된 Prometheus 쿼리 생성 메서드 리팩토링
-문제점:
-generateQueryForRequestCount, generateQueryForRequestLatency 등 개별 메서드들이 유사한 패턴으로 쿼리를 생성하고 있어 중복 코드가 많습니다.
-매트릭 유형별로 새로운 쿼리가 필요할 때 메서드 추가가 반복될 가능성이 높습니다.
-개선 아이디어:
-쿼리 생성 로직을 하나의 공통 메서드로 통합하여 중복 제거.
-매트릭 유형, 서비스 이름, 시간 범위 등 필요한 값을 동적으로 처리하도록 개선.
-java
-코드 복사
-public String generatePrometheusQuery(String metricType, String functionName, String timeRange, String queryTiming) {
-    switch (metricType) {
-        case "requestCount":
-            return String.format("query=sum(rate(activator_request_count{service_name=\"%s\"}[%sm]))*60*%s&time=%s", functionName, timeRange, timeRange, queryTiming);
-        case "requestLatency":
-            return String.format("query=(sum(rate(activator_request_latencies_sum{service_name=\"%s\",response_code=\"200\"}[%sm])) / sum(rate(activator_request_latencies_count{service_name=\"%s\",response_code=\"200\"}[%sm])))/1000&time=%s",
-                functionName, timeRange, functionName, timeRange, queryTiming);
-        case "functionMemory":
-            return String.format("query=avg(avg_over_time(container_memory_working_set_bytes{pod=~\"%s-.*\", container=\"user-container\"}[%sm]))/1024&time=%s", functionName, timeRange, queryTiming);
-        default:
-            throw new IllegalArgumentException("지원하지 않는 매트릭 유형: " + metricType);
+import com.scf.manager.common.enums.ContentsType;
+import com.scf.manager.common.exception.FileException;
+import com.scf.manager.common.exception.ResourceNotFoundException;
+import com.scf.manager.mvc.domain.FileManager;
+import com.scf.manager.mvc.dto.FileManagerDTO;
+import com.scf.manager.mvc.repository.FileManagerRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.io.FilenameUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.ObjectUtils;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.List;
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class FileManagerService {
+    private final FileManagerRepository fileManagerRepository;
+    private String savePath = "files";
+    public static String[] videoAllows;
+
+    public static String[] imageAllows;
+
+    public static String[] audioAllows;
+
+    public static String[] pptAllows;
+    @Transactional
+    public FileManagerDTO.Response registerFileManager(FileManagerDTO.Register reqDto) {
+        FileManager fileManager = fileManagerRepository.save(
+                FileManager.register(reqDto)
+        );
+        return fileManager.toDto();
     }
-}
-변경 이유:
-중복된 쿼리 생성 메서드 제거로 코드가 간결해집니다.
-새로운 매트릭 유형이 추가될 때도 코드 수정이 최소화됩니다.
-2. HTTP 요청 처리 로직 분리
-문제점:
-getPrometheusMetric 메서드가 HTTP 요청과 응답 처리 로직을 모두 포함하고 있어 가독성이 떨어지고 테스트하기 어렵습니다.
-HTTP 요청 로직이 다른 곳에서도 재사용될 가능성이 있으므로, 이를 분리하는 것이 좋습니다.
-개선 아이디어:
-HTTP 요청 처리를 전담하는 유틸 클래스를 만들어 코드를 모듈화.
-java
-코드 복사
-public class HttpClientUtil {
-    public static String sendPostRequest(String url, String query, int timeout) throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-        connection.setConnectTimeout(timeout);
-        connection.setReadTimeout(timeout);
-        connection.setRequestMethod("POST");
-        connection.setDoOutput(true);
 
-        try (DataOutputStream outputStream = new DataOutputStream(connection.getOutputStream())) {
-            outputStream.writeBytes(query);
+    @Transactional(readOnly = true)
+    public Page<FileManagerDTO.Response> searchAllFileManager(FileManagerDTO.Search reqDto) {
+        return fileManagerRepository.searchAllFileManager(reqDto);
+    }
+
+    @Transactional(readOnly = true)
+    public FileManagerDTO.Response searchFileManager(Long fileSeq) {
+        FileManager fileManager = fileManagerRepository.findById(fileSeq).orElse(null);
+        if (ObjectUtils.isEmpty(fileManager)) {
+            throw new ResourceNotFoundException("파일매니저 데이터를 찾을 수 없습니다.");
         }
+        return fileManager.toDto();
+    }
 
-        if (connection.getResponseCode() == HttpURLConnection.HTTP_OK) {
-            try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
-                StringBuilder response = new StringBuilder();
-                String line;
-                while ((line = bufferedReader.readLine()) != null) {
-                    response.append(line);
-                }
-                return response.toString();
+    @Transactional
+    public FileManagerDTO.Response modifyFileManager(Long fileSeq, FileManagerDTO.Modify reqDto) {
+        FileManager fileManager = fileManagerRepository.findById(fileSeq).orElse(null);
+        if (ObjectUtils.isEmpty(fileManager)) {
+            throw new ResourceNotFoundException("파일매니저 데이터를 찾을 수 없습니다.");
+        }
+        fileManager.modify(reqDto);
+        fileManagerRepository.save(fileManager);
+        return fileManager.toDto();
+    }
+
+    public FileManagerDTO.Response saveFile(MultipartFile file) {
+
+        try {
+            if (file.isEmpty()) {
+                throw new Exception("ERROR : Fil is empty");
             }
-        } else {
-            throw new IOException("HTTP 요청 실패: " + connection.getResponseCode());
+            Path root = Paths.get(savePath);
+            if (!new File(savePath).exists()) {
+                new File(savePath).mkdir();
+                log.info(file.getOriginalFilename());
+            }
+            try (InputStream inputStream = file.getInputStream()) {
+
+                Files.copy(inputStream, root.resolve(file.getOriginalFilename()), StandardCopyOption.REPLACE_EXISTING);
+                return null;
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Not store the file ");
         }
     }
-}
-변경 이유:
-HTTP 요청 처리와 비즈니스 로직을 분리해 가독성 향상.
-다른 서비스에서도 HTTP 요청을 쉽게 재사용 가능.
-3. 매트릭 처리 로직 단순화
-문제점:
-getEachMetric 메서드에서 매트릭 수집 로직이 반복되고 있어 코드가 장황합니다.
-새로운 매트릭이 추가될 경우 수정할 부분이 많아질 가능성이 있습니다.
-개선 아이디어:
-매트릭 수집 로직을 공통 메서드로 추출하여 재사용성을 높입니다.
-java
-코드 복사
-private void processMetric(String metricType, URL url, String functionName, String queryTiming, String timeRange, Gson gson, List<FunctionMetricElementsListDTO> metricList) throws IOException {
-    String query = generatePrometheusQuery(metricType, functionName, timeRange, queryTiming);
-    String response = HttpClientUtil.sendPostRequest(url.toString(), query, timeOutValue);
-    metricList.add(gson.fromJson(response, FunctionMetricElementsListDTO.class));
-}
 
-private void getEachMetric(URL url, String functionName, String queryTiming, Gson g, List<FunctionMetricElementsListDTO> requestCountList, List<FunctionMetricElementsListDTO> requestLatencyList, List<FunctionMetricElementsListDTO> functionMemoryList, List<FunctionMetricElementsListDTO> actualPodsList, List<FunctionMetricElementsListDTO> successCountList, List<FunctionMetricElementsListDTO> failCountList, String timeRange) throws IOException {
-    processMetric("requestCount", url, functionName, queryTiming, timeRange, g, requestCountList);
-    processMetric("requestLatency", url, functionName, queryTiming, timeRange, g, requestLatencyList);
-    processMetric("functionMemory", url, functionName, queryTiming, timeRange, g, functionMemoryList);
-    processMetric("actualPods", url, functionName, queryTiming, timeRange, g, actualPodsList);
-    processMetric("successCount", url, functionName, queryTiming, timeRange, g, successCountList);
-    processMetric("failCount", url, functionName, queryTiming, timeRange, g, failCountList);
-}
-변경 이유:
-중복 로직 제거로 코드가 간결하고 이해하기 쉬워집니다.
-새로운 매트릭 추가 시 수정해야 할 코드 양이 줄어듭니다.
-4. 잘못된 매트릭 값 처리 로직 개선
-문제점:
-RequestLatencyMetricInvalidValueHandling 메서드의 조건문이 하드코딩되어 있어 유지보수가 어렵습니다.
-개선 아이디어:
-잘못된 값을 관리하는 상수나 리스트로 분리하여 가독성을 개선.
-java
-코드 복사
-private static final List<String> INVALID_VALUES = Arrays.asList("NaN", "Inf", "-Inf", "+Inf");
+    public List<FileManagerDTO.Response> uploadFiles(List<MultipartFile> files) throws UnsupportedEncodingException, NoSuchAlgorithmException {
+        List<FileManagerDTO.Response> docsList = new ArrayList<>();
+        for (MultipartFile multipartFile : files) {
+            String origFilename = multipartFile.getOriginalFilename();
+            if (origFilename == null || "".equals(origFilename))
+                continue;
+            setFileAuth(multipartFile, origFilename);
+        }
+        return null;
+    }
 
-private void handleInvalidMetricValues(FunctionMetricElementsListDTO element) {
-    if (!element.getData().getResult().isEmpty()) {
-        String metricValue = element.getData().getResult().get(0).getValue().get(1);
-        if (INVALID_VALUES.contains(metricValue)) {
-            element.getData().getResult().get(0).getValue().set(1, "0");
+    /** * 파일명 중복 방지를 위해 MD5(128비트 암호화 해시 함수) 파일명 생성 * * @param input */
+    public static String MD5Generator(String input) throws UnsupportedEncodingException, NoSuchAlgorithmException
+    {
+        MessageDigest mdMD5 = MessageDigest.getInstance("MD5");
+        mdMD5.update(input.getBytes("UTF-8"));
+        byte[] md5Hash = mdMD5.digest();
+        StringBuilder hexMD5hash = new StringBuilder();
+        for(byte b : md5Hash) { String hexString = String.format("%02x", b);
+            hexMD5hash.append(hexString);
+        }
+        return hexMD5hash.toString();
+    }
+    /**
+     * MediaType 생성
+     * @param filename
+     */
+    public static MediaType getMediaType(String filename) {
+        String contentType = FilenameUtils.getExtension(filename);
+        MediaType mediaType = null;
+        if (contentType.equals("png")) {
+            mediaType = MediaType.IMAGE_PNG;
+        } else if (contentType.equals("jpeg") || contentType.equals("jpg")) {
+            mediaType = MediaType.IMAGE_JPEG;
+        } else if (contentType.equals("gif")) {
+            mediaType = MediaType.IMAGE_GIF;
+        } else if (contentType.equals("mp4") || contentType.equals("wmv")|| contentType.equals("avi")) {
+            mediaType = MediaType.parseMediaType("video/mp4");
+        } else if (contentType.equals("zip")) {
+            mediaType = MediaType.parseMediaType("application/zip");
+        } else if (contentType.equals("pdf")) {
+            mediaType = MediaType.parseMediaType("application/pdf");
+        } else if (contentType.equals("ppt") || contentType.equals("pptx")) {
+            mediaType = MediaType.parseMediaType("application/vnd.ms-powerpoint");
+        } else if (contentType.equals("doc")) {
+            mediaType = MediaType.parseMediaType("application/msword");
+        }
+        return mediaType;
+    }
+    public static ContentsType checkContentType(MultipartFile file) {
+
+        ContentsType contentsType = getContentsTypeByExtension(getFileExtension(file.getOriginalFilename()));
+
+        return contentsType;
+    }
+    public static ContentsType getContentsTypeByExtension(String extension) {
+
+        if(isVideo(extension)) {
+            return ContentsType.Video;
+        }
+
+        if(isImage(extension)) {
+            return ContentsType.Image;
+        }
+
+        if(isAudio(extension)) {
+            return ContentsType.Audio;
+        }
+
+        if(isPpt(extension)) {
+            return ContentsType.PPT;
+        }
+
+        return ContentsType.ETC;
+    }
+//    public static String getFileExtension(FileInfo fileInfo) {
+//        return getFileExtension(fileInfo.getName());
+//    }
+
+    public static String getFileExtension(String fileName) {
+        String extension = "";
+
+        if (fileName != null && !fileName.isEmpty()) {
+
+            int i = fileName.lastIndexOf('.');
+            int p = Math.max(fileName.lastIndexOf('/'), fileName.lastIndexOf('\\'));
+
+            if (i > p) {
+                extension = fileName.substring(i + 1);
+            }
+        }
+
+        return extension;
+    }
+    private static Boolean isVideo(String extension) {
+        return isMatchedWithStringArray(videoAllows, extension);
+    }
+
+    private static Boolean isImage(String extension) {
+        return isMatchedWithStringArray(imageAllows, extension);
+    }
+
+    private static Boolean isAudio(String extension) {
+        return isMatchedWithStringArray(audioAllows, extension);
+    }
+
+    private static Boolean isPpt(String extension) {
+        return isMatchedWithStringArray(pptAllows, extension);
+    }
+
+    private static Boolean isMatchedWithStringArray(String[] allowed, String extension) {
+
+        for(String ext : allowed) {
+            if(extension.equalsIgnoreCase(ext.trim())){
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public FileManagerDTO.Response uploadFile(MultipartFile multipartFile) throws UnsupportedEncodingException, NoSuchAlgorithmException {
+        String origFilename = multipartFile.getOriginalFilename();
+
+        setFileAuth(multipartFile, origFilename);
+        return null;
+    }
+
+
+    private void setFileAuth(MultipartFile multipartFile, String origFilename) throws UnsupportedEncodingException, NoSuchAlgorithmException {
+        String filename = MD5Generator(FilenameUtils.getBaseName(origFilename)).toString();
+        String extension = FilenameUtils.getExtension(origFilename);
+        String filePath = Paths.get(savePath, filename).toString();
+        //FileInfo FileInfo = new FileInfo(content, multipartFile.getOriginalFilename(), filename, filePath, multipartFile.getSize());
+//            FileInfo fileInfo = new FileInfo( multipartFile.getOriginalFilename(), filename, filePath, multipartFile.getSize(),extension ,savePath);
+//            fileInfo.setContentType(checkContentType(multipartFile));
+//            fileList.add(fileInfo);
+
+        try {
+            File file = new File(filePath);
+            multipartFile.transferTo(file);
+            // 파일 권한 설정(쓰기, 읽기)
+            file.setWritable(true);
+            file.setReadable(true);
+        } catch (IOException e) {
+            throw new FileException("test");
+        } catch (Exception e) {
+            throw new FileException("[" + multipartFile.getOriginalFilename() + "] failed to save file...");
         }
     }
+
+
 }
-변경 이유:
-조건문이 간결해지고, 잘못된 값 목록 관리가 쉬워집니다.
-향후 새로운 잘못된 값이 추가되더라도 유지보수가 용이합니다.
-5. 조건문 단순화
-문제점:
-getMetricList 메서드에서 시간 조건에 따라 중첩된 조건문이 많아 가독성이 떨어집니다.
-개선 아이디어:
-공통 로직을 추출하고, 시간 범위 처리 로직을 분리하여 단순화합니다.
-java
-코드 복사
-private void processTimeRange(String time, Calendar cal, String timeUnit, int iterations, URL url, String functionName, Gson g, List<FunctionMetricElementsListDTO> requestCountList, List<FunctionMetricElementsListDTO> requestLatencyList, List<FunctionMetricElementsListDTO> functionMemoryList, List<FunctionMetricElementsListDTO> actualPodsList, List<FunctionMetricElementsListDTO> successCountList, List<FunctionMetricElementsListDTO> failCountList) throws IOException {
-    for (int i = 0; i < iterations; i++) {
-        String queryTiming = String.valueOf(new Date(cal.getTimeInMillis()).getTime() / 1000L);
-        getEachMetric(url, functionName, queryTiming, g, requestCountList, requestLatencyList, functionMemoryList, actualPodsList, successCountList, failCountList, timeUnit);
-        cal.add(Calendar.MINUTE, -Integer.parseInt(timeUnit));
-    }
-}
-총평
-작성해주신 코드는 Prometheus와의 통신 및 매트릭 데이터를 효율적으로 수집하는 구조로 잘 짜여 있습니다. 위 개선사항을 반영하면 코드의 가독성, 유지보수성, 확장성이 크게 향상될 것으로 기대됩니다. 특히, 중복 제거와 공통화는 장기적인 코드 품질 유지에 큰 도움이 될 것 같습니다.
-고생 많으셨고, 함께 더 좋은 코드로 개선해 나가요! 💪😊
