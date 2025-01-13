@@ -1,15 +1,11 @@
 j1.son@j1-son002 MINGW64 /c/project/demo (feature-cvc-scanner-first-init)
-$ git push origin develop --force
-Enumerating objects: 37, done.
-Counting objects: 100% (37/37), done.
-Delta compression using up to 20 threads
-Compressing objects: 100% (26/26), done.
-Writing objects: 100% (37/37), 94.45 KiB | 7.26 MiB/s, done.
-Total 37 (delta 0), reused 0 (delta 0), pack-reused 0
-remote: error: GH003: Sorry, force-pushing to develop is not allowed.
-To https://code.sdsdev.co.kr/sdspaas/cvc-scanner
- ! [remote rejected] develop -> develop (pre-receive hook declined)
-error: failed to push some refs to 'https://code.sdsdev.co.kr/sdspaas/cvc-scanner'
-
-j1.son@j1-son002 MINGW64 /c/project/demo (feature-cvc-scanner-first-init)
-$
+$ git pull origin develop
+remote: Enumerating objects: 14, done.
+remote: Counting objects: 100% (14/14), done.
+remote: Compressing objects: 100% (12/12), done.
+remote: Total 13 (delta 1), reused 0 (delta 0), pack-reused 0
+Unpacking objects: 100% (13/13), 1.52 KiB | 17.00 KiB/s, done.
+From https://code.sdsdev.co.kr/sdspaas/cvc-scanner
+ * branch            develop    -> FETCH_HEAD
+   eabc7d4..396b218  develop    -> origin/develop
+fatal: refusing to merge unrelated histories
