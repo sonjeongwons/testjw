@@ -1,120 +1,38 @@
-@Slf4j
-@Service
-@RequiredArgsConstructor
-public class FileManagerService {
-    private final FileManagerRepository fileManagerRepository;
+// Controller Class
+package com.example.demo.controller;
 
-    private static final String SAVE_PATH = "files";
-    private static final List<String> VIDEO_EXTENSIONS = List.of("mp4", "wmv", "avi");
-    private static final List<String> IMAGE_EXTENSIONS = List.of("png", "jpg", "jpeg", "gif");
-    private static final List<String> AUDIO_EXTENSIONS = List.of("mp3", "wav", "flac");
-    private static final List<String> PPT_EXTENSIONS = List.of("ppt", "pptx");
+import com.example.demo.service.V3ScannerService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 
-    /**
-     * 단일 파일 업로드
-     */
-    public FileManagerDTO.Response uploadFile(MultipartFile file) {
-        validateFile(file);
-        try {
-            Path root = createDirectoryIfNotExists(SAVE_PATH);
-            String uniqueFileName = generateUniqueFileName(file.getOriginalFilename());
-            Path filePath = root.resolve(uniqueFileName);
+import java.util.Map;
+import java.util.Properties;
 
-            Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
+@RestController
+@RequestMapping("/api/v1/scanner")
+public class V3ScannerController {
 
-            // 데이터베이스에 파일 정보 저장
-            FileManager fileManager = FileManager.builder()
-                    .originalFileName(file.getOriginalFilename())
-                    .storedFileName(uniqueFileName)
-                    .filePath(filePath.toString())
-                    .fileSize(file.getSize())
-                    .contentType(checkContentType(file).name())
-                    .build();
-            fileManagerRepository.save(fileManager);
+    @Autowired
+    private V3ScannerService v3ScannerService;
 
-            return fileManager.toDto();
-        } catch (IOException | NoSuchAlgorithmException e) {
-            throw new FileException("파일 업로드 중 오류 발생: " + file.getOriginalFilename(), e);
-        }
+    @GetMapping("/simple")
+    public ResponseEntity<Map<String, Object>> simpleScan(@RequestParam String filename) {
+        return ResponseEntity.ok(v3ScannerService.simpleScan(filename));
     }
 
-    /**
-     * 다중 파일 업로드
-     */
-    public List<FileManagerDTO.Response> uploadFiles(List<MultipartFile> files) {
-        List<FileManagerDTO.Response> responses = new ArrayList<>();
-        for (MultipartFile file : files) {
-            if (!file.isEmpty()) {
-                responses.add(uploadFile(file));
-            }
-        }
-        return responses;
+    @GetMapping("/remote")
+    public ResponseEntity<Map<String, Object>> remoteScan(@RequestParam String filename) {
+        return ResponseEntity.ok(v3ScannerService.remoteScan(filename));
     }
 
-    /**
-     * 파일명 중복 방지를 위한 고유 이름 생성
-     */
-    private String generateUniqueFileName(String originalFileName) throws NoSuchAlgorithmException {
-        String baseName = FilenameUtils.getBaseName(originalFileName);
-        String extension = FilenameUtils.getExtension(originalFileName);
-        String uniqueName = generateMD5(baseName + System.currentTimeMillis());
-        return uniqueName + (extension.isEmpty() ? "" : "." + extension);
-    }
-
-    /**
-     * MD5 해시 생성
-     */
-    private static String generateMD5(String input) throws NoSuchAlgorithmException {
-        MessageDigest md = MessageDigest.getInstance("MD5");
-        byte[] hash = md.digest(input.getBytes());
-        StringBuilder hexString = new StringBuilder();
-        for (byte b : hash) {
-            hexString.append(String.format("%02x", b));
-        }
-        return hexString.toString();
-    }
-
-    /**
-     * 파일 검증 유틸
-     */
-    private void validateFile(MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new FileException("업로드된 파일이 비어있습니다.");
-        }
-    }
-
-    /**
-     * 콘텐츠 타입 체크
-     */
-    private static ContentsType checkContentType(MultipartFile file) {
-        String extension = getFileExtension(file.getOriginalFilename());
-        if (VIDEO_EXTENSIONS.contains(extension)) return ContentsType.Video;
-        if (IMAGE_EXTENSIONS.contains(extension)) return ContentsType.Image;
-        if (AUDIO_EXTENSIONS.contains(extension)) return ContentsType.Audio;
-        if (PPT_EXTENSIONS.contains(extension)) return ContentsType.PPT;
-        return ContentsType.ETC;
-    }
-
-    /**
-     * 파일 확장자 추출
-     */
-    private static String getFileExtension(String filename) {
-        if (filename == null || filename.isEmpty()) return "";
-        return FilenameUtils.getExtension(filename).toLowerCase();
-    }
-
-    /**
-     * 디렉토리 생성 유틸
-     */
-    private Path createDirectoryIfNotExists(String path) {
-        try {
-            Path dir = Paths.get(path);
-            if (!Files.exists(dir)) {
-                Files.createDirectories(dir);
-            }
-            return dir;
-        } catch (IOException e) {
-            throw new FileException("디렉토리 생성 실패: " + path, e);
-        }
+    @GetMapping("/detail")
+    public ResponseEntity<Map<String, Object>> detailScan(@RequestParam String filename) {
+        return ResponseEntity.ok(v3ScannerService.detailScan(filename));
     }
 }
+
+
+
+
+
