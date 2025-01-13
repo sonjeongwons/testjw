@@ -1,503 +1,198 @@
+package com.example.demo;
 
-+       for _, test := range tests {
-+               t.Run(test.name, func(t *testing.T) {
-+                       result := matchSelector(test.selector, test.ingress)
-+                       assert.Equal(t, test.expected, result)
-+               })
-+       }
-+}
-+
-+func TestMatchPattern(t *testing.T) {
-+       tests := []struct {
-+               name     string
-+               pattern  string
-+               ingress  *networkingv1.Ingress
-+               expected bool
-+       }{
-+               {
-+                       name:    "Match namespace and name",
-+                       pattern: "test-namespace/test-name",
-+                       ingress: &networkingv1.Ingress{
-+                               ObjectMeta: metav1.ObjectMeta{
-+                                       Namespace: "test-namespace",
-+                                       Name:      "test-name",
-+                               },
-+                       },
-+                       expected: true,
-+               },
-+               {
-+                       name:    "Match only namespace",
-+                       pattern: "test-namespace",
-+                       ingress: &networkingv1.Ingress{
-+                               ObjectMeta: metav1.ObjectMeta{
-+                                       Namespace: "test-namespace",
-+                                       Name:      "another-name",
-+                               },
-+                       },
-+                       expected: true,
-+               },
-+               {
-+                       name:    "No match with namespace",
-+                       pattern: "wrong-namespace",
-+                       ingress: &networkingv1.Ingress{
-+                               ObjectMeta: metav1.ObjectMeta{
-+                                       Namespace: "test-namespace",
-+                                       Name:      "test-name",
-+                               },
-+                       },
-+                       expected: false,
-+               },
-+               {
-+                       name:    "No match with namespace and name",
-+                       pattern: "test-namespace/wrong-name",
-+                       ingress: &networkingv1.Ingress{
-+                               ObjectMeta: metav1.ObjectMeta{
-+                                       Namespace: "test-namespace",
-+                                       Name:      "test-name",
-+                               },
-+                       },
-+                       expected: false,
-+               },
-+               {
-+                       name:    "Wildcard match",
-+                       pattern: "test-namespace/*",
-+                       ingress: &networkingv1.Ingress{
-+                               ObjectMeta: metav1.ObjectMeta{
-+                                       Namespace: "test-namespace",
-+                                       Name:      "any-name",
-+                               },
-+                       },
-+                       expected: true,
-+               },
-+               {
-+                       name:    "Wildcard match namespace",
-+                       pattern: "*/test-name",
-+                       ingress: &networkingv1.Ingress{
-+                               ObjectMeta: metav1.ObjectMeta{
-+                                       Namespace: "any-namespace",
-+                                       Name:      "test-name",
-+                               },
-+                       },
-+                       expected: true,
-+               },
-+               {
-+                       name:    "Invalid pattern",
-+                       pattern: "test-namespace/[",
-+                       ingress: &networkingv1.Ingress{
-+                               ObjectMeta: metav1.ObjectMeta{
-+                                       Namespace: "test-namespace",
-+                                       Name:      "test-name",
-+                               },
-+                       },
-+                       expected: false,
-+               },
-+               {
-+                       name:    "Invalid pattern",
-+                       pattern: "//",
-+                       ingress: &networkingv1.Ingress{
-+                               ObjectMeta: metav1.ObjectMeta{
-+                                       Namespace: "test-namespace",
-+                                       Name:      "test-name",
-+                               },
-+                       },
-+                       expected: false,
-+               },
-+       }
-+
-+       for _, tt := range tests {
-+               t.Run(tt.name, func(t *testing.T) {
-+                       result := matchPattern(tt.pattern, tt.ingress)
-+                       assert.Equal(t, tt.expected, result)
-+               })
-+       }
-+}
-+
-+func TestMatchString(t *testing.T) {
-+       tests := []struct {
-+               pattern  string
-+               str      string
-+               expected bool
-+       }{
-+               {"*", "test", true},
-+               {"test", "test", true},
-+               {"test", "different", false},
-+               {"prefix-*", "prefix-test", true},
-+               {"prefix-*", "different", false},
-+               {"*-suffix", "test-suffix", true},
-+               {"*-suffix", "test-prefix", false},
-+               {"*/test", "namespace/test", true},
-+               {"*/test", "namespace/different", false},
-+       }
-+
-+       for _, tt := range tests {
-+               t.Run(tester.CaseName(tt), func(t *testing.T) {
-+                       got := matchString(tt.pattern, tt.str)
-+                       assert.Equal(t, tt.expected, got)
-+               })
-+       }
-+}
-diff --git a/pkg/model/consts.go b/pkg/model/consts.go
-index 79b63b7..f18a551 100644
---- a/pkg/model/consts.go
-+++ b/pkg/model/consts.go
-@@ -3,5 +3,4 @@ package model
- const (
-        ManagedAnnotationsKey = "annotator.ingress.kubernetes.io/managed-annotations"
-        ReconcileKey          = "annotator.ingress.kubernetes.io/reconcile"
--       RulesKey              = "annotator.ingress.kubernetes.io/rules"
- )
-diff --git a/pkg/model/model.go b/pkg/model/model.go
-index 3b0ee2b..b17e433 100644
---- a/pkg/model/model.go
-+++ b/pkg/model/model.go
-@@ -1,5 +1,14 @@
- package model
+import com.ahnlab.v3engine.*;
+import java.util.Properties;
 
--type Rules map[string]Annotations
--
- type Annotations map[string]string
-+
-+type Selector struct {
-+       Include string `yaml:"include,omitempty"`
-+       Exclude string `yaml:"exclude,omitempty"`
-+}
-+
-+type Rule struct {
-+       Description string      `yaml:"description,omitempty"`
-+       Selector    Selector    `yaml:"selector"`
-+       Annotations Annotations `yaml:"annotations,omitempty"`
-+}
-diff --git a/pkg/model/model_test.go b/pkg/model/model_test.go
-index e47821d..9e4cc72 100644
---- a/pkg/model/model_test.go
-+++ b/pkg/model/model_test.go
-@@ -8,24 +8,32 @@ import (
- )
+public class TestClass
+{
+	/*
+	// return values
+	 * V3Const.RET_AUTH_FAILED         		: 인증 실패
+ 	 * V3Const.RET_CLIENT_TIMEOUT           : 요청 클라이언트 측 타임아웃
+ 	 * V3Const.RET_NETWORK_ERROR            : 네트워크 장애
+ 	 * V3Const.RET_CLIENT_FAIL              : 요청 클라이언트 실행 실패
+ 	 * V3Const.RET_CANNOT_SCAN              : 검사 실패
+ 	 * V3Const.RET_NO_MALWARE               : 정상
+ 	 * V3Const.RET_MALWARE_FOUND            : 감염          (치료를 하지 않을 경우)
+ 	 * V3Const.RET_CLEAN_MODIFY_SUCCESS     : 수정치료 성공 (치료를 할 경우)
+ 	 * V3Const.RET_CLEAN_MODIFY_FAIL        : 수정치료 실패 (치료를 할 경우)
+ 	 * V3Const.RET_CLEAN_DEL_SUCCESS        : 삭제치료 성공 (치료를 할 경우)
+ 	 * V3Const.RET_CLEAN_DEL_FAIL           : 삭제치료 실패 (치료를 할 경우)
+ 	 * V3Const.RET_CLEAN_DEL_FAIL_BYCONF    : 설정에 의한 삭제 치료 실패 (삭제 치료 금지 옵션을 설정 할 경우)
+ 	 - 치료에 관한 옵션은 검사 서버의 설정파일(option.cfg)에서 clean과 delete 옵션을 통해 설정 가능 함.
+	*/
 
- func TestUnmarshal(t *testing.T) {
--       wantRules := Rules{
--               "oauth2-proxy": Annotations{
--                       "nginx.ingress.kubernetes.io/auth-signin": "https://oauth2-proxy.example.com/oauth2/start?rd=https://$host$request_uri",
--                       "nginx.ingress.kubernetes.io/auth-url":    "https://oauth2-proxy.example.com/oauth2/auth",
-+       wantRules := []Rule{
-+               {
-+                       Description: "oauth2-proxy",
-+                       Annotations: Annotations{
-+                               "nginx.ingress.kubernetes.io/auth-signin": "https://oauth2-proxy.example.com/oauth2/start?rd=https://$host$request_uri",
-+                               "nginx.ingress.kubernetes.io/auth-url":    "https://oauth2-proxy.example.com/oauth2/auth",
-+                       },
-                },
--               "private": Annotations{
--                       "nginx.ingress.kubernetes.io/whitelist-source-range": "192.168.1.0/24,10.0.0.0/16",
-+               {
-+                       Description: "private",
-+                       Annotations: Annotations{
-+                               "nginx.ingress.kubernetes.io/whitelist-source-range": "192.168.1.0/24,10.0.0.0/16",
-+                       },
-                },
-        }
-        rulesText := `
--oauth2-proxy:
--  nginx.ingress.kubernetes.io/auth-signin: "https://oauth2-proxy.example.com/oauth2/start?rd=https://$host$request_uri"
--  nginx.ingress.kubernetes.io/auth-url: "https://oauth2-proxy.example.com/oauth2/auth"
--private:
--  nginx.ingress.kubernetes.io/whitelist-source-range: "192.168.1.0/24,10.0.0.0/16"
-+- description: oauth2-proxy
-+  annotations:
-+    nginx.ingress.kubernetes.io/auth-signin: "https://oauth2-proxy.example.com/oauth2/start?rd=https://$host$request_uri"
-+    nginx.ingress.kubernetes.io/auth-url: "https://oauth2-proxy.example.com/oauth2/auth"
-+- description: private
-+  annotations:
-+    nginx.ingress.kubernetes.io/whitelist-source-range: "192.168.1.0/24,10.0.0.0/16"
- `
+	/*
+	// property keys
+	V3Const.PROP_KEY_FILENAME       : 검사 파일명
+	V3Const.PROP_KEY_ERROR_NO       : 에러 번호
+	V3Const.PROP_KEY_MORE_INFO	    : 부가 정보
+	V3Const.PROP_KEY_MALWARE_NAME   : 악성코드 이름(진단명)
+	V3Const.PROP_KEY_MALWARE_NO     : 악성코드 번호(진단번호)
+	V3Const.PROP_KEY_MALWARE_FILE   : 악성코드가 발견된 파일
+    V3Const.PROP_KEY_EXCEPTION      : 익셉션 메세지(자바 익셉션이 발생 한 경우에 한해서 전달됨)
+	*/
 
--       var rules Rules
-+       var rules []Rule
-        err := yaml.Unmarshal([]byte(rulesText), &rules)
-        assert.NoError(t, err)
-        assert.Equal(t, wantRules, rules)
-diff --git a/pkg/rulesstore/rulesstore.go b/pkg/rulesstore/rulesstore.go
-index a6f693d..f041afe 100644
---- a/pkg/rulesstore/rulesstore.go
-+++ b/pkg/rulesstore/rulesstore.go
-@@ -12,12 +12,12 @@ import (
- )
+	/*
+	// filename을 검사하여 결과를 알려준다.
+	public static int V3Scanner.scanFile(String filename);
+	// filename을 검사하여 부가정보를 prop에 담는다. (prop이 null인 경우 부가 정보는 담기지 않는다.)
+	public static int V3Scanner.scanFile(String filename, Properties prop);
+	*/
 
- type IRulesStore interface {
--       GetRules() *model.Rules
-+       GetRules() []model.Rule
-        UpdateRules(cm *corev1.ConfigMap) error
- }
+    static void printScanInfo(String filename, int ret, Properties prop)
+    {
+        // message
+        String msg = "";
+        switch (ret)
+        {
+            case V3Const.RET_AUTH_FAILED	: msg = "인증 실패";
+                break;
 
- type RulesStore struct {
--       Rules      *model.Rules
-+       Rules      []model.Rule
-        rulesMutex *sync.Mutex
- }
+            case V3Const.RET_CLIENT_TIMEOUT  : msg = "검사 요청 클라이언트 TIMEOUT";
+                break;
 
-@@ -31,7 +31,7 @@ func New(cm *corev1.ConfigMap) (*RulesStore, error) {
-        return store, nil
- }
+            case V3Const.RET_NETWORK_ERROR  : msg = "네트워크 장애";
+                break;
 
--func (s *RulesStore) GetRules() *model.Rules {
-+func (s *RulesStore) GetRules() []model.Rule {
-        s.rulesMutex.Lock()
-        defer s.rulesMutex.Unlock()
+            case V3Const.RET_CLIENT_FAIL  : msg = "검사 요청 클라이언트 오류";
+                break;
 
-@@ -48,14 +48,14 @@ func (s *RulesStore) UpdateRules(cm *corev1.ConfigMap) error {
-        return nil
- }
+            case V3Const.RET_CANNOT_SCAN  : msg = "검사 실패";
+                break;
 
--func (s *RulesStore) updateRules(rules model.Rules) {
-+func (s *RulesStore) updateRules(rules []model.Rule) {
-        s.rulesMutex.Lock()
-        defer s.rulesMutex.Unlock()
+            case V3Const.RET_NO_MALWARE   : msg = "악성코드 없음";
+                break;
 
--       s.Rules = &rules
-+       s.Rules = rules
- }
+            case V3Const.RET_MALWARE_FOUND : msg = "악성코드 발견";
+                break;
 
--func getRulesFromConfigMap(cm *corev1.ConfigMap) (model.Rules, error) {
-+func getRulesFromConfigMap(cm *corev1.ConfigMap) ([]model.Rule, error) {
-        if cm == nil {
-                return nil, errors.New("configMap is nil")
-        }
-@@ -65,7 +65,7 @@ func getRulesFromConfigMap(cm *corev1.ConfigMap) (model.Rules, error) {
-                return nil, errors.New("configMap missing 'rules' key")
+            case V3Const.RET_CLEAN_MODIFY_SUCCESS   : msg = "수정 치료 성공";
+                break;
+
+            case V3Const.RET_CLEAN_MODIFY_FAIL      : msg = "수정 치료 실패(삭제 권고)";
+                break;
+
+            case V3Const.RET_CLEAN_DEL_SUCCESS      : msg = "삭제 치료 성공";
+                break;
+
+            case V3Const.RET_CLEAN_DEL_FAIL      : msg = "삭제 치료 실패(삭제 권고)";
+                break;
+
+            case V3Const.RET_CLEAN_DEL_FAIL_BYCONF      : msg = "삭제 치료 실패(검사 서버 옵션)";
+                break;
+
+            default: msg = "알수 없음";
+                break;
         }
 
--       var rules model.Rules
-+       var rules []model.Rule
-        if err := yaml.Unmarshal([]byte(rulesText), &rules); err != nil {
-                return nil, fmt.Errorf("failed to unmarshal rules: %w", err)
+        // print information
+        System.out.println("filename  : " + filename);
+        System.out.println("return    : " + ret + " (" + msg + ")");
+        if (prop != null)
+        {
+            System.out.println("date rev  : " + prop.getProperty(V3Const.PROP_KEY_DATE_REV, "N/A"));
+            System.out.println("scan time : " + prop.getProperty(V3Const.PROP_KEY_SCAN_DATE_TIME, "N/A"));
+            System.out.println("more info : " + prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "N/A"));
+            if (ret == V3Const.RET_MALWARE_FOUND)
+            {
+                System.out.println( " malware : " + prop.getProperty(V3Const.PROP_KEY_MALWARE_NAME, "N/A") );
+                System.out.println( "     in  : " + prop.getProperty(V3Const.PROP_KEY_MALWARE_FILE, "N/A") );
+            }
+            System.out.println(prop);
         }
-diff --git a/pkg/rulesstore/rulesstore_test.go b/pkg/rulesstore/rulesstore_test.go
-index 93c04b7..fc58126 100644
---- a/pkg/rulesstore/rulesstore_test.go
-+++ b/pkg/rulesstore/rulesstore_test.go
-@@ -5,17 +5,17 @@ import (
-        "testing"
+        System.out.println("");
+    }
 
-        "github.com/jmnote/tester/testcase"
-+       "github.com/kuoss/ingress-annotator/pkg/model"
-        "github.com/stretchr/testify/assert"
-+       "gopkg.in/yaml.v3"
-        corev1 "k8s.io/api/core/v1"
--
--       "github.com/kuoss/ingress-annotator/pkg/model"
- )
+    public static void main(String[] args) throws Exception
+    {
+        // files - 원격지 서버에 위치한 파일
+        // filesR - 로컬 클라이언트에 위치한 파일
+        String files[] = new String[]{"/root/test.txt", "/root/test.zip"};
+        String filesR[] = new String[]{"c:\\20210930_TSJava_v3java_only.zip"};
 
- func TestNew(t *testing.T) {
-        tests := []struct {
-                name      string
-                cm        *corev1.ConfigMap
--               wantRules *model.Rules
-+               wantRules []model.Rule
-                wantError string
-        }{
-                {
-@@ -29,12 +29,17 @@ func TestNew(t *testing.T) {
-                        cm: &corev1.ConfigMap{
-                                Data: map[string]string{
-                                        "rules": `
--rule1:
--  key1: value1`,
-+- description: rule1
-+  annotations:
-+    key1: value1
-+`,
-                                },
-                        },
--                       wantRules: &model.Rules{
--                               "rule1": model.Annotations{"key1": "value1"},
-+                       wantRules: []model.Rule{
-+                               {
-+                                       Description: "rule1",
-+                                       Annotations: model.Annotations{"key1": "value1"},
-+                               },
-                        },
-                        wantError: "",
-                },
-@@ -57,10 +62,10 @@ rule1:
- }
+        // [ V3Scanner.class와 연동하기 위한 설정파일 등록 ]
+        //
+        // ahnlab_v3engine.jar와  함께 제공되는 V3Scanner.properties는  V3Scanner.class를 위한 설정파일이다.
+        // 이를 활용하기 위해 아래의 함수를 활용할 수 있다. 함수 사용법은 함께 제공 된 javadoc 문서를 참조.
+        //
+        if(! V3Scanner.setConfPropertiesPath("V3Scanner.properties"))	// 예제는 예제프로그램과 동일한 디렉토리에 설정파일이 있는 경우다.
+        {
+            System.out.println("configuration properties failed... using default properties - " + V3Scanner.getConfPropertiesPath() + ".");
+        }
+		/*
+		    [ 연동 방식 ]
+                아래의 두 가지 방식으로 연동이 가능한다.
+                scanFile() 함수에 검사 할 대상파일의 경로만 전달 할 경우, 바이러스 감염 유무 또는
+                치료 할 시 치료 결과 유무만 함수 반환값으로 받을 수 있다. 이때 반환값 정의는
+                V3Const 클래스에 RET_* 형태의 static 상수값으로 정의되어 있다.
+                만일 검사 결과에 대한 좀 더 자세한 정보(진단명, 예상되는 치료정보)를 얻고자 할 경우,
+                scanFile() 함수에 검사 할 대상 파일의 경로와 더불어 빈(empty) property 객체를 인자로
+                전달한다. 검사 결과에 대한 상세 정보는 함수호출이 종료 된 후 전달한 property에 채워진다.
+                property의 key값은 V3Const 클래스에 PROP_KEY_* 형태의 static 상수값으로 정의되어 있다.
+    		 주의:
+    			특별한 경우가 아니라면 하나의 대상에 대해서는 scanFile()을 한번만 호출하도록 해야 한다.
+        [ scanFile() 함수의 리턴값 ]
+            V3Const.RET_AUTH_FAILED           	 : 인증 실패
+			V3Const.RET_CLIENT_TIMEOUT           : 요청 클라이언트 측 타임아웃
+			V3Const.RET_NETWORK_ERROR            : 네트워크 장애
+			V3Const.RET_CLIENT_FAIL              : 요청 클라이언트 실행 실패
+			V3Const.RET_CANNOT_SCAN              : 검사 실패
+			V3Const.RET_NO_MALWARE               : 정상
+			V3Const.RET_MALWARE_FOUND            : 감염          (치료를 하지 않을 경우)
+			V3Const.RET_CLEAN_MODIFY_SUCCESS     : 수정치료 성공 (치료를 할 경우)
+			V3Const.RET_CLEAN_MODIFY_FAIL        : 수정치료 실패 (치료를 할 경우)
+			V3Const.RET_CLEAN_DEL_SUCCESS        : 삭제치료 성공 (치료를 할 경우)
+			V3Const.RET_CLEAN_DEL_FAIL           : 삭제치료 실패 (치료를 할 경우)
+			V3Const.RET_CLEAN_DEL_FAIL_BYCONF    : 설정에 의한 삭제 치료 실패 (삭제 치료 금지 옵션을 설정 할 경우)
+ 	 - 치료에 관한 옵션은 검사 서버의 설정파일(option.cfg)에서 clean과 delete 옵션을 통해 설정 가능 함.
+	    [ scanFile() 상세 검사를 했을 경우 전달되는 프로퍼티 키 ]
+        	V3Const.PROP_KEY_FILENAME     : 검사 파일명
+        	V3Const.PROP_KEY_ERROR_NO     : 에러 번호
+        	V3Const.PROP_KEY_MORE_INFO	: 부가 정보
+        	V3Const.PROP_KEY_MALWARE_NAME : 악성코드 이름(진단명)
+        	V3Const.PROP_KEY_MALWARE_NO   : 악성코드 번호(진단번호)
+        	V3Const.PROP_KEY_MALWARE_FILE : 악성코드가 발견된 파일
+        ---case 1 혹은 case 2 둘 중 하나만을 사용한다.
+	    [ 감염 유무만 간단하게 검사하고자 할 경우 ]
+	        public static int V3Scanner.scanFile(String filename);
+	    [ 검사와 함께 상세 진단 정보도 얻고자 할 경우 ]
+	        public static int V3Scanner.scanFile(String filename, Properties prop);
+	    */
 
- func TestGetRules(t *testing.T) {
--       wantRules := &model.Rules{
--               "rule1": model.Annotations{"key1": "value1"},
--       }
--
-+       wantRules := []model.Rule{{
-+               Description: "rule1",
-+               Annotations: model.Annotations{"key1": "value1"},
-+       }}
-        store := &RulesStore{
-                Rules:      wantRules,
-                rulesMutex: &sync.Mutex{},
-@@ -75,7 +80,7 @@ func TestUpdateRules(t *testing.T) {
-        tests := []struct {
-                name      string
-                cm        *corev1.ConfigMap
--               wantRules *model.Rules
-+               wantRules []model.Rule
-                wantError string
-        }{
-                {
-@@ -93,24 +98,35 @@ func TestUpdateRules(t *testing.T) {
-                        cm: &corev1.ConfigMap{
-                                Data: map[string]string{
-                                        "rules": `
--rule1:
--  invalid_data`,
--                               },
-+- description: rule1
-+  annotations:
-+    invalid_data`},
-                        },
--                       wantError: "failed to extract rules from configMap: failed to unmarshal rules: yaml: unmarshal errors:\n  line 3: cannot unmarshal !!str `invalid...` into model.Annotations",
-+                       wantError: "failed to extract rules from configMap: failed to unmarshal rules: yaml: unmarshal errors:\n  line 4: cannot unmarshal !!str `invalid...` into model.Annotations",
-                },
-                {
-                        name: "Valid ConfigMap",
-                        cm: &corev1.ConfigMap{
-                                Data: map[string]string{
-                                        "rules": `
--rule1:
--  key1: value1`,
--                               },
-+- description: rule1
-+  annotations:
-+    key1: value1`},
-                        },
--                       wantRules: &model.Rules{
--                               "rule1": model.Annotations{"key1": "value1"},
-+                       wantRules: []model.Rule{{
-+                               Description: "rule1",
-+                               Annotations: model.Annotations{"key1": "value1"},
-+                       }},
-+               },
-+               {
-+                       name: "Valid ConfigMap",
-+                       cm: &corev1.ConfigMap{
-+                               Data: map[string]string{"rules": "- description: rule1\n  annotations:\n    key1: value1"},
-                        },
-+                       wantRules: []model.Rule{{
-+                               Description: "rule1",
-+                               Annotations: model.Annotations{"key1": "value1"},
-+                       }},
-                },
+        System.out.println("----- case 1) simple scan --------------------------------------------");
+        // simple scan
+        for (int i=0; i<files.length; i++)
+        {
+            String filename = files[i];
+            int ret = V3Scanner.scanFile(filename);
+            printScanInfo(filename, ret, null);
+        }
+        System.out.println("----- case 2) remote scan --------------------------------------------");
+
+        // scan with more information
+        for (int i=0; i<filesR.length; i++)
+        {
+            String filename = filesR[i];
+            Properties prop = new Properties();
+            int ret = V3Scanner.remoteScanFile(filename, prop);
+
+            //System.out.println("remote scan result : " + ret);
+            printScanInfo(filename, ret, prop);
+
         }
 
-@@ -133,3 +149,59 @@ rule1:
-                })
+
+        System.out.println("----- case 3) detail scan --------------------------------------------");
+        // scan with more information
+        for (int i=0; i<files.length; i++)
+        {
+            String filename = files[i];
+            Properties prop = new Properties();
+            int ret = V3Scanner.scanFile(filename, prop);
+            printScanInfo(filename, ret, prop);
+
         }
- }
-+
-+func TestGetRulesFromConfigMap(t *testing.T) {
-+       t.Run("Nil ConfigMap", func(t *testing.T) {
-+               rules, err := getRulesFromConfigMap(nil)
-+               assert.Nil(t, rules)
-+               assert.EqualError(t, err, "configMap is nil")
-+       })
-+
-+       t.Run("Missing rules key", func(t *testing.T) {
-+               cm := &corev1.ConfigMap{
-+                       Data: map[string]string{
-+                               "other_key": "value",
-+                       },
-+               }
-+               rules, err := getRulesFromConfigMap(cm)
-+               assert.Nil(t, rules)
-+               assert.EqualError(t, err, "configMap missing 'rules' key")
-+       })
-+
-+       t.Run("Invalid YAML in rules", func(t *testing.T) {
-+               cm := &corev1.ConfigMap{
-+                       Data: map[string]string{
-+                               "rules": "invalid_yaml: [",
-+                       },
-+               }
-+               rules, err := getRulesFromConfigMap(cm)
-+               assert.Nil(t, rules)
-+               assert.ErrorContains(t, err, "failed to unmarshal rules")
-+       })
-+
-+       t.Run("Valid rules", func(t *testing.T) {
-+               validRules := []model.Rule{
-+                       {
-+                               Description: "rule1",
-+                               Selector: model.Selector{
-+                                       Include: "app1",
-+                                       Exclude: "app2",
-+                               },
-+                               Annotations: model.Annotations{
-+                                       "key1": "value1",
-+                               },
-+                       },
-+               }
-+               rulesYaml, err := yaml.Marshal(validRules)
-+               assert.NoError(t, err)
-+
-+               cm := &corev1.ConfigMap{
-+                       Data: map[string]string{
-+                               "rules": string(rulesYaml),
-+                       },
-+               }
-+               rules, err := getRulesFromConfigMap(cm)
-+               assert.NoError(t, err)
-+               assert.Equal(t, validRules, rules)
-+       })
-+}
-diff --git a/pkg/testutil/mocks/mockrulesstore.go b/pkg/testutil/mocks/mockrulesstore.go
-index 209faa9..fd4bfc5 100644
---- a/pkg/testutil/mocks/mockrulesstore.go
-+++ b/pkg/testutil/mocks/mockrulesstore.go
-@@ -15,7 +15,7 @@ import (
-        model "github.com/kuoss/ingress-annotator/pkg/model"
-        gomock "go.uber.org/mock/gomock"
-        v1 "k8s.io/api/core/v1"
--       client "sigs.k8s.io/controller-runtime/pkg/client"
-+       v10 "k8s.io/api/networking/v1"
- )
 
- // MockIRulesStore is a mock of IRulesStore interface.
-@@ -41,30 +41,25 @@ func (m *MockIRulesStore) EXPECT() *MockIRulesStoreMockRecorder {
-        return m.recorder
- }
-
--// ExtractRulesFromAnnotations mocks base method.
--func (m *MockIRulesStore) ExtractRulesFromAnnotations(objs ...client.Object) ([]string, error) {
-+// GetAnnotationsForIngress mocks base method.
-+func (m *MockIRulesStore) GetAnnotationsForIngress(ingress *v10.Ingress) model.Annotations {
-        m.ctrl.T.Helper()
--       varargs := []any{}
--       for _, a := range objs {
--               varargs = append(varargs, a)
--       }
--       ret := m.ctrl.Call(m, "ExtractRulesFromAnnotations", varargs...)
--       ret0, _ := ret[0].([]string)
--       ret1, _ := ret[1].(error)
--       return ret0, ret1
-+       ret := m.ctrl.Call(m, "GetAnnotationsForIngress", ingress)
-+       ret0, _ := ret[0].(model.Annotations)
-+       return ret0
- }
-
--// ExtractRulesFromAnnotations indicates an expected call of ExtractRulesFromAnnotations.
--func (mr *MockIRulesStoreMockRecorder) ExtractRulesFromAnnotations(objs ...any) *gomock.Call {
-+// GetAnnotationsForIngress indicates an expected call of GetAnnotationsForIngress.
-+func (mr *MockIRulesStoreMockRecorder) GetAnnotationsForIngress(ingress any) *gomock.Call {
-        mr.mock.ctrl.T.Helper()
--       return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExtractRulesFromAnnotations", reflect.TypeOf((*MockIRulesStore)(nil).ExtractRulesFromAnnotations), objs...)
-+       return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAnnotationsForIngress", reflect.TypeOf((*MockIRulesStore)(nil).GetAnnotationsForIngress), ingress)
- }
-
- // GetRules mocks base method.
--func (m *MockIRulesStore) GetRules() *model.Rules {
-+func (m *MockIRulesStore) GetRules() []model.Rule {
-        m.ctrl.T.Helper()
-        ret := m.ctrl.Call(m, "GetRules")
--       ret0, _ := ret[0].(*model.Rules)
-+       ret0, _ := ret[0].([]model.Rule)
-        return ret0
- }
-
+    }
+}
