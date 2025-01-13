@@ -1,4 +1,3 @@
-// Controller Class
 package com.example.demo.controller;
 
 import com.example.demo.service.V3ScannerService;
@@ -17,22 +16,26 @@ public class V3ScannerController {
     private V3ScannerService v3ScannerService;
 
     @GetMapping("/simple")
-    public ResponseEntity<Map<String, Object>> simpleScan(@RequestParam String filename) {
+    public ResponseEntity<Map<String, Object>> simpleScan(@RequestHeader("X-API-KEY") String apiKey, @RequestParam String filename) {
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+        }
         return ResponseEntity.ok(v3ScannerService.simpleScan(filename));
     }
 
     @GetMapping("/remote")
-    public ResponseEntity<Map<String, Object>> remoteScan(@RequestParam String filename) {
+    public ResponseEntity<Map<String, Object>> remoteScan(@RequestHeader("X-API-KEY") String apiKey, @RequestParam String filename) {
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+        }
         return ResponseEntity.ok(v3ScannerService.remoteScan(filename));
     }
 
     @GetMapping("/detail")
-    public ResponseEntity<Map<String, Object>> detailScan(@RequestParam String filename) {
+    public ResponseEntity<Map<String, Object>> detailScan(@RequestHeader("X-API-KEY") String apiKey, @RequestParam String filename) {
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+        }
         return ResponseEntity.ok(v3ScannerService.detailScan(filename));
     }
 }
-
-
-
-
-
