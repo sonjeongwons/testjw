@@ -11,6 +11,12 @@ import java.util.Properties;
 @Service
 public class V3ScannerService {
 
+    private static final String VALID_API_KEY = "your-secure-api-key"; // 실제로는 환경 변수나 설정 파일로 관리하세요.
+
+    public boolean validateApiKey(String apiKey) {
+        return VALID_API_KEY.equals(apiKey);
+    }
+
     public Map<String, Object> simpleScan(String filename) {
         Map<String, Object> result = new HashMap<>();
         int ret = V3Scanner.scanFile(filename);
