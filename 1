@@ -1,119 +1,126 @@
-PR 리뷰 코멘트 – FileManagerService.java
-안녕하세요 팀원 여러분! 😊
-이번 PR 잘 봤습니다. FileManagerService가 이전보다 훨씬 구조적으로 개선된 모습이 인상 깊었어요. 파일 업로드와 관리 로직이 깔끔하게 정리되었고, 클린코드 원칙을 충실히 적용해 주셔서 전체적인 코드 가독성과 유지보수성이 크게 향상되었네요! 몇 가지 주요 개선점과 함께, 추가적으로 고려해볼만한 사항을 말씀드릴게요. 고생하신 만큼 칭찬도 아끼지 않겠습니다! 🙌
+package com.scf.manager.mvc.service;
 
-1. 단일 파일 업로드 로직 (uploadFile)
-칭찬할 점
-파일 업로드 로직을 메서드로 분리하면서, 고유 파일명을 생성하고 파일을 저장하는 과정을 명확히 정리해 주셨습니다.
-특히 generateUniqueFileName에서 파일 이름 중복을 방지하는 로직은 실제 운영 환경에서 발생할 수 있는 충돌 문제를 효과적으로 해결한 좋은 아이디어라고 생각합니다.
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
+import com.scf.manager.base.domain.FunctionCode;
+import com.scf.manager.base.repository.FunctionCodeRepository;
+import com.scf.manager.common.crd.*;
+import com.scf.manager.common.enums.TypeEnums;
+import com.scf.manager.common.exception.ResourceNotFoundException;
+import com.scf.manager.common.util.AppUtil;
+import com.scf.manager.common.util.UrlUtil;
+import com.scf.manager.mvc.domain.AllowIp;
+import com.scf.manager.mvc.domain.Function;
+import com.scf.manager.mvc.domain.FunctionEnvironment;
+import com.scf.manager.mvc.domain.KeyManager;
+import com.scf.manager.mvc.dto.*;
+import com.scf.manager.mvc.repository.*;
+import io.fabric8.istio.api.security.v1beta1.*;
+import io.fabric8.istio.api.type.v1beta1.WorkloadSelectorBuilder;
+import io.fabric8.istio.client.DefaultIstioClient;
+import io.fabric8.istio.client.IstioClient;
+import io.fabric8.knative.client.DefaultKnativeClient;
+import io.fabric8.knative.client.KnativeClient;
+import io.fabric8.knative.serving.v1.Service;
+import io.fabric8.knative.serving.v1.ServiceBuilder;
+import io.fabric8.knative.serving.v1.ServiceList;
+import io.fabric8.knative.sources.v1.PingSource;
+import io.fabric8.knative.sources.v1.PingSourceBuilder;
+import io.fabric8.kubernetes.api.model.*;
+import io.fabric8.kubernetes.client.DefaultKubernetesClient;
+import io.fabric8.kubernetes.client.KubernetesClient;
+import io.fabric8.kubernetes.client.KubernetesClientBuilder;
+import io.fabric8.kubernetes.client.dsl.MixedOperation;
+import io.fabric8.kubernetes.client.dsl.Resource;
+import io.fabric8.kubernetes.client.dsl.base.PatchContext;
+import io.fabric8.kubernetes.client.dsl.base.PatchType;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.builder.CompareToBuilder;
+import org.jetbrains.annotations.NotNull;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
 
-추가 개선 제안
-파일 저장 경로(SAVE_PATH)를 하드코딩 대신 application.properties로 관리하면 환경별로 더 유연하게 대처할 수 있을 것 같아요.
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFilePermission;
+import java.text.ParseException;
+import java.util.*;
+import java.util.stream.Collectors;
 
-코드 예제:
+import static com.scf.manager.common.constants.ExceptionConst.FILE_HANDLE_EXCEPTION;
+import static com.scf.manager.common.constants.ExceptionConst.FILE_TYPE_EXCEPTION;
 
-properties
-코드 복사
-# application.properties
-file.save-path=files
-java
-코드 복사
-@Value("${file.save-path}")
-private String savePath;
-이렇게 하면 로컬/운영 환경에 따라 저장 경로를 쉽게 변경할 수 있고, 유지보수도 훨씬 편리해질 거예요.
+@Slf4j
+@org.springframework.stereotype.Service
+@RequiredArgsConstructor
+public class FunctionRabbitMQService {
 
-2. 다중 파일 업로드 로직 (uploadFiles)
-칭찬할 점
-단일 파일 업로드 로직(uploadFile)을 호출하도록 다중 파일 업로드를 리팩토링한 점이 아주 좋았습니다.
-이 덕분에 중복 코드가 완전히 사라졌고, 다중 파일과 단일 파일 업로드 로직 간 정합성이 유지되었습니다.
+    public void makeRabbitMQSource(String rabbitMQSourceName) {
+        try (KubernetesClient client = new KubernetesClientBuilder().build()) {
+            MixedOperation<RabbitMQSource, KubernetesResourceList<RabbitMQSource>, Resource<RabbitMQSource>> rabbitMQSourceClient = client.resources(RabbitMQSource.class);
 
-추가 개선 제안
-다중 파일 업로드 중 일부 파일이 실패하는 경우를 고려한 실패 처리 로직이 추가되면 더 안정적인 서비스가 될 것 같아요.
-예를 들어, 성공한 파일과 실패한 파일을 구분해서 사용자에게 반환해 주는 방식입니다.
+            RabbitMQSource rabbitMQSource = new RabbitMQSource();
 
-코드 예제:
+            RabbitMQSourceSpec rabbitMQSourceSpec = RabbitMQSourceSpec.builder()
+                    .rabbitmqClusterReference(
+                            // RabbitMQ 클러스터 접속 설정
+                            RabbitMQClusterReferenceSpec.builder()
+                                    .connectionSecret(
+                                            ConnectionSecretSpec.builder()
+                                                    .name("rabbitmq-cluster-secret-credentials")
+                                                    .build()
+                                    )
+                                    .namespace("rabbitmq")
+                                    .build()
+                    )
+                    .rabbitMQResourcesConfig(
+                            // RabbitMQ 리소스 연동 설정
+                            RabbitMQResourcesConfigSpec.builder()
+                                    .exchangeName(rabbitMQSourceName) // Exchange 이름 (생성되는 Exchange와 별도 통신 시 사용하는 Exchange는 "")
+                                    .parallelism(1)
+                                    .queueName(rabbitMQSourceName) // Queue 이름
+                                    .predeclared(false) // false 설정 시, 자동 생성
+                                    .build()
+                    )
+                    .sink(
+                            // 타겟 서비스 설정
+                            SinkSpec.builder()
+                                    .ref(
+                                            RefSpec.builder()
+                                                    .apiVersion("serving.knative.dev/v1")
+                                                    .kind("Service")
+                                                    .name("scf-d79013ae-bb79-445d-be77-f0c9b4a78e8f-api")
+                                                    .namespace("scf-user")
+                                                    .build()
+                                    )
+                                    .build()
+                    )
+                    .build();
 
-java
-코드 복사
-public List<FileManagerDTO.Response> uploadFiles(List<MultipartFile> files) {
-    List<FileManagerDTO.Response> successList = new ArrayList<>();
-    List<String> failedFiles = new ArrayList<>();
+            rabbitMQSource.getMetadata().setName(rabbitMQSourceName);
+            rabbitMQSource.getMetadata().setNamespace("rabbitmq");
+            rabbitMQSource.setSpec(rabbitMQSourceSpec);
 
-    for (MultipartFile file : files) {
-        try {
-            successList.add(uploadFile(file));
-        } catch (Exception e) {
-            failedFiles.add(file.getOriginalFilename());
-            log.error("파일 업로드 실패: {}", file.getOriginalFilename(), e);
+            rabbitMQSourceClient.inNamespace("rabbitmq").withName(rabbitMQSourceName).delete();
+            rabbitMQSourceClient.inNamespace("rabbitmq").create(rabbitMQSource);
+
+        }
+    }
+    public void deleteRabbitMQSource(String rabbitMQSourceName) {
+        try (KubernetesClient client = new KubernetesClientBuilder().build()) {
+            MixedOperation<RabbitMQSource, KubernetesResourceList<RabbitMQSource>, Resource<RabbitMQSource>> rabbitMQSourceClient = client.resources(RabbitMQSource.class);
+
+            rabbitMQSourceClient.inNamespace("rabbitmq").withName(rabbitMQSourceName).delete();
         }
     }
 
-    if (!failedFiles.isEmpty()) {
-        log.warn("다음 파일 업로드에 실패했습니다: {}", failedFiles);
-    }
-
-    return successList;
 }
-3. 파일 검증 로직 (validateFile)
-칭찬할 점
-업로드된 파일이 비어있는지 사전에 확인하는 방어적 프로그래밍이 돋보였습니다. 이렇게 기본적인 검증 로직을 추가하니, 안정성이 크게 향상되었습니다.
-
-추가 개선 제안
-허용된 파일 크기 제한이나 파일 확장자를 검증하는 로직도 추가하면 더 보안적으로 안전한 코드가 될 것 같아요.
-예를 들어, 파일 크기 제한을 10MB로 설정하고, 허용된 확장자만 업로드되도록 처리하는 방식입니다.
-
-코드 예제:
-
-java
-코드 복사
-private void validateFile(MultipartFile file) {
-    if (file == null || file.isEmpty()) {
-        throw new FileException("업로드된 파일이 비어있습니다.");
-    }
-    if (file.getSize() > 10 * 1024 * 1024) { // 10MB 제한
-        throw new FileException("파일 크기가 10MB를 초과했습니다.");
-    }
-    String extension = getFileExtension(file.getOriginalFilename());
-    List<String> allowedExtensions = List.of("png", "jpg", "pdf", "mp4");
-    if (!allowedExtensions.contains(extension)) {
-        throw new FileException("허용되지 않은 파일 확장자입니다: " + extension);
-    }
-}
-4. 디렉토리 생성 로직 (createDirectoryIfNotExists)
-칭찬할 점
-디렉토리 생성 로직을 별도의 메서드로 분리한 점이 정말 좋았습니다. 코드가 간결해졌고, 가독성이 크게 향상되었어요.
-특히 디렉토리 생성 여부를 사전에 확인하고 필요한 경우에만 생성하도록 처리한 점은 효율적입니다.
-
-추가 개선 제안
-디렉토리 경로를 동적으로 설정할 수 있는 옵션을 추가하면 더 좋을 것 같아요. 예를 들어, 환경별 디렉토리 경로를 다르게 설정하는 방식입니다.
-
-5. 고유 파일명 생성 (generateUniqueFileName)
-칭찬할 점
-MD5를 사용해 고유 파일명을 생성한 방식이 훌륭합니다. 이 덕분에 파일 이름 충돌을 방지하고, 저장 로직이 안정적으로 작동할 수 있게 되었네요.
-또한, 파일 이름과 확장자를 분리 관리한 점도 명확하고 깔끔합니다.
-
-추가 개선 제안
-MD5 대신 SHA-256 같은 더 강력한 해시 알고리즘을 사용하는 것도 고려해보세요. MD5는 빠르고 간단하지만, 최신 보안 요구사항에서는 SHA-256이 더 권장됩니다.
-
-코드 예제:
-
-java
-코드 복사
-private static String generateSHA256(String input) throws NoSuchAlgorithmException {
-    MessageDigest digest = MessageDigest.getInstance("SHA-256");
-    byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-    StringBuilder hexString = new StringBuilder();
-    for (byte b : hash) {
-        hexString.append(String.format("%02x", b));
-    }
-    return hexString.toString();
-}
-관련 참고 자료:
-
-MD5와 SHA 알고리즘 비교
-Spring MessageDigest API
-종합 리뷰
-변경 전: 중복된 로직이 많고, 파일 검증 및 예외 처리가 부족했음.
-변경 후: 중복 로직 제거, 검증 로직 강화, 파일명 충돌 방지 등으로 코드가 훨씬 간결하고 안정적으로 개선됨.
-추가로 고려할 점은 파일 크기 제한, 허용 확장자 검증, 실패한 파일 처리 등 보안과 사용자 경험을 향상시킬 수 있는 로직들입니다.
-이번 PR을 통해 코드의 질이 정말 많이 올라갔다고 느꼈어요! 앞으로도 이런 좋은 개선 기대하겠습니다. 수고하셨습니다! 💪 😊
