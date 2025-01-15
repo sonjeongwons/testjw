@@ -1,339 +1,136 @@
-package com.scf.manager.mvc.service;
+PR 템플릿
+PR 개요
+Knative와 Istio를 활용한 서버리스 서비스 구현 및 관리 로직 개발
 
-import com.scf.manager.common.exception.ResourceNotFoundException;
-import com.scf.manager.common.util.AppUtil;
-import com.scf.manager.mvc.domain.*;
-import com.scf.manager.mvc.dto.FunctionDTO;
-import com.scf.manager.mvc.repository.*;
-import io.fabric8.istio.client.DefaultIstioClient;
-import io.fabric8.knative.client.DefaultKnativeClient;
-import io.fabric8.knative.serving.v1.Service;
-import io.fabric8.knative.serving.v1.ServiceBuilder;
-import io.fabric8.kubernetes.api.model.*;
-import io.fabric8.kubernetes.client.dsl.base.PatchContext;
-import io.fabric8.kubernetes.client.dsl.base.PatchType;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.util.CollectionUtils;
+주요 목적은 서버리스 환경에서 Knative Service를 동적으로 생성 및 관리하고 Istio를 통해 인증 및 네트워크 접근을 제어할 수 있도록 하는 기능을 제공하는 것입니다.
+해당 PR은 함수 호출 및 실행 환경 구성, Istio 및 Knative를 통한 인증 및 접근 제어, 클라우드 스토리지 및 런타임별 실행 환경 설정을 포함합니다.
+개발 내용
+Istio와 Knative 연동 로직 추가
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.PosixFilePermission;
-import java.text.ParseException;
-import java.util.*;
-import java.util.stream.Collectors;
+Istio를 이용한 IP ACL 정책 및 JWK 등록 로직 구현.
+Istio RequestAuthentication 및 AuthorizationPolicy 리소스를 활용해 함수별 인증 및 권한 관리.
+Knative Service 생성 및 관리
 
-import static com.scf.manager.common.constants.ExceptionConst.FILE_HANDLE_EXCEPTION;
-import static com.scf.manager.common.constants.ExceptionConst.FILE_TYPE_EXCEPTION;
+함수 실행 환경(런타임 및 리소스 제한)을 기반으로 Knative Service 동적 생성 및 패치 로직 추가.
+런타임별 실행 파일, 이미지 경로, 명령어 설정 자동화.
+클라우드 환경 파일 시스템 처리
 
-@Slf4j
-@org.springframework.stereotype.Service
-@RequiredArgsConstructor
-public class KnativeService {
+런타임별 파일 구성(Node.js, Python, PHP, Java) 처리.
+Base64 디코딩을 통해 함수 코드를 로컬 파일 시스템에 저장하고 실행 준비.
+함수 환경 설정 로직 추가
 
-    @Value("${config.repository}")
-    private String repository;
-    private final String BASE_URL = "samsungsdscloud.com";
-    private final String volumeName = "serverless-storage-user";
-    private final DefaultKnativeClient kn;
-    private final FunctionEnvironmentRepository functionEnvironmentRepository;
-    private final AllowIpRepository allowIpRepository;
-    private final IstioCallService istioCallService;
-    private final DefaultIstioClient istioClient;
-    private final KeyManagerRepository keyManagerRepository;
-    private final FunctionRepository functionRepository;
+FunctionEnvironment를 기반으로 메모리, 실행 시간 제한, 환경 변수 등 동적 설정.
+예외 처리 및 유효성 검증
 
-    private final SourceFileRepository sourceFileRepository;
+런타임 형식 및 필수값 확인.
+Istio 및 Knative 관련 리소스 삭제 및 생성 중 예외 처리 로직 강화.
+메소드별 변경점 및 개선 사항
+1. callIstioAndKnative(Function function)
+변경점
 
-    public void callIstioAndKnative(Function function) throws IOException, ParseException {
+Istio 관련 리소스 생성 및 삭제 로직 추가:
+IP ACL 정책 관리 (makeIstioPolicy, AuthorizationPolicy 삭제).
+JWK 등록 및 RequestAuthentication 구성.
+Knative Service 호출을 통해 함수 실행.
+개선 사항
 
-        //펑션 토큰 확인
-        FunctionEnvironment functionEnvironment = functionEnvironmentRepository.findByFunction(function).stream().filter(h -> h.getType().equals("token")).findFirst().orElseThrow(()->new RuntimeException("토큰정보를 확인해주십시오."));
-        log.info("functionEnvironment = " + functionEnvironment);
-        //istio ip등록
-        List<AllowIp> allowIps = allowIpRepository.findByFunction(function);
+문제점: Istio 및 Knative 리소스 설정 로직이 하나의 메소드에 모두 포함되어 코드가 과도하게 복잡.
+해결 방법: Istio와 Knative 관련 로직을 각각 별도의 메소드로 분리하여 단일 책임 원칙(SRP) 준수.
+개선 코드:
+java
+코드 복사
+private void configureIstio(Function function, FunctionEnvironment functionEnvironment) {
+    // Istio 관련 로직 분리
+}
 
-        if ("Y".equals(function.getPublicAccessAclYn())) {
-            List<String> ips = new ArrayList<>();
-            if(CollectionUtils.isEmpty(allowIps)){
-                //전체차단
-                ips = new ArrayList<>();
-            }else{
-                ips = allowIps.stream().map(ip -> ip.getName()).collect(Collectors.toList());
-            }
-            istioCallService.makeIstioPolicy(function.getName(), ips);
-        } else  if ("N".equals(function.getPublicAccessAclYn())) {
-            istioClient.v1beta1().authorizationPolicies().inNamespace("istio-system").withName(function.getName()).delete();
-        }
-        //istio jwk등록
-        if("Y".equals(functionEnvironment.getValue())){
-            log.info("functionEnvironment = " + functionEnvironment);
-            KeyManager keyManagerOptional = keyManagerRepository.findByFunctionAndDelYn(function,"N").orElseThrow(() -> new ResourceNotFoundException("키매니저 정보를 확인해주십시오."));
+private void configureKnative(Function function, FunctionDTO.Register reqDto, List<EnvVar> envVars) {
+    // Knative 관련 로직 분리
+}
+2. generateFileName(FunctionDTO.Register reqDto)
+변경점
 
-            String token = function.getToken();
+런타임별로 생성되는 파일 이름 결정 로직 구현.
+개선 사항
 
-            istioCallService.enrollIstioToken(function.getName(),"{'keys':["+keyManagerOptional.getJwk()+"]}", token);
-        }else if("N".equals(functionEnvironment.getValue())) {
-            istioClient.v1beta1()
-                    .requestAuthentications()
-                    .inNamespace(function.getName())
-                    .withName(function.getName()).delete();
-            istioClient.v1beta1()
-                    .authorizationPolicies()
-                    .inNamespace(function.getName())
-                    .withName(function.getName()).delete();
-        }
-        //함수호출
-        this.callFunction(function.getFunctionKey());
-    }
+문제점: 런타임 확인 로직이 하드코딩되어 런타임 추가 시 코드 수정이 필요.
+해결 방법: 런타임별 파일 이름 맵핑을 별도 데이터 구조로 관리.
+개선 코드:
+java
+코드 복사
+private static final Map<String, String> RUNTIME_FILE_MAP = Map.of(
+    "Node.js", "function.js",
+    "Python", "pythonbase.py",
+    "PHP", "index.php",
+    "Java", "javafunction.jar"
+);
 
-    private String generateFileName(FunctionDTO.Register reqDto) {
-        if (reqDto.getRuntime().startsWith("Node.js")) {
-            return "function.js";
-        } else if (reqDto.getRuntime().startsWith("Python")) {
-            return "pythonbase.py";
-        } else if (reqDto.getRuntime().startsWith("PHP")) {
-            return "index.php";
-        } else if (reqDto.getRuntime().startsWith("Java")) {
-            return "javafunction.jar";
-        } else {
-            throw new RuntimeException(FILE_TYPE_EXCEPTION);
-        }
-    }
+private String generateFileName(FunctionDTO.Register reqDto) {
+    return RUNTIME_FILE_MAP.getOrDefault(reqDto.getRuntime(), 
+        throw new RuntimeException(FILE_TYPE_EXCEPTION));
+}
+3. setFunctionEnvironment(FunctionEnvironment functionEnvironment, List<EnvVar> envVars, FunctionDTO.Register reqDto)
+변경점
 
-    private void setFunctionEnvironment(FunctionEnvironment functionEnvironment, List<EnvVar> envVars, FunctionDTO.Register reqDto) {
-        if ("coldStartYn".equals(functionEnvironment.getType())) {
-            reqDto.setColdStartYn(functionEnvironment.getValue());
-        }
-        else if ("env".equals(functionEnvironment.getType())) {
-            envVars.add(new EnvVar(functionEnvironment.getKey(), functionEnvironment.getValue(), null));
-        }
-        else if ("memory".equals(functionEnvironment.getType())) {
-            reqDto.setMemory(functionEnvironment.getValue() + "Mi");
-        }
-        else if ("limit".equals(functionEnvironment.getType())) {
-            if ("minute".equals(functionEnvironment.getKey())) {
-                reqDto.setLimitTimeMinute(functionEnvironment.getValue());
-            }
-            else if ("second".equals(functionEnvironment.getKey())) {
-                reqDto.setLimitTimeSecond(functionEnvironment.getValue());
-            }
-        }
-    }
+환경 변수 설정, 메모리 설정, 제한 시간 설정 로직 구현.
+개선 사항
 
-    private void generateFileInfo(String fileName, String subPath, String functionName, String functionContent, String runtime) throws IOException {
-        //사용자 경로
-        String path = "/mb_scf/serverless" + "/"
-                + subPath;
+문제점: 환경 변수 타입별 로직이 하드코딩되어 확장성이 낮음.
+해결 방법: 각 환경 변수 타입을 Enum으로 정의하고, Enum별 처리 로직을 구현.
+개선 코드:
+java
+코드 복사
+public enum EnvironmentType {
+    COLD_START, ENV, MEMORY, LIMIT
+}
 
-        log.info("path = " + path);
-        AppUtil.createDirectory(path);
-
-        if (runtime.equals("Java")) { // Runtime: Java
-            // 해당 파일이 없을 경우 함수명의 파일 생성
-            Path functionFile = Paths.get(path.concat("/").concat(fileName));
-
-            Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
-
-            defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
-            defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
-            defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
-            defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
-
-            Path downloadFile = Paths.get(path.concat("/").concat("download.jar"));
-            if (Files.exists(downloadFile)) {
-                Files.move(downloadFile, functionFile, StandardCopyOption.REPLACE_EXISTING);
-            } else {
-                log.info("download.jar가 존재하지 않습니다.");
-            }
-            Files.setPosixFilePermissions(functionFile, defaultPosixPermissions);  //Assure the permissions again after the file is created
-        } else { // Runtime: Node.js, Python, PHP
-            // 해당 파일이 없을 경우 함수명의 파일 생성
-            Path functionFile = Paths.get(path.concat("/").concat(fileName));
-            /* base64 decoding */
-            if(Files.exists(functionFile)){
-                Files.delete(functionFile);
-            }
-            if (!Files.exists(functionFile)) {
-                Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
-
-                defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
-                defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
-                defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
-                defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
-
-                Files.createFile(functionFile);
-                Files.setPosixFilePermissions(functionFile, defaultPosixPermissions);  //Assure the permissions again after the file is created
-                // 사용자 인풋 값 추가
-                ArrayList<String> messageList = new ArrayList<>();
-                byte[] decodedBytes = java.util.Base64.getDecoder().decode(functionContent.getBytes());
-                messageList.add(new String(decodedBytes, StandardCharsets.UTF_8));
-
-                Files.write(functionFile, messageList, StandardCharsets.UTF_8);
-            }
-        }
-    }
-
-    public void callFunction(String functionKey) throws IOException {
-        List<EnvVar> envVars = new ArrayList<>();
-        HashMap<String, String> annoMap = new HashMap<>();
-
-        Long timeout = 0L;
-        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("펑션키를 확인해주세요"));
-
-        List<FunctionEnvironment> environments = functionEnvironmentRepository.findByFunction(function);
-        //해당 환경을 기준으로 옵션을 셋팅함.
-        FunctionDTO.Register reqDto = new FunctionDTO.Register();
-        if (CollectionUtils.isEmpty(environments)) {
-            //디폴트값으로 세팅
-            throw new RuntimeException("환경구성 새로 저장해주세요.");
-        } else {
-            reqDto.setRuntime(function.getRuntime());
-            environments.stream().forEach(functionEnvironment -> setFunctionEnvironment(functionEnvironment, envVars, reqDto));
-        }
-        log.info(reqDto.toString());
-        timeout=Long.parseLong(reqDto.getLimitTimeMinute())*60L+Long.parseLong(reqDto.getLimitTimeSecond());
-        log.info("timeout print "+reqDto.toString());
-
-        /* 클라우드 로깅용 어노테이션 추가 */
-        if ("Y".equals(function.getLogEnableYn())) {
-            annoMap.put(BASE_URL + "/functionKey", functionKey);
-        }
-
-        if ("Y".equals(reqDto.getColdStartYn())) {
-            annoMap.put("autoscaling.knative.dev/minScale", "1");
-        }
-        String fileName = generateFileName(reqDto);
-        String image = "";
-        String mountPath = "";
-        String subPath = "";
-        ContainerPort containerPorts = null;
-
-        String[] runtimeSlice;
-        String strRuntimeName = reqDto.getRuntime();
-        if (strRuntimeName.contains(":") == false) {
-            throw new RuntimeException("유효하지 않은 런타임 형식입니다.");
-        } else {
-            runtimeSlice = reqDto.getRuntime().split(":");
-
-            if(runtimeSlice.length != 2) {
-                throw new RuntimeException("유효하지 않은 런타임 형식입니다.");
-            }
-            else if(runtimeSlice[0].isEmpty() || runtimeSlice[1].isEmpty()){
-                throw new RuntimeException("런타임 이름 혹은 버전이 지정되지 않았습니다.");
-            }
-        }
-
-        Collection<String> commands = new ArrayList<>();
-        if (runtimeSlice[0].equals("Node.js")) {
-            image = "scf-nodejs:" + runtimeSlice[1];
-            commands.add("node");
-            commands.add("/usr/src/serverless/function/".concat(fileName));
-            mountPath = "/usr/src/serverless/function";
-        } else if (runtimeSlice[0].equals("Python")) {
-            image = "scf-python:" + runtimeSlice[1];
-            commands.add("python");
-            commands.add("/usr/src/serverless/".concat(fileName));
-            mountPath = "/usr/src/serverless";
-        } else if (runtimeSlice[0].equals("PHP")) {
-            image = "scf-php:" + runtimeSlice[1];
-            mountPath = "/var/www/html";
-        } else if (runtimeSlice[0].equals("Java")) {
-            image = "scf-java:" + runtimeSlice[1];
-            commands.add("java");
-            commands.add("-jar");
-            commands.add("/usr/lib/manager.jar"); // API Controller <-> Handler 분리
-            mountPath = "/usr/src/serverless";
-
-            // CLASS_NAME, METHOD_NAME 환경변수에 추가
-            SourceFile sourceFile = sourceFileRepository.findByFunction(function).orElseThrow(() -> new ResourceNotFoundException("유효한 소스파일 데이터가 존재하지 않습니다."));
-            envVars.add(new EnvVar("CLASS_NAME", sourceFile.getClassName(), null));
-            envVars.add(new EnvVar("METHOD_NAME", sourceFile.getMethodName(), null));
-        } else {
-            throw new RuntimeException("지원하지 않는 런타임입니다.");
-        }
-        subPath = function.getName();
-        containerPorts = new ContainerPortBuilder()
-                .withContainerPort(8080)
-                .build();
-
-        Collection<String> dropCap = new ArrayList<>();
-        dropCap.add("all");
-
-        log.info("image = " + image);
-        log.info("repository = " + repository);
-        log.info("commands = " + repository.concat("/").concat(image));
-        log.info("commands = " + reqDto);
-        log.info("envVars = " + envVars);
-        log.info("timeout = " +timeout);
-
-        Service service = new ServiceBuilder()
-                .withNewMetadata()
-                .withName(function.getName())
-                .withNamespace(function.getName())
-                .endMetadata()
-                .withNewSpec()
-                .withNewTemplate()
-                .withNewMetadata()
-                .withAnnotations(annoMap)
-                .endMetadata()
-                .withNewSpec()
-                .withTimeoutSeconds(timeout)
-                .addNewContainer()
-                .withImage(repository.concat("/").concat(image))
-                .withEnv(envVars)
-                .withNewResources()
-                .addToLimits("memory", new Quantity(reqDto.getMemory()))
-                .addToRequests("memory", new Quantity(reqDto.getMemory()))
-                .endResources()
-                .withNewSecurityContext()
-                .withNewCapabilities()
-                .addAllToDrop(dropCap)
-                .endCapabilities()
-                .withRunAsUser(61000L) // functionUser (UID)
-                .withRunAsNonRoot(true)
-                .endSecurityContext()
-                .addAllToCommand(commands)
-                .addNewVolumeMount().withName(volumeName)
-                .withMountPath(mountPath)
-                .withReadOnly(true)
-                .withSubPath(subPath)
-                .endVolumeMount()
-                .withPorts(containerPorts)
-                .endContainer()
-                .addNewVolume().withName(volumeName)
-                .withNewPersistentVolumeClaim()
-                .withClaimName(volumeName)
-                .withReadOnly(true)
-                .endPersistentVolumeClaim()
-                .and()
-                .endSpec()
-                .endTemplate()
-                .endSpec()
-                .build();
-
-        log.debug("Working Directory = " + System.getProperty("user.home"));
-
-        // 2023.11.28 gyeongyeol
-        // 함수 코드가 없는 Java Runtime인 경우에 대해서 코드 조회를 skip하도록 분기 로직 추가
-        if (StringUtils.isEmpty(function.getContent()) && !function.getRuntime().startsWith("Java")) {
-            throw new RuntimeException("코드 입력후 펑션호출이 필요합니다.");
-        }
-
-        generateFileInfo(fileName, subPath, function.getName(), function.getContent(), runtimeSlice[0]);
-        log.info("함수실행");
-        log.info(service + "");
-        kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
-        Service patch = kn.services().withName(function.getName()).patch(PatchContext.of(PatchType.SERVER_SIDE_APPLY), service);
-        if(patch.getStatus() !=null ){
-            log.info("결과상태 확인" + patch.getStatus().getConditions());
-        }
+private void setFunctionEnvironment(FunctionEnvironment functionEnvironment, List<EnvVar> envVars, FunctionDTO.Register reqDto) {
+    switch (EnvironmentType.valueOf(functionEnvironment.getType().toUpperCase())) {
+        case COLD_START -> reqDto.setColdStartYn(functionEnvironment.getValue());
+        case ENV -> envVars.add(new EnvVar(functionEnvironment.getKey(), functionEnvironment.getValue(), null));
+        case MEMORY -> reqDto.setMemory(functionEnvironment.getValue() + "Mi");
+        case LIMIT -> setLimit(functionEnvironment, reqDto);
     }
 }
+4. generateFileInfo
+변경점
+
+런타임별 파일 생성 및 Base64 디코딩 로직 구현.
+개선 사항
+
+문제점: Java와 다른 런타임의 로직이 중복되며, Posix 권한 설정이 매번 반복됨.
+해결 방법: 공통 로직을 별도 메소드로 추출.
+개선 코드:
+java
+코드 복사
+private void setFilePermissions(Path file) throws IOException {
+    Set<PosixFilePermission> permissions = Set.of(
+        PosixFilePermission.OWNER_READ,
+        PosixFilePermission.OWNER_WRITE,
+        PosixFilePermission.GROUP_READ,
+        PosixFilePermission.OTHERS_READ
+    );
+    Files.setPosixFilePermissions(file, permissions);
+}
+5. callFunction
+변경점
+
+런타임별 Knative Service 설정 로직 추가.
+개선 사항
+
+문제점: 런타임별 로직이 중복되며 확장성 낮음.
+해결 방법: 런타임 설정 로직을 Enum으로 추출.
+개선 코드:
+java
+코드 복사
+public enum RuntimeConfig {
+    NODE_JS("Node.js", "scf-nodejs"),
+    PYTHON("Python", "scf-python"),
+    PHP("PHP", "scf-php"),
+    JAVA("Java", "scf-java");
+
+    // 런타임별 로직 구현
+}
+추가 고려 사항
+외부화: 하드코딩된 값(volumeName, repository, BASE_URL 등)을 application.yml로 외부화.
+테스트 코드 작성: 각 메소드의 유닛 테스트 및 통합 테스트를 작성하여 안정성 확보.
+이 PR을 통해 코드의 가독성과 유지보수성을 대폭 개선하고, 서비스 안정성을 강화할 수 있을 것입니다. 팀원들의 리뷰를 통해 추가 의견을 수렴하겠습니다! 😊
