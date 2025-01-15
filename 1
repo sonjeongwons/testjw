@@ -1,177 +1,339 @@
+package com.scf.manager.mvc.service;
 
-PR 템플릿
-PR 개요
-RabbitMQSource 생성을 자동화하는 기능을 구현하였습니다.
-해당 PR에서는 RabbitMQSource를 Kubernetes 환경에서 동적으로 생성 및 삭제할 수 있는 서비스를 개발하였으며, 관련 클라이언트 설정 및 Kubernetes 자원과의 연동이 포함되어 있습니다.
-PR의 목적은 RabbitMQSource 관리의 편의성과 확장성을 확보하는 데 있습니다.
+import com.scf.manager.common.exception.ResourceNotFoundException;
+import com.scf.manager.common.util.AppUtil;
+import com.scf.manager.mvc.domain.*;
+import com.scf.manager.mvc.dto.FunctionDTO;
+import com.scf.manager.mvc.repository.*;
+import io.fabric8.istio.client.DefaultIstioClient;
+import io.fabric8.knative.client.DefaultKnativeClient;
+import io.fabric8.knative.serving.v1.Service;
+import io.fabric8.knative.serving.v1.ServiceBuilder;
+import io.fabric8.kubernetes.api.model.*;
+import io.fabric8.kubernetes.client.dsl.base.PatchContext;
+import io.fabric8.kubernetes.client.dsl.base.PatchType;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.util.CollectionUtils;
 
-개발 내용
-RabbitMQSource 동적 생성 기능
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.text.ParseException;
+import java.util.*;
+import java.util.stream.Collectors;
 
-makeRabbitMQSource 메서드를 통해 RabbitMQSource를 Kubernetes 클러스터 내에 동적으로 생성할 수 있습니다.
-RabbitMQ 클러스터의 연결 설정, Exchange, Queue 등의 리소스를 자동화하여 관리합니다.
-Sink 설정을 통해 타겟 서비스와의 연동을 간단히 설정 가능하도록 구현하였습니다.
-RabbitMQSource 삭제 기능
+import static com.scf.manager.common.constants.ExceptionConst.FILE_HANDLE_EXCEPTION;
+import static com.scf.manager.common.constants.ExceptionConst.FILE_TYPE_EXCEPTION;
 
-deleteRabbitMQSource 메서드를 통해 지정된 RabbitMQSource를 간단히 삭제할 수 있습니다.
-Kubernetes 클라이언트를 사용하여 리소스를 관리하며, 불필요한 자원의 자동 정리를 지원합니다.
-메소드별 변경점 및 개선 사항
-makeRabbitMQSource(String rabbitMQSourceName)
+@Slf4j
+@org.springframework.stereotype.Service
+@RequiredArgsConstructor
+public class KnativeService {
 
-변경점
+    @Value("${config.repository}")
+    private String repository;
+    private final String BASE_URL = "samsungsdscloud.com";
+    private final String volumeName = "serverless-storage-user";
+    private final DefaultKnativeClient kn;
+    private final FunctionEnvironmentRepository functionEnvironmentRepository;
+    private final AllowIpRepository allowIpRepository;
+    private final IstioCallService istioCallService;
+    private final DefaultIstioClient istioClient;
+    private final KeyManagerRepository keyManagerRepository;
+    private final FunctionRepository functionRepository;
 
-RabbitMQSource를 동적으로 생성하는 로직 추가.
-RabbitMQSourceSpec 내 구성 요소 (ClusterReference, ResourcesConfig, Sink 등)를 설정.
-KubernetesClient를 활용하여 Kubernetes 자원 생성 및 관리 로직 구현.
-기존 RabbitMQSource가 존재할 경우 삭제 후 새로 생성하여 자원 중복 문제 방지.
-개선 사항
+    private final SourceFileRepository sourceFileRepository;
 
-RabbitMQ 리소스를 명시적으로 정의하여 코드 가독성을 높임.
-ClusterReference 및 Sink 등 주요 설정 값을 별도로 분리하여 추후 유지보수 편리.
-try-with-resources 블록을 사용해 KubernetesClient의 리소스 누수를 방지.
-deleteRabbitMQSource(String rabbitMQSourceName)
+    public void callIstioAndKnative(Function function) throws IOException, ParseException {
 
-변경점
-지정된 RabbitMQSource를 Kubernetes 클러스터에서 삭제하는 기능 추가.
-KubernetesClient 및 MixedOperation 인터페이스 활용.
-개선 사항
-삭제 기능 분리로 코드의 책임과 가독성 강화.
-리소스 삭제 시 네임스페이스와 이름을 명확히 지정해 예상치 못한 삭제 방지.
-추가 고려 사항
-확장성
+        //펑션 토큰 확인
+        FunctionEnvironment functionEnvironment = functionEnvironmentRepository.findByFunction(function).stream().filter(h -> h.getType().equals("token")).findFirst().orElseThrow(()->new RuntimeException("토큰정보를 확인해주십시오."));
+        log.info("functionEnvironment = " + functionEnvironment);
+        //istio ip등록
+        List<AllowIp> allowIps = allowIpRepository.findByFunction(function);
 
-RabbitMQSource의 설정 값은 현재 고정되어 있으나, 이후 사용자 정의 설정을 받을 수 있도록 확장성 고려 필요.
-ResourceConfig 및 Sink 설정 등을 동적으로 주입 가능하도록 개선 가능.
-오류 처리
+        if ("Y".equals(function.getPublicAccessAclYn())) {
+            List<String> ips = new ArrayList<>();
+            if(CollectionUtils.isEmpty(allowIps)){
+                //전체차단
+                ips = new ArrayList<>();
+            }else{
+                ips = allowIps.stream().map(ip -> ip.getName()).collect(Collectors.toList());
+            }
+            istioCallService.makeIstioPolicy(function.getName(), ips);
+        } else  if ("N".equals(function.getPublicAccessAclYn())) {
+            istioClient.v1beta1().authorizationPolicies().inNamespace("istio-system").withName(function.getName()).delete();
+        }
+        //istio jwk등록
+        if("Y".equals(functionEnvironment.getValue())){
+            log.info("functionEnvironment = " + functionEnvironment);
+            KeyManager keyManagerOptional = keyManagerRepository.findByFunctionAndDelYn(function,"N").orElseThrow(() -> new ResourceNotFoundException("키매니저 정보를 확인해주십시오."));
 
-현재는 주요 로직에서 예외 처리를 기본적으로 포함하지 않았으므로, 예외 상황에 대한 상세 로깅 및 대응 로직 추가가 필요.
-테스트
+            String token = function.getToken();
 
-PR 병합 전, Kubernetes 테스트 환경에서 기능의 정상 동작 확인 필요.
-Unit Test 및 Integration Test 추가하여 서비스의 안정성을 보장해야 함.
-이 PR은 RabbitMQSource의 생성 및 삭제를 간단히 수행할 수 있도록 함으로써 서비스 관리의 편의성을 높이고, Kubernetes 환경에서의 RabbitMQ 연동을 보다 명확하고 체계적으로 제공합니다.
-팀원들은 주석 및 개선 사항을 자유롭게 논의해주시길 바랍니다! 😊
+            istioCallService.enrollIstioToken(function.getName(),"{'keys':["+keyManagerOptional.getJwk()+"]}", token);
+        }else if("N".equals(functionEnvironment.getValue())) {
+            istioClient.v1beta1()
+                    .requestAuthentications()
+                    .inNamespace(function.getName())
+                    .withName(function.getName()).delete();
+            istioClient.v1beta1()
+                    .authorizationPolicies()
+                    .inNamespace(function.getName())
+                    .withName(function.getName()).delete();
+        }
+        //함수호출
+        this.callFunction(function.getFunctionKey());
+    }
 
+    private String generateFileName(FunctionDTO.Register reqDto) {
+        if (reqDto.getRuntime().startsWith("Node.js")) {
+            return "function.js";
+        } else if (reqDto.getRuntime().startsWith("Python")) {
+            return "pythonbase.py";
+        } else if (reqDto.getRuntime().startsWith("PHP")) {
+            return "index.php";
+        } else if (reqDto.getRuntime().startsWith("Java")) {
+            return "javafunction.jar";
+        } else {
+            throw new RuntimeException(FILE_TYPE_EXCEPTION);
+        }
+    }
 
+    private void setFunctionEnvironment(FunctionEnvironment functionEnvironment, List<EnvVar> envVars, FunctionDTO.Register reqDto) {
+        if ("coldStartYn".equals(functionEnvironment.getType())) {
+            reqDto.setColdStartYn(functionEnvironment.getValue());
+        }
+        else if ("env".equals(functionEnvironment.getType())) {
+            envVars.add(new EnvVar(functionEnvironment.getKey(), functionEnvironment.getValue(), null));
+        }
+        else if ("memory".equals(functionEnvironment.getType())) {
+            reqDto.setMemory(functionEnvironment.getValue() + "Mi");
+        }
+        else if ("limit".equals(functionEnvironment.getType())) {
+            if ("minute".equals(functionEnvironment.getKey())) {
+                reqDto.setLimitTimeMinute(functionEnvironment.getValue());
+            }
+            else if ("second".equals(functionEnvironment.getKey())) {
+                reqDto.setLimitTimeSecond(functionEnvironment.getValue());
+            }
+        }
+    }
 
+    private void generateFileInfo(String fileName, String subPath, String functionName, String functionContent, String runtime) throws IOException {
+        //사용자 경로
+        String path = "/mb_scf/serverless" + "/"
+                + subPath;
 
+        log.info("path = " + path);
+        AppUtil.createDirectory(path);
 
+        if (runtime.equals("Java")) { // Runtime: Java
+            // 해당 파일이 없을 경우 함수명의 파일 생성
+            Path functionFile = Paths.get(path.concat("/").concat(fileName));
 
-나의 말:
-위 코드는 다른 팀원이 작성한 코드야. 나는 위 코드에 대해 리팩토링, 클린코드 관점에서 개선해야해. 너가 직접 코드리뷰를 해서 알려줘. 각 메소드 내 개선사항들을 자세히 작성하고, 어떤 점에서 개선되었는지, 왜 변경이 필요한지에 대해 자세히 알려주어야해. 필요하다면 변경된 코드가 무엇인지 보여주고, 관련 기술 설명이 필요하면 덧붙이면 좋아. 메소드별 개선사항이 여러개여도 상관없어.
-ChatGPT의 말:
-ChatGPT
-코드 리뷰: 리팩토링 및 클린 코드 개선 관점
-1. makeRabbitMQSource 메소드
-개선사항 1: 리소스 중복 제거
-문제점: 기존에 동일한 이름의 RabbitMQSource가 존재할 경우 삭제 후 새로 생성합니다. 그러나 매번 삭제 후 생성하는 방식은 불필요한 연산과 리소스 낭비를 초래합니다.
-개선방법: 기존에 동일한 이름의 리소스가 있는지 확인한 후, 없는 경우에만 새로 생성하도록 조건문 추가.
-개선 코드:
-java
-코드 복사
-rabbitMQSourceClient.inNamespace("rabbitmq").withName(rabbitMQSourceName).get();
-if (existingSource == null) {
-    rabbitMQSourceClient.inNamespace("rabbitmq").create(rabbitMQSource);
-} else {
-    log.info("RabbitMQSource {} already exists, skipping creation.", rabbitMQSourceName);
+            Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
+
+            defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
+            defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
+            defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
+            defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
+
+            Path downloadFile = Paths.get(path.concat("/").concat("download.jar"));
+            if (Files.exists(downloadFile)) {
+                Files.move(downloadFile, functionFile, StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                log.info("download.jar가 존재하지 않습니다.");
+            }
+            Files.setPosixFilePermissions(functionFile, defaultPosixPermissions);  //Assure the permissions again after the file is created
+        } else { // Runtime: Node.js, Python, PHP
+            // 해당 파일이 없을 경우 함수명의 파일 생성
+            Path functionFile = Paths.get(path.concat("/").concat(fileName));
+            /* base64 decoding */
+            if(Files.exists(functionFile)){
+                Files.delete(functionFile);
+            }
+            if (!Files.exists(functionFile)) {
+                Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
+
+                defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
+                defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
+                defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
+                defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
+
+                Files.createFile(functionFile);
+                Files.setPosixFilePermissions(functionFile, defaultPosixPermissions);  //Assure the permissions again after the file is created
+                // 사용자 인풋 값 추가
+                ArrayList<String> messageList = new ArrayList<>();
+                byte[] decodedBytes = java.util.Base64.getDecoder().decode(functionContent.getBytes());
+                messageList.add(new String(decodedBytes, StandardCharsets.UTF_8));
+
+                Files.write(functionFile, messageList, StandardCharsets.UTF_8);
+            }
+        }
+    }
+
+    public void callFunction(String functionKey) throws IOException {
+        List<EnvVar> envVars = new ArrayList<>();
+        HashMap<String, String> annoMap = new HashMap<>();
+
+        Long timeout = 0L;
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("펑션키를 확인해주세요"));
+
+        List<FunctionEnvironment> environments = functionEnvironmentRepository.findByFunction(function);
+        //해당 환경을 기준으로 옵션을 셋팅함.
+        FunctionDTO.Register reqDto = new FunctionDTO.Register();
+        if (CollectionUtils.isEmpty(environments)) {
+            //디폴트값으로 세팅
+            throw new RuntimeException("환경구성 새로 저장해주세요.");
+        } else {
+            reqDto.setRuntime(function.getRuntime());
+            environments.stream().forEach(functionEnvironment -> setFunctionEnvironment(functionEnvironment, envVars, reqDto));
+        }
+        log.info(reqDto.toString());
+        timeout=Long.parseLong(reqDto.getLimitTimeMinute())*60L+Long.parseLong(reqDto.getLimitTimeSecond());
+        log.info("timeout print "+reqDto.toString());
+
+        /* 클라우드 로깅용 어노테이션 추가 */
+        if ("Y".equals(function.getLogEnableYn())) {
+            annoMap.put(BASE_URL + "/functionKey", functionKey);
+        }
+
+        if ("Y".equals(reqDto.getColdStartYn())) {
+            annoMap.put("autoscaling.knative.dev/minScale", "1");
+        }
+        String fileName = generateFileName(reqDto);
+        String image = "";
+        String mountPath = "";
+        String subPath = "";
+        ContainerPort containerPorts = null;
+
+        String[] runtimeSlice;
+        String strRuntimeName = reqDto.getRuntime();
+        if (strRuntimeName.contains(":") == false) {
+            throw new RuntimeException("유효하지 않은 런타임 형식입니다.");
+        } else {
+            runtimeSlice = reqDto.getRuntime().split(":");
+
+            if(runtimeSlice.length != 2) {
+                throw new RuntimeException("유효하지 않은 런타임 형식입니다.");
+            }
+            else if(runtimeSlice[0].isEmpty() || runtimeSlice[1].isEmpty()){
+                throw new RuntimeException("런타임 이름 혹은 버전이 지정되지 않았습니다.");
+            }
+        }
+
+        Collection<String> commands = new ArrayList<>();
+        if (runtimeSlice[0].equals("Node.js")) {
+            image = "scf-nodejs:" + runtimeSlice[1];
+            commands.add("node");
+            commands.add("/usr/src/serverless/function/".concat(fileName));
+            mountPath = "/usr/src/serverless/function";
+        } else if (runtimeSlice[0].equals("Python")) {
+            image = "scf-python:" + runtimeSlice[1];
+            commands.add("python");
+            commands.add("/usr/src/serverless/".concat(fileName));
+            mountPath = "/usr/src/serverless";
+        } else if (runtimeSlice[0].equals("PHP")) {
+            image = "scf-php:" + runtimeSlice[1];
+            mountPath = "/var/www/html";
+        } else if (runtimeSlice[0].equals("Java")) {
+            image = "scf-java:" + runtimeSlice[1];
+            commands.add("java");
+            commands.add("-jar");
+            commands.add("/usr/lib/manager.jar"); // API Controller <-> Handler 분리
+            mountPath = "/usr/src/serverless";
+
+            // CLASS_NAME, METHOD_NAME 환경변수에 추가
+            SourceFile sourceFile = sourceFileRepository.findByFunction(function).orElseThrow(() -> new ResourceNotFoundException("유효한 소스파일 데이터가 존재하지 않습니다."));
+            envVars.add(new EnvVar("CLASS_NAME", sourceFile.getClassName(), null));
+            envVars.add(new EnvVar("METHOD_NAME", sourceFile.getMethodName(), null));
+        } else {
+            throw new RuntimeException("지원하지 않는 런타임입니다.");
+        }
+        subPath = function.getName();
+        containerPorts = new ContainerPortBuilder()
+                .withContainerPort(8080)
+                .build();
+
+        Collection<String> dropCap = new ArrayList<>();
+        dropCap.add("all");
+
+        log.info("image = " + image);
+        log.info("repository = " + repository);
+        log.info("commands = " + repository.concat("/").concat(image));
+        log.info("commands = " + reqDto);
+        log.info("envVars = " + envVars);
+        log.info("timeout = " +timeout);
+
+        Service service = new ServiceBuilder()
+                .withNewMetadata()
+                .withName(function.getName())
+                .withNamespace(function.getName())
+                .endMetadata()
+                .withNewSpec()
+                .withNewTemplate()
+                .withNewMetadata()
+                .withAnnotations(annoMap)
+                .endMetadata()
+                .withNewSpec()
+                .withTimeoutSeconds(timeout)
+                .addNewContainer()
+                .withImage(repository.concat("/").concat(image))
+                .withEnv(envVars)
+                .withNewResources()
+                .addToLimits("memory", new Quantity(reqDto.getMemory()))
+                .addToRequests("memory", new Quantity(reqDto.getMemory()))
+                .endResources()
+                .withNewSecurityContext()
+                .withNewCapabilities()
+                .addAllToDrop(dropCap)
+                .endCapabilities()
+                .withRunAsUser(61000L) // functionUser (UID)
+                .withRunAsNonRoot(true)
+                .endSecurityContext()
+                .addAllToCommand(commands)
+                .addNewVolumeMount().withName(volumeName)
+                .withMountPath(mountPath)
+                .withReadOnly(true)
+                .withSubPath(subPath)
+                .endVolumeMount()
+                .withPorts(containerPorts)
+                .endContainer()
+                .addNewVolume().withName(volumeName)
+                .withNewPersistentVolumeClaim()
+                .withClaimName(volumeName)
+                .withReadOnly(true)
+                .endPersistentVolumeClaim()
+                .and()
+                .endSpec()
+                .endTemplate()
+                .endSpec()
+                .build();
+
+        log.debug("Working Directory = " + System.getProperty("user.home"));
+
+        // 2023.11.28 gyeongyeol
+        // 함수 코드가 없는 Java Runtime인 경우에 대해서 코드 조회를 skip하도록 분기 로직 추가
+        if (StringUtils.isEmpty(function.getContent()) && !function.getRuntime().startsWith("Java")) {
+            throw new RuntimeException("코드 입력후 펑션호출이 필요합니다.");
+        }
+
+        generateFileInfo(fileName, subPath, function.getName(), function.getContent(), runtimeSlice[0]);
+        log.info("함수실행");
+        log.info(service + "");
+        kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
+        Service patch = kn.services().withName(function.getName()).patch(PatchContext.of(PatchType.SERVER_SIDE_APPLY), service);
+        if(patch.getStatus() !=null ){
+            log.info("결과상태 확인" + patch.getStatus().getConditions());
+        }
+    }
 }
-이유: 불필요한 삭제 및 생성 로직을 줄여 Kubernetes API 호출을 최소화하여 성능 개선.
-개선사항 2: 구성요소 분리
-문제점: RabbitMQSourceSpec 설정에 필요한 코드가 메소드 내에 직렬화되어 가독성이 떨어지고 테스트가 어려움.
-개선방법: 구성요소별로 별도의 메소드로 분리하여 가독성과 재사용성 강화.
-개선 코드:
-java
-코드 복사
-private RabbitMQSourceSpec buildRabbitMQSourceSpec(String rabbitMQSourceName) {
-    return RabbitMQSourceSpec.builder()
-            .rabbitmqClusterReference(buildClusterReference())
-            .rabbitMQResourcesConfig(buildResourcesConfig(rabbitMQSourceName))
-            .sink(buildSinkSpec())
-            .build();
-}
-
-private RabbitMQClusterReferenceSpec buildClusterReference() {
-    return RabbitMQClusterReferenceSpec.builder()
-            .connectionSecret(ConnectionSecretSpec.builder()
-                    .name("rabbitmq-cluster-secret-credentials")
-                    .build())
-            .namespace("rabbitmq")
-            .build();
-}
-
-private RabbitMQResourcesConfigSpec buildResourcesConfig(String rabbitMQSourceName) {
-    return RabbitMQResourcesConfigSpec.builder()
-            .exchangeName(rabbitMQSourceName)
-            .parallelism(1)
-            .queueName(rabbitMQSourceName)
-            .predeclared(false)
-            .build();
-}
-
-private SinkSpec buildSinkSpec() {
-    return SinkSpec.builder()
-            .ref(RefSpec.builder()
-                    .apiVersion("serving.knative.dev/v1")
-                    .kind("Service")
-                    .name("scf-d79013ae-bb79-445d-be77-f0c9b4a78e8f-api")
-                    .namespace("scf-user")
-                    .build())
-            .build();
-}
-이유: 코드 재사용성을 높이고, 각 구성요소를 독립적으로 테스트할 수 있도록 개선.
-개선사항 3: 예외 처리 추가
-문제점: Kubernetes API 호출 중 오류 발생 시 이를 적절히 처리하지 않아 문제 원인을 파악하기 어렵습니다.
-개선방법: 예외 처리 로직을 추가하여 오류 발생 시 상세 로그를 남기고 적절히 처리.
-개선 코드:
-java
-코드 복사
-try {
-    rabbitMQSourceClient.inNamespace("rabbitmq").create(rabbitMQSource);
-} catch (Exception e) {
-    log.error("Failed to create RabbitMQSource {}: {}", rabbitMQSourceName, e.getMessage(), e);
-    throw new RuntimeException("RabbitMQSource 생성 중 오류 발생", e);
-}
-이유: 장애 발생 시 원인 파악 및 디버깅 효율성을 높임.
-2. deleteRabbitMQSource 메소드
-개선사항 1: 삭제 결과 확인 및 로그 추가
-문제점: 리소스 삭제 후 결과를 확인하거나 로그로 남기지 않아 실제 삭제 여부를 알 수 없음.
-개선방법: 삭제 결과를 반환받아 성공 여부를 로그로 기록.
-개선 코드:
-java
-코드 복사
-boolean isDeleted = rabbitMQSourceClient.inNamespace("rabbitmq").withName(rabbitMQSourceName).delete();
-if (isDeleted) {
-    log.info("Successfully deleted RabbitMQSource: {}", rabbitMQSourceName);
-} else {
-    log.warn("RabbitMQSource {} not found or could not be deleted.", rabbitMQSourceName);
-}
-이유: 삭제 결과를 명확히 확인하여 문제 발생 시 빠르게 대응 가능.
-개선사항 2: 리소스 존재 여부 확인 후 삭제
-문제점: 삭제 대상 리소스가 존재하지 않는 경우에도 삭제 요청을 보내 Kubernetes API 호출을 낭비함.
-개선방법: 리소스 존재 여부를 먼저 확인한 후 삭제 요청.
-개선 코드:
-java
-코드 복사
-RabbitMQSource existingSource = rabbitMQSourceClient.inNamespace("rabbitmq").withName(rabbitMQSourceName).get();
-if (existingSource != null) {
-    rabbitMQSourceClient.inNamespace("rabbitmq").withName(rabbitMQSourceName).delete();
-} else {
-    log.info("RabbitMQSource {} does not exist, skipping deletion.", rabbitMQSourceName);
-}
-이유: API 호출 최소화 및 불필요한 오류 로그 방지.
-주요 개선 사항 요약
-리소스 중복 확인 및 최소화: Kubernetes API 호출 최적화를 통해 성능 개선.
-코드 구성요소 분리: 가독성 및 재사용성 강화.
-예외 처리 추가: 오류 상황에 대한 디버깅 용이성 확보.
-삭제 로직 강화: 리소스 존재 여부를 확인하여 API 호출 낭비 방지.
-결과 확인 및 로깅: 상태 확인 및 로그 기록으로 유지보수 용이.
-추가적으로 고려할 점
-테스트 코드 작성: 각 메소드별 유닛 테스트를 작성하여 안정성을 높여야 합니다.
-설정값 외부화: 현재 하드코딩된 값(예: namespace, connectionSecret 등)을 application.yml로 외부화하면 유연성이 증가합니다.
-이제 개선된 코드를 기반으로 PR에 반영하고, 팀원들과 리뷰를 진행하며 추가적인 피드백을 받을 수 있을 것입니다.
-
-
-
-
-
-
