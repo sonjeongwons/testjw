@@ -1,41 +1,184 @@
-package com.example.demo.controller;
+[root@ta-kre1-mb-scf-publicweb-01 ~]# cat /etc/nginx/nginx.conf
 
-import com.example.demo.service.V3ScannerService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+user  webadmin;
+worker_processes  auto;
+worker_rlimit_nofile 10240;
 
-import java.util.Map;
-import java.util.Properties;
+error_log  /var/log/nginx/error.log debug;
+pid        /var/run/nginx.pid;
 
-@RestController
-@RequestMapping("/api/v1/scanner")
-public class V3ScannerController {
 
-    @Autowired
-    private V3ScannerService v3ScannerService;
+events {
+    worker_connections  5120;
+}
 
-    @GetMapping("/simple")
-    public ResponseEntity<Map<String, Object>> simpleScan(@RequestHeader("X-API-KEY") String apiKey, @RequestParam String filename) {
-        if (!v3ScannerService.validateApiKey(apiKey)) {
-            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+
+http {
+    server_tokens off;
+    disable_symlinks on;
+
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+    #proxy_set_header        X-Forwarded-For "$remote_addr";
+    proxy_set_header        X-Real-IP "$remote_addr";
+    error_log   /var/log/nginx/error.log;
+    access_log  /var/log/nginx/access.log  main;
+
+    sendfile        on;
+    keepalive_timeout  65;
+    #include /etc/nginx/conf.d/*.conf;
+    set_real_ip_from '112.107.118.105';
+    set_real_ip_from '100.64.208.5';
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
+        server{
+               listen 443;
+               location /nginx_status {
+                  stub_status on;
+                  allow 127.0.0.1/32;
+                  allow 70.50.172.135; #박운한로컬
+                  allow 70.123.25.170; #박운한 장애복구
+                  allow 70.121.99.219; #박운한 VDI
+                  allow 70.50.172.85;  #박주훈로컬
+                  allow 70.122.17.104; #박주훈 VID
+                  allow 70.50.172.100; #이희창로컬
+                  allow 70.122.19.20; #이희창VDI
+                  allow 70.123.30.124; #이희창VDI
+                  allow 70.50.172.89; #최경열로컬
+                  allow 70.123.11.233; #최경열 VDI
+                  allow 70.122.12.57; #최경열VDI
+                  allow 70.50.172.80; #손정원로컬
+                  allow 70.123.20.175; #손정원VDI
+                  allow 70.122.29.182; #손정원 장애복구
+                  allow 70.121.103.235; #김동회
+
+                  deny all;
+               }
+              }
+
+        server {
+                listen 80;
+                server_name scf-dev.kr-east.samsungsdscloud.com;
+                client_max_body_size 20M;
+
+                error_page 500 501 505 /500.html;
+                location /500.html{
+                        return 500 '{"error": {"status_code": 500,"status": "Internal Server Error"}}';
+                }
+                error_page 503 /503.html;
+                location /503.html{
+                        return 503 '{"error": {"status_code": 503,"status": "Service Temporarily Unavailable"}}';
+                }
+                error_page 504 /504.html;
+                location /504.html{
+                        return 504 '{"error": {"status_code": 504,"status": "Gateway Timeout"}}';
+                }
+                error_page 400 402 405 406 407 409 410 411 412 413 414 415 416 417/400.html;
+                location /400.html{
+                        return 400 '{"error": {"status_code": 400,"status": "Bad Request"}}';
+                }
+                error_page 401 /401.html;
+                location /401.html{
+                        return 401 '{"error": {"status_code": 401,"status": "Unauthorized"}}';
+                }
+                error_page 403 /403.html;
+                location /403.html{
+                        return 403 '{"error": {"status_code": 403,"status": "Forbidden"}}';
+                }
+                error_page 404 502 /404.html;
+                location /404.html{
+                        return 404 '{"error": {"status_code": 404,"status": "Not Found"}}';
+                }
+                error_page 408 /408.html;
+                location /408.html{
+                        return 408 '{"error": {"status_code": 408,"status": "Request Timeout}}';
+                }
+
+
+                location ~ ^/(?<var_svc>[^/]+)(?<var_uri>/?.*)? {
+                        proxy_http_version 1.1;
+                        resolver localhost;
+                        if ($var_uri = "") {
+                                set $var_uri "/";
+                        }
+                        set $var_ns $var_svc;
+                        if ($var_ns ~ "^(.*)-\d{3}$") { #뒷 숫자가 5이라면 5개를 삭제함
+                          set $var_ns $1;
+                        }
+
+                        set $proxy_target "http://$var_svc.$var_ns.scf.com:30741$var_uri?$args";
+
+                        #set $proxy_target "http://$var_svc.$var_svc.scf.com:30741$var_uri?$args";
+                        #set $proxy_host "$var_svc.$var_svc.scf.com";
+                        #set $proxy_target "http://182.197.144.45:30741$var_uri?$args";
+
+                        proxy_pass $proxy_target;
+                        #proxy_set_header Host $proxy_host;
+
+                        root /usr/share/nginx/html;
+                }
+
+                # deny scripts inside writable directories
+                location ~* /(images|cache|media|logs|tmp)/.*.(\.php|\.pl|\.py|\.jsp|\.asp|\.sh|\.cgi)$ {
+                        return 403;
+                        error_page 403 /403.html;
+                }
         }
-        return ResponseEntity.ok(v3ScannerService.simpleScan(filename));
-    }
+        server {
+                listen 8080;
+                server_name scf-dev.kr-east.samsungsdscloud.com;
+                client_max_body_size 20M;
+                error_page 500 501 505 /500.html;
+                location /500.html{
+                        return 500 '{"error": {"status_code": 500,"status": "Internal Server Error"}}';
+                }
+                error_page 503 /503.html;
+                location /503.html{
+                        return 503 '{"error": {"status_code": 503,"status": "Service Temporarily Unavailable"}}';
+                }
+                error_page 504 /504.html;
+                location /504.html{
+                        return 504 '{"error": {"status_code": 504,"status": "Gateway Timeout"}}';
+                }
+                error_page 400 402 405 406 407 409 410 411 412 413 414 415 416 417/400.html;
+                location /400.html{
+                        return 400 '{"error": {"status_code": 400,"status": "Bad Request"}}';
+                }
+                error_page 401 /401.html;
+                location /401.html{
+                        return 401 '{"error": {"status_code": 401,"status": "Unauthorized"}}';
+                }
+                error_page 403 /403.html;
+                location /403.html{
+                        return 403 '{"error": {"status_code": 403,"status": "Forbidden"}}';
+                }
+                error_page 404 502 /404.html;
+                location /404.html{
+                        return 404 '{"error": {"status_code": 404,"status": "Not Found"}}';
+                }
+                error_page 408 /408.html;
+                location /408.html{
+                        return 408 '{"error": {"status_code": 408,"status": "Request Timeout}}';
+                }
 
-    @GetMapping("/remote")
-    public ResponseEntity<Map<String, Object>> remoteScan(@RequestHeader("X-API-KEY") String apiKey, @RequestParam String filename) {
-        if (!v3ScannerService.validateApiKey(apiKey)) {
-            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+                location ~ ^/(?<var_svc>[^/]+)(?<var_uri>/?.*)? {
+                        proxy_http_version 1.1;
+                        resolver localhost;
+                        if ($var_uri = "") {
+                                set $var_uri "/";
+                        }
+                        set $proxy_target "http://$var_svc.$var_svc.scf.com:30741$var_uri?$args";
+                        proxy_pass $proxy_target;
+                        root /usr/share/nginx/html;
+                }
+                # deny scripts inside writable directories
+                location ~* /(images|cache|media|logs|tmp)/.*.(\.php|\.pl|\.py|\.jsp|\.asp|\.sh|\.cgi)$ {
+                        return 403;
+                        error_page 403 /403.html;
+                }
         }
-        return ResponseEntity.ok(v3ScannerService.remoteScan(filename));
-    }
-
-    @GetMapping("/detail")
-    public ResponseEntity<Map<String, Object>> detailScan(@RequestHeader("X-API-KEY") String apiKey, @RequestParam String filename) {
-        if (!v3ScannerService.validateApiKey(apiKey)) {
-            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
-        }
-        return ResponseEntity.ok(v3ScannerService.detailScan(filename));
-    }
 }
