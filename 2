@@ -1,3 +1,163 @@
-String baseDir = "/tmp"; // 임시 디렉터리로 변경
-String uniqueFileName = "scan_" + UUID.randomUUID() + "_" + Instant.now().toEpochMilli() + "_" + fileDtoRequest.getFileName();
-tempFile = new File(baseDir + File.separator + uniqueFileName);
+package com.example.demo.service;
+
+import com.example.demo.dto.FileDto;
+import com.ahnlab.v3engine.V3Const;
+import com.ahnlab.v3engine.V3Scanner;
+import com.ahnlab.v3engine.*;
+import java.util.Properties;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.time.Instant;
+import java.util.*;
+
+
+@Service
+public class V3ScannerService {
+
+    @Value("${api.key}")
+    private String validApiKey;
+    //private static final String VALID_API_KEY = "CVCKEY";
+
+    public boolean validateApiKey(String apiKey) {
+        return validApiKey.equals(apiKey);
+    }
+
+    public Map<String, Object> simpleScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        int ret = V3Scanner.scanFile(filename);
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        printScanInfo(filename, ret, null);
+        return result;
+    }
+
+    public Map<String, Object> remoteScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        Properties prop = new Properties();
+        int ret = V3Scanner.remoteScanFile(filename, prop);
+
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        result.put("details", prop);
+        return result;
+    }
+
+    public Map<String, Object> detailScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        Properties prop = new Properties();
+        int ret = V3Scanner.scanFile(filename, prop);
+
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        result.put("details", prop);
+        return result;
+    }
+
+    public FileDto.Response scanFile(FileDto.Request fileDtoRequest) {
+        File tempFile = null;
+        try {
+            // Decode Base64 file data and save temporarily
+            byte[] fileData = Base64.getDecoder().decode(fileDtoRequest.getFileData());
+
+            String baseDir = "c:\\test\\"; // 임시 디렉터리로 변경
+            String uniqueFileName = "scan_" + UUID.randomUUID() + "_" + Instant.now().toEpochMilli() + "_" + fileDtoRequest.getFileName();
+            tempFile = new File(baseDir + File.separator + uniqueFileName);
+            Properties prop = new Properties();
+
+
+            try (FileOutputStream fos = new FileOutputStream(tempFile)) {
+                fos.write(fileData);
+            }
+
+            // Perform scan
+            int ret = V3Scanner.remoteScanFile(tempFile.getAbsolutePath(), prop);
+            printScanInfo(tempFile.getAbsolutePath(), ret, prop);
+            return FileDto.Response.builder()
+                    .fileName(fileDtoRequest.getFileName())
+                    .returnCode(ret)
+                    .build();
+        } catch (Exception e) {
+            return FileDto.Response.builder()
+                    .fileName(fileDtoRequest.getFileName())
+                    .returnCode(-1)
+                    .message("File processing failed: " + e.getMessage())
+                    .build();
+        } finally {
+            if (tempFile != null && tempFile.exists()) {
+                try {
+                    Files.delete(tempFile.toPath());
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    static void printScanInfo(String filename, int ret, Properties prop)
+    {
+        // message
+        String msg = "";
+        switch (ret)
+        {
+            case V3Const.RET_AUTH_FAILED	: msg = "인증 실패";
+                break;
+
+            case V3Const.RET_CLIENT_TIMEOUT  : msg = "검사 요청 클라이언트 TIMEOUT";
+                break;
+
+            case V3Const.RET_NETWORK_ERROR  : msg = "네트워크 장애";
+                break;
+
+            case V3Const.RET_CLIENT_FAIL  : msg = "검사 요청 클라이언트 오류";
+                break;
+
+            case V3Const.RET_CANNOT_SCAN  : msg = "검사 실패";
+                break;
+
+            case V3Const.RET_NO_MALWARE   : msg = "악성코드 없음";
+                break;
+
+            case V3Const.RET_MALWARE_FOUND : msg = "악성코드 발견";
+                break;
+
+            case V3Const.RET_CLEAN_MODIFY_SUCCESS   : msg = "수정 치료 성공";
+                break;
+
+            case V3Const.RET_CLEAN_MODIFY_FAIL      : msg = "수정 치료 실패(삭제 권고)";
+                break;
+
+            case V3Const.RET_CLEAN_DEL_SUCCESS      : msg = "삭제 치료 성공";
+                break;
+
+            case V3Const.RET_CLEAN_DEL_FAIL      : msg = "삭제 치료 실패(삭제 권고)";
+                break;
+
+            case V3Const.RET_CLEAN_DEL_FAIL_BYCONF      : msg = "삭제 치료 실패(검사 서버 옵션)";
+                break;
+
+            default: msg = "알수 없음";
+                break;
+        }
+
+        // print information
+        System.out.println("filename  : " + filename);
+        System.out.println("return    : " + ret + " (" + msg + ")");
+        if (prop != null)
+        {
+            System.out.println("date rev  : " + prop.getProperty(V3Const.PROP_KEY_DATE_REV, "N/A"));
+            System.out.println("scan time : " + prop.getProperty(V3Const.PROP_KEY_SCAN_DATE_TIME, "N/A"));
+            System.out.println("more info : " + prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "N/A"));
+            if (ret == V3Const.RET_MALWARE_FOUND)
+            {
+                System.out.println( " malware : " + prop.getProperty(V3Const.PROP_KEY_MALWARE_NAME, "N/A") );
+                System.out.println( "     in  : " + prop.getProperty(V3Const.PROP_KEY_MALWARE_FILE, "N/A") );
+            }
+            System.out.println(prop);
+        }
+        System.out.println("");
+    }
+}
