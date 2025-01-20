@@ -1,11 +1,3 @@
-{
-    "fileName" :"test.txt",
-    "fileData": "UEsDBBQAAAAIAF2DNFpdYoeKWwAAAHwAAAAIAAAAdGVzdC50eHQdis0KQGAURM9aeQgLRfp2ZEt+ooT8JeRNvDqGbnfOnTvz3CsRHQ49LgmpuBNyiBtfFuLpPvGJyTQfLwwjk9otuXSQmt9N1CzagVkNI1/8TUOpbyPnEFBhY/ECUEsBAhQAFAAAAAgAXYM0Wl1ih4pbAAAAfAAAAAgAAAAAAAAAAAAgAAAAAAAAAHRlc3QudHh0UEsFBgAAAAABAAEANgAAAIEAAAAAAA=="
-}
-
-
-{
-    "fileName": "test.txt",
-    "returnCode": -1,
-    "message": "File processing failed: \\root\\scan_23056ae1-045d-4fca-ba64-0f4098415e09_1737361962676_test.txt (지정된 경로를 찾을 수 없습니다)"
-}
+String baseDir = "/tmp"; // 임시 디렉터리로 변경
+String uniqueFileName = "scan_" + UUID.randomUUID() + "_" + Instant.now().toEpochMilli() + "_" + fileDtoRequest.getFileName();
+tempFile = new File(baseDir + File.separator + uniqueFileName);
