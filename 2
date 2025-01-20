@@ -1,104 +1,8 @@
-package com.example.demo.controller;
-
-import com.example.demo.dto.FileDto;
-import com.example.demo.service.V3ScannerService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
-
-import com.example.demo.dto.FileDto;
-import com.example.demo.service.V3ScannerService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import jakarta.validation.Valid;
-import java.util.Map;
-import java.util.Properties;
-
-@RestController
-@RequestMapping("/api/v1/scanner")
-public class V3ScannerController {
-
-    private static final Logger logger = LoggerFactory.getLogger(V3ScannerController.class);
-
-    @Autowired
-    private V3ScannerService v3ScannerService;
-
-    @GetMapping("/simple")
-    public ResponseEntity<Map<String, Object>> simpleScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
-        logger.info("Simple scan requested. Filename: {}, API Key: {}", fileName, apiKey);
-        if (!v3ScannerService.validateApiKey(apiKey)) {
-            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
-            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
-        }
-        return ResponseEntity.ok(v3ScannerService.simpleScan(fileName));
-    }
-
-    @GetMapping("/remote")
-    public ResponseEntity<Map<String, Object>> remoteScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
-        logger.info("Remote scan requested. Filename: {}, API Key: {}", fileName, apiKey);
-        if (!v3ScannerService.validateApiKey(apiKey)) {
-            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
-            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
-        }
-        return ResponseEntity.ok(v3ScannerService.remoteScan(fileName));
-    }
-
-    @GetMapping("/detail")
-    public ResponseEntity<Map<String, Object>> detailScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
-        logger.info("Detail scan requested. Filename: {}, API Key: {}", fileName, apiKey);
-        if (!v3ScannerService.validateApiKey(apiKey)) {
-            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
-            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
-        }
-        return ResponseEntity.ok(v3ScannerService.detailScan(fileName));
-    }
-
-
-    @PostMapping("/scan")
-    public ResponseEntity<FileDto.Response> scanFile(
-            @RequestHeader("X-CVC-API-KEY") String apiKey,
-            @Valid @RequestBody FileDto.Request fileDtoRequest) {
-        logger.info("File scan requested. Filename: {}, API Key: {}", fileDtoRequest.getFileName(), apiKey);
-        if (!v3ScannerService.validateApiKey(apiKey)) {
-            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-                    FileDto.Response.builder()
-                            .fileName(fileDtoRequest.getFileName())
-                            .returnCode(HttpStatus.UNAUTHORIZED.value())
-                            .message("Unauthorized: Invalid API Key")
-                            .build()
-            );
-        }
-        FileDto.Response response = v3ScannerService.scanFile(fileDtoRequest);
-        return ResponseEntity.status(HttpStatus.OK).body(response);
-    }
-
-    @GetMapping("/status")
-    public ResponseEntity<String> getStatus() {
-        logger.info("API status requested.");
-        return ResponseEntity.ok("API is running.");
-    }
-}
-
-
-
-
-
-
-
-
-
+// FileDto.java
 package com.example.demo.dto;
 
-import jakarta.validation.constraints.NotBlank;
 import lombok.*;
-import jakarta.validation.Valid;
+import javax.validation.constraints.NotBlank;
 
 @Data
 @AllArgsConstructor
@@ -139,14 +43,58 @@ public class FileDto {
     }
 }
 
+// V3ScannerController.java
+package com.example.demo.controller;
 
+import com.example.demo.dto.FileDto;
+import com.example.demo.service.V3ScannerService;
+import io.swagger.v3.oas.annotations.Operation;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 
+import javax.validation.Valid;
 
+@Slf4j
+@Tag(name = "파일 검사 API", description = "파일 검사 API를 통해 파일의 악성 여부를 확인합니다.")
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/v1/scanner")
+public class V3ScannerController {
 
+    private final V3ScannerService v3ScannerService;
 
+    @PostMapping("/scan")
+    @Operation(summary = "파일 검사", description = "파일의 악성 여부를 검사합니다.")
+    public ResponseEntity<FileDto.Response> scanFile(
+            @RequestHeader("X-CVC-API-KEY") String apiKey,
+            @Valid @RequestBody FileDto.Request fileDtoRequest) {
+        log.info("File scan requested. Filename: {}, API Key: {}", fileDtoRequest.getFileName(), apiKey);
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            log.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                    FileDto.Response.builder()
+                            .fileName(fileDtoRequest.getFileName())
+                            .returnCode(HttpStatus.UNAUTHORIZED.value())
+                            .message("Unauthorized: Invalid API Key")
+                            .build()
+            );
+        }
+        FileDto.Response response = v3ScannerService.scanFile(fileDtoRequest);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
 
+    @GetMapping("/status")
+    @Operation(summary = "API 상태 확인", description = "API의 상태를 확인합니다.")
+    public ResponseEntity<String> getStatus() {
+        log.info("API status requested.");
+        return ResponseEntity.ok("API is running.");
+    }
+}
 
-
+// V3ScannerService.java
 package com.example.demo.service;
 
 import com.example.demo.dto.FileDto;
@@ -157,61 +105,28 @@ import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.time.Instant;
 import java.util.Base64;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
-
+import java.util.UUID;
 
 @Service
 public class V3ScannerService {
 
     @Value("${api.key}")
     private String validApiKey;
-    //private static final String VALID_API_KEY = "CVCKEY";
 
     public boolean validateApiKey(String apiKey) {
         return validApiKey.equals(apiKey);
     }
 
-    public Map<String, Object> simpleScan(String filename) {
-        Map<String, Object> result = new HashMap<>();
-        int ret = V3Scanner.scanFile(filename);
-        result.put("filename", filename);
-        result.put("returnCode", ret);
-        result.put("message", getMessageForReturnCode(ret));
-        return result;
-    }
-
-    public Map<String, Object> remoteScan(String filename) {
-        Map<String, Object> result = new HashMap<>();
-        Properties prop = new Properties();
-        int ret = V3Scanner.remoteScanFile(filename, prop);
-
-        result.put("filename", filename);
-        result.put("returnCode", ret);
-        result.put("message", getMessageForReturnCode(ret));
-        result.put("details", prop);
-        return result;
-    }
-
-    public Map<String, Object> detailScan(String filename) {
-        Map<String, Object> result = new HashMap<>();
-        Properties prop = new Properties();
-        int ret = V3Scanner.scanFile(filename, prop);
-
-        result.put("filename", filename);
-        result.put("returnCode", ret);
-        result.put("message", getMessageForReturnCode(ret));
-        result.put("details", prop);
-        return result;
-    }
-
     public FileDto.Response scanFile(FileDto.Request fileDtoRequest) {
+        File tempFile = null;
         try {
             // Decode Base64 file data and save temporarily
             byte[] fileData = Base64.getDecoder().decode(fileDtoRequest.getFileData());
-            File tempFile = File.createTempFile("scan_", fileDtoRequest.getFileName());
+            String uniqueFileName = "scan_" + UUID.randomUUID() + "_" + Instant.now().toEpochMilli() + "_" + fileDtoRequest.getFileName();
+            tempFile = new File("/root/" + uniqueFileName);
             try (FileOutputStream fos = new FileOutputStream(tempFile)) {
                 fos.write(fileData);
             }
@@ -219,9 +134,6 @@ public class V3ScannerService {
             // Perform scan
             int ret = V3Scanner.scanFile(tempFile.getAbsolutePath());
             String message = getMessageForReturnCode(ret);
-
-            // Delete temporary file
-            tempFile.delete();
 
             return FileDto.Response.builder()
                     .fileName(fileDtoRequest.getFileName())
@@ -234,6 +146,14 @@ public class V3ScannerService {
                     .returnCode(-1)
                     .message("File processing failed: " + e.getMessage())
                     .build();
+        } finally {
+            if (tempFile != null && tempFile.exists()) {
+                try {
+                    Files.delete(tempFile.toPath());
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
         }
     }
 
