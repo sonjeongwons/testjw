@@ -1,179 +1,220 @@
-// FileDto.java
-package com.example.demo.dto;
+package com.scf.manager.mvc.api;
 
-import lombok.*;
-import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.NotBlank;
-
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-@Builder
-public class FileDto {
-
-    @NotBlank(message = "파일명을 입력해주세요")
-    @Schema(description = "파일명")
-    private String fileName;
-
-    @NotBlank(message = "파일 데이터를 입력해주세요")
-    @Schema(description = "파일 데이터 (Base64 인코딩)")
-    private String fileData;
-
-    @Data
-    @AllArgsConstructor
-    @NoArgsConstructor
-    @Builder
-    public static class Request {
-
-        @NotBlank(message = "파일명을 입력해주세요")
-        @Schema(description = "파일명")
-        private String fileName;
-
-        @NotBlank(message = "파일 데이터를 입력해주세요")
-        @Schema(description = "파일 데이터 (Base64 인코딩)")
-        private String fileData;
-    }
-
-    @Data
-    @AllArgsConstructor
-    @NoArgsConstructor
-    @Builder
-    public static class Response {
-
-        @Schema(description = "파일명")
-        private String fileName;
-
-        @Schema(description = "검사 결과 코드")
-        private int returnCode;
-
-        @Schema(description = "검사 결과 메시지")
-        private String message;
-    }
-}
-
-// V3ScannerController.java
-package com.example.demo.controller;
-
-import com.example.demo.dto.FileDto;
-import com.example.demo.service.V3ScannerService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.nimbusds.jose.JOSEException;
+import com.scf.manager.common.exception.SourceFileException;
+import com.scf.manager.mvc.dto.*;
+import com.scf.manager.mvc.service.AllowIpService;
+import com.scf.manager.mvc.service.FunctionService;
+import com.scf.manager.mvc.service.KnativeService;
+import com.scf.manager.mvc.service.SourceFileService;
+import io.fabric8.knative.client.KnativeClient;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.Parameters;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.json.simple.JSONObject;
+import org.springframework.data.domain.Page;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.validation.Valid;
+import java.io.IOException;
+import java.text.ParseException;
+import java.util.List;
 
+@Slf4j
+@Tag(name = "펑션 관리 API", description = "펑션 관리 API를 사용하여 펑션에 대한 라이프 사이클을 관리")
 @RestController
-@RequestMapping("/api/v1/scanner")
-public class V3ScannerController {
+@RequiredArgsConstructor
+@RequestMapping("/api/v1/function")
 
-    private static final Logger logger = LoggerFactory.getLogger(V3ScannerController.class);
 
-    @Autowired
-    private V3ScannerService v3ScannerService;
 
-    @PostMapping("/scan")
-    public ResponseEntity<FileDto.Response> scanFile(
-            @RequestHeader("X-CVC-API-KEY") String apiKey,
-            @Valid @RequestBody FileDto.Request fileDtoRequest) {
-        logger.info("File scan requested. Filename: {}, API Key: {}", fileDtoRequest.getFileName(), apiKey);
-        if (!v3ScannerService.validateApiKey(apiKey)) {
-            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
-            return ResponseEntity.status(401).body(
-                    FileDto.Response.builder()
-                            .fileName(fileDtoRequest.getFileName())
-                            .returnCode(401)
-                            .message("Unauthorized: Invalid API Key")
-                            .build()
-            );
-        }
-        return ResponseEntity.ok(v3ScannerService.scanFile(fileDtoRequest));
+
+public class FunctionApiController {
+    private final FunctionService functionService;
+    private final KnativeService knativeService;
+    private final AllowIpService allowIpService;
+    private final SourceFileService sourceFileService;
+
+    @GetMapping("")
+    @Operation(summary = "펑션 리스트 조회", description = "사용자별 펑션 전체 목록을 조회합니다")
+    public ResponseEntity<Page<FunctionDTO.Response>> searchAllFunctionProject(FunctionDTO.Search reqDto) {
+        Page<FunctionDTO.Response> response = functionService.searchAllFunction(reqDto);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+    @GetMapping("all")
+    @Operation(summary = "펑션 리스트 조회", description = "사용자별 펑션 전체 목록을 조회합니다")
+    public ResponseEntity<List<FunctionDTO.Response>> searchAllFunctionRegion() {
+        List<FunctionDTO.Response> response = functionService.searchAllFunctionRegion();
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    @GetMapping("duplicate")
+    @Operation(summary = "펑션명 중복체크", description = "펑션명 중복체크를 한다.")
+    public ResponseEntity<FunctionDTO.DuplicateResponse> checkFunctionNameDuplicate(FunctionDTO.Search reqDto) {
+        FunctionDTO.DuplicateResponse response = functionService.checkFunctionNameDuplicate(reqDto);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    /**
+     * 런타임 목록조회 api 제공 추가
+     * 허용아이피 수정 포스트맨으로
+     * 상품해지 api 제공추가
+     **/
+    @PostMapping("")
+    @Operation(summary = "펑션 기본정보 등록", description = "펑션 기본정보를 등록한다.")
+    public ResponseEntity<FunctionDTO.Response> registerFunction(@Valid @RequestBody FunctionDTO.Register reqDto) throws IOException, ParseException {
+        FunctionDTO.Response response = functionService.registerFunction(reqDto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+    @GetMapping("/{functionKey}")
+    @Operation(summary = "펑션 단건 조회", description = "펑션 단건 상세정보탭조회")
+    @Parameters({
+            @Parameter(name = "functionSeq", description = "펑션 일련번호", required = true),
+    })
+    public ResponseEntity<FunctionDTO.Response> searchFunction(@PathVariable("functionKey") String functionKey) {
+        FunctionDTO.Response response = functionService.searchFunction(functionKey);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+    @PutMapping("status/{name}")
+    @Operation(summary = "펑션 상태 변경", description = "펑션의 상태 정보를 업데이트")
+    public ResponseEntity<FunctionDTO.Response> updateFunctionStatus(@Valid @RequestBody FunctionDTO.Modify functionDtos, @PathVariable("name") String name) throws IOException {
+        FunctionDTO.Response response = functionService.updateFunctionStatus(functionDtos, name);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+
+    @PutMapping("allowip/{functionKey}")
+    @Operation(summary = "허용아이피 수정", description = "허용아이피를 수정처리 ")
+    public ResponseEntity<AllowIpDTO.AllowIpResponse> updateAllowIps(@Valid @RequestBody AllowIpDTO.AllowIpModify allowIpDtos, @PathVariable("functionKey") String functionKey) throws IOException {
+        AllowIpDTO.AllowIpResponse response = allowIpService.updateAllowIps(allowIpDtos, functionKey);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PutMapping("cloudlogging/{functionKey}")
+    @Operation(summary = "로깅 ON/OFF", description = "클라우드 모니터링을 위한 로깅 ON/OFF")
+    public ResponseEntity<CloudLoggingDTO.Response> switchLogging(@Valid @RequestBody CloudLoggingDTO.Modify cloudLoggingDtos, @PathVariable("functionKey") String functionKey) throws IOException {
+        CloudLoggingDTO.Response response = functionService.switchLogging(cloudLoggingDtos, functionKey);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping("source-code/{functionKey}")
+    @Operation(summary = "펑션 코드 조회", description = "펑션 코드를 조회한다.")
+    public ResponseEntity<FunctionDTO.Response> getFunctionCode(@PathVariable("functionKey") String functionKey) throws IOException {
+        FunctionDTO.Response response = functionService.getFunctionCode(functionKey);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+    @PostMapping("source-code/{functionKey}")
+    @Operation(summary = "펑션 코드 등록", description = "펑션 코드를 등록한다.")
+    public ResponseEntity<FunctionDTO.Response> registerFunctionCode(@Valid @RequestBody FunctionDTO.Register reqDto, @PathVariable("functionKey") String functionKey) throws IOException, ParseException {
+        FunctionDTO.Response response = functionService.registerFunctionCode(reqDto, functionKey);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping("source-file/{functionKey}")
+    @Operation(summary = "런타임 실행파일 정보 조회", description = "런타임 실행파일 정보를 조회한다.")
+    public ResponseEntity<SourceFileDTO.Response> getSourceFile(@PathVariable("functionKey") String functionKey) throws IOException {
+        SourceFileDTO.Response response = sourceFileService.getSourceFile(functionKey);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    @PostMapping("source-file/{functionKey}")
+    @Operation(summary = "런타임 실행파일 저장", description = "런타임 실행파일을 저장한다.")
+    public ResponseEntity<SourceFileDTO.Response> saveSourceFile(@Valid @RequestBody SourceFileDTO.Register reqDto, @PathVariable("functionKey") String functionKey) throws IOException, ParseException {
+        SourceFileDTO.Response response = sourceFileService.saveSourceFile(reqDto, functionKey);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    // S3 다운로드 테스트용 임시 API
+    @PostMapping("download")
+    @Operation(summary = "파일 다운로드", description = "S3에서 파일을 다운로드한다.")
+    public ResponseEntity<FunctionDTO.Response> downloadFile(@Valid @RequestBody DownloadDTO reqDto) throws IOException {
+        functionService.downloadFile(reqDto);
+        return ResponseEntity.status(HttpStatus.CREATED).build();
+    }
+
+    // S3 임시 다운로드 URL 발급용 API
+    @PostMapping("presigned-url")
+    @Operation(summary = "임시 다운로드 URL 발급용 API", description = "S3에서 임시 다운로드 URL을 발급받는다.")
+    public ResponseEntity<String> getPresignedUrl(@Valid @RequestBody DownloadDTO reqDto) throws IOException {
+        String url = functionService.getPresignedUrl(reqDto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(url);
+    }
+
+    /*
+    @PostMapping("key")
+    @Operation(summary = "펑션키 발급", description = "펑션 서비스를 위한 키를 발행한다.")
+    public ResponseEntity<TokenDTO.Response> registerFunctionKey(@Valid @RequestBody TokenDTO.Register reqDto) throws JOSEException, JsonProcessingException {
+        TokenDTO.Response response = functionService.registerFunctionKey(reqDto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+    */
+    @PostMapping("knative/{functionKey}")
+    @Operation(summary = "펑션호출", description = "knative 펑션을 호출한다.")
+    public ResponseEntity<TokenDTO.Response> callFunction(@PathVariable("functionKey") String functionKey) throws JOSEException, IOException {
+        knativeService.callFunction(functionKey);
+        return ResponseEntity.status(HttpStatus.OK).build();
+    }
+
+    @GetMapping("/template/{functionSeq}")
+    @Operation(summary = "펑션 템플릿 조회", description = "펑션 템플릿 내역을 조회합니다")
+    @Parameters({
+            @Parameter(name = "functionSeq", description = "펑션 일련번호", required = true),
+    })
+    public ResponseEntity<FunctionDTO.Response> searchTemplateFunction(@PathVariable("functionSeq") Long functionSeq) {
+        FunctionDTO.Response response = functionService.searchTemplateFunction(functionSeq);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    @DeleteMapping("/{functionKey}")
+    @Operation(summary = "펑션 단건 삭제", description = "펑션 단건을 삭제 합니다")
+    @Parameters({
+            @Parameter(name = "functionSeq", description = "펑션 일련번호", required = true),
+    })
+    public ResponseEntity<Void> deleteFunction(@PathVariable("functionKey") String functionKey) {
+        functionService.deleteFunction(functionKey);
+        return ResponseEntity.status(HttpStatus.OK).build();
+    }
+    @DeleteMapping("all")
+    @Operation(summary = "펑션 전체 삭제", description = "펑션 전체 삭제 합니다")
+    public ResponseEntity<Void> deleteFunction() {
+        functionService.deleteKnativeFunctionAll();
+        return ResponseEntity.status(HttpStatus.OK).build();
+    }
+
+    /*
+    @PostMapping("token")
+    @Operation(summary = "펑션 토큰 발급", description = "펑션 서비스를 위한 토큰을 발행한다.")
+    public ResponseEntity<FunctionDTO.Response> registerFunctionToken(@Valid @RequestBody FunctionDTO.TokenRegister reqDto) throws ParseException, JOSEException {
+        FunctionDTO.Response response = functionService.registerFunctionToken(reqDto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @DeleteMapping("token")
+    @Operation(summary = "펑션 토큰 삭제", description = "토큰 서비스를 삭제한다.")
+    public ResponseEntity<FunctionDTO.Response> removeFunctionToken(@Valid @RequestBody FunctionDTO.Register reqDto) {
+        FunctionDTO.Response response = functionService.removeFunctionToken(reqDto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(null);
+    }
+    */
+    @PostMapping("recovery")
+    @Operation(summary = "함수 복구", description = "클러스터 재구성 시 DB 데이터 기반으로 함수를 복구한다")
+    public ResponseEntity<RecoveryDTO.Response> recoveryCluster(@Valid @RequestBody RecoveryDTO.Register reqDto) throws IOException, ParseException {
+        RecoveryDTO.Response response = functionService.recoveryAllFunction(reqDto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+
+    @GetMapping("mig")
+    @Operation(summary = "함수 네임스페이스 마이그레이션", description = "네임스페이스 scf-user에서 각 사용자함수 네임스페이스 영역으로 마이그레이션")
+    public ResponseEntity<Void> migrationFunction() {
+        functionService.migrationFunction();
+        return ResponseEntity.status(HttpStatus.OK).build();
     }
 }
 
-// V3ScannerService.java
-package com.example.demo.service;
-
-import com.example.demo.dto.FileDto;
-import com.ahnlab.v3engine.V3Const;
-import com.ahnlab.v3engine.V3Scanner;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-
-import java.io.File;
-import java.io.FileOutputStream;
-import java.util.Base64;
-import java.util.Properties;
-
-@Service
-public class V3ScannerService {
-
-    @Value("${api.key}")
-    private String validApiKey;
-
-    public boolean validateApiKey(String apiKey) {
-        return validApiKey.equals(apiKey);
-    }
-
-    public FileDto.Response scanFile(FileDto.Request fileDtoRequest) {
-        try {
-            // Decode Base64 file data and save temporarily
-            byte[] fileData = Base64.getDecoder().decode(fileDtoRequest.getFileData());
-            File tempFile = File.createTempFile("scan_", fileDtoRequest.getFileName());
-            try (FileOutputStream fos = new FileOutputStream(tempFile)) {
-                fos.write(fileData);
-            }
-
-            // Perform scan
-            int ret = V3Scanner.scanFile(tempFile.getAbsolutePath());
-            String message = getMessageForReturnCode(ret);
-
-            // Delete temporary file
-            tempFile.delete();
-
-            return FileDto.Response.builder()
-                    .fileName(fileDtoRequest.getFileName())
-                    .returnCode(ret)
-                    .message(message)
-                    .build();
-        } catch (Exception e) {
-            return FileDto.Response.builder()
-                    .fileName(fileDtoRequest.getFileName())
-                    .returnCode(-1)
-                    .message("File processing failed: " + e.getMessage())
-                    .build();
-        }
-    }
-
-    private String getMessageForReturnCode(int ret) {
-        switch (ret) {
-            case V3Const.RET_AUTH_FAILED:
-                return "인증 실패";
-            case V3Const.RET_CLIENT_TIMEOUT:
-                return "검사 요청 클라이언트 TIMEOUT";
-            case V3Const.RET_NETWORK_ERROR:
-                return "네트워크 장애";
-            case V3Const.RET_CLIENT_FAIL:
-                return "검사 요청 클라이언트 오류";
-            case V3Const.RET_CANNOT_SCAN:
-                return "검사 실패";
-            case V3Const.RET_NO_MALWARE:
-                return "악성코드 없음";
-            case V3Const.RET_MALWARE_FOUND:
-                return "악성코드 발견";
-            case V3Const.RET_CLEAN_MODIFY_SUCCESS:
-                return "수정 치료 성공";
-            case V3Const.RET_CLEAN_MODIFY_FAIL:
-                return "수정 치료 실패(삭제 권고)";
-            case V3Const.RET_CLEAN_DEL_SUCCESS:
-                return "삭제 치료 성공";
-            case V3Const.RET_CLEAN_DEL_FAIL:
-                return "삭제 치료 실패(삭제 권고)";
-            case V3Const.RET_CLEAN_DEL_FAIL_BYCONF:
-                return "삭제 치료 실패(검사 서버 옵션)";
-            default:
-                return "알 수 없음";
-        }
-    }
-}
