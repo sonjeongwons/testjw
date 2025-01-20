@@ -1,77 +1,270 @@
-"C:\Program Files\Zulu\zulu-17\bin\java.exe" -XX:TieredStopAtLevel=1 -Dspring.output.ansi.enabled=always -Dcom.sun.management.jmxremote -Dspring.jmx.enabled=true -Dspring.liveBeansView.mbeanDomain -Dspring.application.admin.enabled=true "-Dmanagement.endpoints.jmx.exposure.include=*" "-javaagent:C:\Program Files\JetBrains\IntelliJ IDEA 2023.3\lib\idea_rt.jar=56984:C:\Program Files\JetBrains\IntelliJ IDEA 2023.3\bin" -Dfile.encoding=UTF-8 -classpath C:\project\demo\out\production\classes;C:\project\demo\out\production\resources;C:\project\demo\libs\ahnlab_v3engine.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.projectlombok\lombok\1.18.28\a2ff5da8bcd8b1b26f36b806ced63213362c6dcc\lombok-1.18.28.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.boot\spring-boot-starter-web\3.4.1\ff7227fc62338e0f6eba3f9f94c12eb952d4da95\spring-boot-starter-web-3.4.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.boot\spring-boot-starter-aop\3.4.1\8e5cc181dce1be03620f823757549578ce942cbe\spring-boot-starter-aop-3.4.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springdoc\springdoc-openapi-ui\1.6.14\20f7c293f72552dce117be99cf15e69249effda8\springdoc-openapi-ui-1.6.14.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springdoc\springdoc-openapi-data-rest\1.6.14\a9fe21b0759ef92334bc5c9369a39e16f7b29744\springdoc-openapi-data-rest-1.6.14.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springdoc\springdoc-openapi-security\1.6.14\bf7a60beb85a41c0678357d4e4b3501e0a9251e8\springdoc-openapi-security-1.6.14.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.boot\spring-boot-starter-validation\3.4.1\7b9baa79c886e362dc14764fc3b0983b607be1f5\spring-boot-starter-validation-3.4.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.hibernate.validator\hibernate-validator\7.0.1.Final\ec47c29170fd4d224b9b2bc55985af8185d609cd\hibernate-validator-7.0.1.Final.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\jakarta.validation\jakarta.validation-api\3.0.2\92b6631659ba35ca09e44874d3eb936edfeee532\jakarta.validation-api-3.0.2.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.boot\spring-boot-starter-json\3.4.1\c1d084f65d8d9f2de9daccab47c4f452fb0464de\spring-boot-starter-json-3.4.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.boot\spring-boot-starter\3.4.1\2c97b6fdc451ea69cd04dcfa54980439b7c7cb34\spring-boot-starter-3.4.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.boot\spring-boot-starter-tomcat\3.4.1\ac4bb51582c57cfb0d2beb102a76fe1a4d8b8b21\spring-boot-starter-tomcat-3.4.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework\spring-webmvc\6.2.1\44bdf7e5641d44044ac52d7bb5c1fc46004e7754\spring-webmvc-6.2.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework\spring-web\6.2.1\877acb94c5b3a0c92e652b6bebdfdc7c60922ac8\spring-web-6.2.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework\spring-aop\6.2.1\a9384de38fc00751084446ba014a0c4962240244\spring-aop-6.2.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.aspectj\aspectjweaver\1.9.22.1\bca243d0af0db4758fbae45c5f4995cb5dabb612\aspectjweaver-1.9.22.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springdoc\springdoc-openapi-webmvc-core\1.6.14\b7df6e8f7b2aecef95ff5a9fbfd6040232021f15\springdoc-openapi-webmvc-core-1.6.14.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.webjars\swagger-ui\4.15.5\fc283d7a6d93c58fb466766eef4b8110c57639ea\swagger-ui-4.15.5.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.webjars\webjars-locator-core\0.59\a25e04cb0437d88eb177af1dface14edcd0cd767\webjars-locator-core-0.59.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\io.github.classgraph\classgraph\4.8.149\4bc2f188bc9001473d4a26ac488c2ae1a3e906de\classgraph-4.8.149.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springdoc\springdoc-openapi-hateoas\1.6.14\9e155a1151c111a5839e4620664b877fc2a4f47b\springdoc-openapi-hateoas-1.6.14.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.data\spring-data-rest-core\4.4.1\c8bb7fcbdd8013161f6b8060579a19ed7457e7a8\spring-data-rest-core-4.4.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springdoc\springdoc-openapi-common\1.6.14\cdabcf881c4509206738115ef7d4b01e348c14e7\springdoc-openapi-common-1.6.14.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.security\spring-security-core\6.4.2\51302b2af3f01eb79fdc7164a4cc3a3aa7e3b541\spring-security-core-6.4.2.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.apache.tomcat.embed\tomcat-embed-el\10.1.34\d2b2daca3bc999c62e58ae36b45ba0582530fb25\tomcat-embed-el-10.1.34.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.jboss.logging\jboss-logging\3.6.1.Final\886afbb445b4016a37c8960a7aef6ebd769ce7e5\jboss-logging-3.6.1.Final.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\com.fasterxml\classmate\1.7.0\e98374da1f2143ac8e6e0a95036994bb19137a3\classmate-1.7.0.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\com.fasterxml.jackson.datatype\jackson-datatype-jdk8\2.18.2\9ed6d538ebcc66864e114a7040953dce6ab6ea53\jackson-datatype-jdk8-2.18.2.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\com.fasterxml.jackson.datatype\jackson-datatype-jsr310\2.18.2\7b6ff96adf421f4c6edbd694e797dd8fe434510a\jackson-datatype-jsr310-2.18.2.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\com.fasterxml.jackson.module\jackson-module-parameter-names\2.18.2\72960cb3277347a748911d100c3302d60e8a616a\jackson-module-parameter-names-2.18.2.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\com.fasterxml.jackson.core\jackson-databind\2.18.2\deef8697b92141fb6caf7aa86966cff4eec9b04f\jackson-databind-2.18.2.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.boot\spring-boot-autoconfigure\3.4.1\f17b54cc5816ec8f06d0aca9df11c330ead97f2a\spring-boot-autoconfigure-3.4.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.boot\spring-boot\3.4.1\5fb9890a5eb7c4e86c8f5c0f6960b79240daf3d5\spring-boot-3.4.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.boot\spring-boot-starter-logging\3.4.1\5cd01e208b15113c7f88b3ea40e843ea9989f38a\spring-boot-starter-logging-3.4.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\jakarta.annotation\jakarta.annotation-api\2.1.1\48b9bda22b091b1f48b13af03fe36db3be6e1ae3\jakarta.annotation-api-2.1.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework\spring-core\6.2.1\f42e6b51d9c0c2fcf95df9e5848470d173adc9af\spring-core-6.2.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.yaml\snakeyaml\2.3\936b36210e27320f920536f695cf1af210c44586\snakeyaml-2.3.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.apache.tomcat.embed\tomcat-embed-websocket\10.1.34\eef6d430f34b6e393b8d9e40f10db9043732b4e5\tomcat-embed-websocket-10.1.34.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.apache.tomcat.embed\tomcat-embed-core\10.1.34\f610f84be607fbc82e393cc220f0ad45f92afc91\tomcat-embed-core-10.1.34.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework\spring-context\6.2.1\f56c7431b03860bfdb016e68f484c5c35531ef2e\spring-context-6.2.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework\spring-beans\6.2.1\ab57ec03ba6900075bf28e3cd70ccce173205b8d\spring-beans-6.2.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework\spring-expression\6.2.1\91fcf6b9501705c31c8337e2713fe823bb512b24\spring-expression-6.2.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\io.micrometer\micrometer-observation\1.14.2\a9cad29cc04c0f7e30e3e58b454d4cd47ccc54bd\micrometer-observation-1.14.2.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\com.fasterxml.jackson.core\jackson-core\2.18.2\fb64ccac5c27dca8819418eb4e443a9f496d9ee7\jackson-core-2.18.2.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.slf4j\slf4j-api\2.0.16\172931663a09a1fa515567af5fbef00897d3c04\slf4j-api-2.0.16.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.hateoas\spring-hateoas\2.4.1\86a69fe432361c0697aff89b4c8f293edffca26d\spring-hateoas-2.4.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.plugin\spring-plugin-core\3.0.0\d56aa02dd7272dca30aa598dc8b72e823227046a\spring-plugin-core-3.0.0.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework\spring-tx\6.2.1\5ffde4fee85ff021ad613b9e86a9be893fb52572\spring-tx-6.2.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.data\spring-data-commons\3.4.1\3ae5f19bc2b1b30de85b0610ae25818c2e7c295a\spring-data-commons-3.4.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\com.fasterxml.jackson.core\jackson-annotations\2.18.2\985d77751ebc7fce5db115a986bc9aa82f973f4a\jackson-annotations-2.18.2.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.atteo\evo-inflector\1.3\4cf8b5f363c60e63f8b7688ac053590460f2768e\evo-inflector-1.3.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\io.swagger.core.v3\swagger-core\2.2.7\beb4bda3494768f94ee1b8093b6cef779ef00717\swagger-core-2.2.7.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework.security\spring-security-crypto\6.4.2\a4d5bf27ca449200fc39e07de6ae016eb1ad21da\spring-security-crypto-6.4.2.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\ch.qos.logback\logback-classic\1.5.12\3790d1a62e868f7915776dfb392bd9a29ce8d954\logback-classic-1.5.12.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.apache.logging.log4j\log4j-to-slf4j\2.24.3\da1143e2a2531ee1c2d90baa98eb50a28a39d5a7\log4j-to-slf4j-2.24.3.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.slf4j\jul-to-slf4j\2.0.16\6d57da3e961daac65bcca0dd3def6cd11e48a24a\jul-to-slf4j-2.0.16.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.springframework\spring-jcl\6.2.1\a5d662d64470aff0ae51d210147bb6ede31a8ea3\spring-jcl-6.2.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\io.micrometer\micrometer-commons\1.14.2\69c454dbec59c7842cf59a534b7ec03618d75b91\micrometer-commons-1.14.2.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\com.jayway.jsonpath\json-path\2.9.0\37fe2217f577b0b68b18e62c4d17a8858ecf9b69\json-path-2.9.0.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\io.swagger.core.v3\swagger-models\2.2.7\1c80e5a617c0a27a137a57d033bbf748ac7d58b9\swagger-models-2.2.7.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\com.fasterxml.jackson.dataformat\jackson-dataformat-yaml\2.18.2\d000e13505d1cf564371516fa3d5b8769a779dc9\jackson-dataformat-yaml-2.18.2.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\jakarta.xml.bind\jakarta.xml.bind-api\4.0.2\6cd5a999b834b63238005b7144136379dc36cad2\jakarta.xml.bind-api-4.0.2.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.apache.commons\commons-lang3\3.17.0\b17d2136f0460dcc0d2016ceefca8723bdf4ee70\commons-lang3-3.17.0.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\io.swagger.core.v3\swagger-annotations\2.2.7\9a630bca8950bde1a541af873aa6050851a31e72\swagger-annotations-2.2.7.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\ch.qos.logback\logback-core\1.5.12\65b1fa25fe8d8e4bdc140e79eb67ac6741f775e2\logback-core-1.5.12.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.apache.logging.log4j\log4j-api\2.24.3\b02c125db8b6d295adf72ae6e71af5d83bce2370\log4j-api-2.24.3.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\jakarta.activation\jakarta.activation-api\2.1.3\fa165bd70cda600368eee31555222776a46b881f\jakarta.activation-api-2.1.3.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\net.minidev\json-smart\2.5.1\4c11d2808d009132dfbbf947ebf37de6bf266c8e\json-smart-2.5.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\net.minidev\accessors-smart\2.5.1\19b820261eb2e7de7d5bde11d1c06e4501dd7e5f\accessors-smart-2.5.1.jar;C:\Users\j1.son\.gradle\caches\modules-2\files-2.1\org.ow2.asm\asm\9.6\aa205cf0a06dbd8e04ece91c0b37c3f5d567546a\asm-9.6.jar com.example.demo.DemoApplication
+package com.example.demo.controller;
 
-  .   ____          _            __ _ _
- /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
-( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
- \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
-  '  |____| .__|_| |_|_| |_\__, | / / / /
- =========|_|==============|___/=/_/_/_/
+import com.example.demo.dto.FileDto;
+import com.example.demo.service.V3ScannerService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 
- :: Spring Boot ::                (v3.4.1)
 
-2025-01-20 16:28:40 INFO  com.example.demo.DemoApplication - Starting DemoApplication using Java 17.0.9 with PID 34128 (C:\project\demo\out\production\classes started by j1.son in C:\project\demo)
-2025-01-20 16:28:40 DEBUG com.example.demo.DemoApplication - Running with Spring Boot v3.4.1, Spring v6.2.1
-2025-01-20 16:28:40 INFO  com.example.demo.DemoApplication - No active profile set, falling back to 1 default profile: "default"
-2025-01-20 16:28:42 INFO  o.s.b.w.e.tomcat.TomcatWebServer - Tomcat initialized with port 8081 (http)
-2025-01-20 16:28:42 INFO  o.a.catalina.core.StandardService - Starting service [Tomcat]
-2025-01-20 16:28:42 INFO  o.a.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.34]
-2025-01-20 16:28:42 INFO  o.a.c.c.C.[Tomcat].[localhost].[/] - Initializing Spring embedded WebApplicationContext
-2025-01-20 16:28:42 INFO  o.s.b.w.s.c.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 1785 ms
-2025-01-20 16:28:42 INFO  com.example.demo.DemoApplication - --------------CVC API Server started
-2025-01-20 16:28:43 INFO  o.s.b.w.e.tomcat.TomcatWebServer - Tomcat started on port 8081 (http) with context path '/'
-2025-01-20 16:28:43 INFO  com.example.demo.DemoApplication - Started DemoApplication in 3.774 seconds (process running for 5.006)
-2025-01-20 16:28:44 INFO  o.a.c.c.C.[Tomcat].[localhost].[/] - Initializing Spring DispatcherServlet 'dispatcherServlet'
-2025-01-20 16:28:44 INFO  o.s.web.servlet.DispatcherServlet - Initializing Servlet 'dispatcherServlet'
-2025-01-20 16:28:44 INFO  o.s.web.servlet.DispatcherServlet - Completed initialization in 1 ms
-2025-01-20 16:28:44 ERROR o.a.c.c.C.[.[.[.[dispatcherServlet] - Servlet.service() for servlet [dispatcherServlet] in context with path [] threw exception [Request processing failed: java.lang.IllegalArgumentException: Name for argument of type [java.lang.String] not specified, and parameter name information not available via reflection. Ensure that the compiler uses the '-parameters' flag.] with root cause
-java.lang.IllegalArgumentException: Name for argument of type [java.lang.String] not specified, and parameter name information not available via reflection. Ensure that the compiler uses the '-parameters' flag.
-	at org.springframework.web.method.annotation.AbstractNamedValueMethodArgumentResolver.updateNamedValueInfo(AbstractNamedValueMethodArgumentResolver.java:186)
-	at org.springframework.web.method.annotation.AbstractNamedValueMethodArgumentResolver.getNamedValueInfo(AbstractNamedValueMethodArgumentResolver.java:161)
-	at org.springframework.web.method.annotation.AbstractNamedValueMethodArgumentResolver.resolveArgument(AbstractNamedValueMethodArgumentResolver.java:107)
-	at org.springframework.web.method.support.HandlerMethodArgumentResolverComposite.resolveArgument(HandlerMethodArgumentResolverComposite.java:122)
-	at org.springframework.web.method.support.InvocableHandlerMethod.getMethodArgumentValues(InvocableHandlerMethod.java:226)
-	at org.springframework.web.method.support.InvocableHandlerMethod.invokeForRequest(InvocableHandlerMethod.java:180)
-	at org.springframework.web.servlet.mvc.method.annotation.ServletInvocableHandlerMethod.invokeAndHandle(ServletInvocableHandlerMethod.java:118)
-	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.invokeHandlerMethod(RequestMappingHandlerAdapter.java:986)
-	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.handleInternal(RequestMappingHandlerAdapter.java:891)
-	at org.springframework.web.servlet.mvc.method.AbstractHandlerMethodAdapter.handle(AbstractHandlerMethodAdapter.java:87)
-	at org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1088)
-	at org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:978)
-	at org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1014)
-	at org.springframework.web.servlet.FrameworkServlet.doGet(FrameworkServlet.java:903)
-	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:564)
-	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)
-	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:658)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:195)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100)
-	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93)
-	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201)
-	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:167)
-	at org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:90)
-	at org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:483)
-	at org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:115)
-	at org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:93)
-	at org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:74)
-	at org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:344)
-	at org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:397)
-	at org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63)
-	at org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:905)
-	at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1741)
-	at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52)
-	at org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1190)
-	at org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:659)
-	at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63)
-	at java.base/java.lang.Thread.run(Thread.java:840)
+import com.example.demo.dto.FileDto;
+import com.example.demo.service.V3ScannerService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
+import java.util.Map;
+import java.util.Properties;
+
+@RestController
+@RequestMapping("/api/v1/scanner")
+public class V3ScannerController {
+
+    private static final Logger logger = LoggerFactory.getLogger(V3ScannerController.class);
+
+    @Autowired
+    private V3ScannerService v3ScannerService;
+
+    @GetMapping("/simple")
+    public ResponseEntity<Map<String, Object>> simpleScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
+        logger.info("Simple scan requested. Filename: {}, API Key: {}", fileName, apiKey);
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+        }
+        return ResponseEntity.ok(v3ScannerService.simpleScan(fileName));
+    }
+
+    @GetMapping("/remote")
+    public ResponseEntity<Map<String, Object>> remoteScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
+        logger.info("Remote scan requested. Filename: {}, API Key: {}", fileName, apiKey);
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+        }
+        return ResponseEntity.ok(v3ScannerService.remoteScan(fileName));
+    }
+
+    @GetMapping("/detail")
+    public ResponseEntity<Map<String, Object>> detailScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
+        logger.info("Detail scan requested. Filename: {}, API Key: {}", fileName, apiKey);
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+        }
+        return ResponseEntity.ok(v3ScannerService.detailScan(fileName));
+    }
+
+
+    @PostMapping("/scan")
+    public ResponseEntity<FileDto.Response> scanFile(
+            @RequestHeader("X-CVC-API-KEY") String apiKey,
+            @Valid @RequestBody FileDto.Request fileDtoRequest) {
+        logger.info("File scan requested. Filename: {}, API Key: {}", fileDtoRequest.getFileName(), apiKey);
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                    FileDto.Response.builder()
+                            .fileName(fileDtoRequest.getFileName())
+                            .returnCode(HttpStatus.UNAUTHORIZED.value())
+                            .message("Unauthorized: Invalid API Key")
+                            .build()
+            );
+        }
+        FileDto.Response response = v3ScannerService.scanFile(fileDtoRequest);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    @GetMapping("/status")
+    public ResponseEntity<String> getStatus() {
+        logger.info("API status requested.");
+        return ResponseEntity.ok("API is running.");
+    }
+}
+
+
+
+
+
+
+
+
+
+package com.example.demo.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import lombok.*;
+import jakarta.validation.Valid;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+public class FileDto {
+
+    @NotBlank(message = "파일명을 입력해주세요")
+    private String fileName;
+
+    @NotBlank(message = "파일 데이터를 입력해주세요")
+    private String fileData;
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    @Builder
+    public static class Request {
+
+        @NotBlank(message = "파일명을 입력해주세요")
+        private String fileName;
+
+        @NotBlank(message = "파일 데이터를 입력해주세요")
+        private String fileData;
+    }
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    @Builder
+    public static class Response {
+
+        private String fileName;
+
+        private int returnCode;
+
+        private String message;
+    }
+}
+
+
+
+
+
+
+
+
+
+package com.example.demo.service;
+
+import com.example.demo.dto.FileDto;
+import com.ahnlab.v3engine.V3Const;
+import com.ahnlab.v3engine.V3Scanner;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
+
+
+@Service
+public class V3ScannerService {
+
+    @Value("${api.key}")
+    private String validApiKey;
+    //private static final String VALID_API_KEY = "CVCKEY";
+
+    public boolean validateApiKey(String apiKey) {
+        return validApiKey.equals(apiKey);
+    }
+
+    public Map<String, Object> simpleScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        int ret = V3Scanner.scanFile(filename);
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        result.put("message", getMessageForReturnCode(ret));
+        return result;
+    }
+
+    public Map<String, Object> remoteScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        Properties prop = new Properties();
+        int ret = V3Scanner.remoteScanFile(filename, prop);
+
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        result.put("message", getMessageForReturnCode(ret));
+        result.put("details", prop);
+        return result;
+    }
+
+    public Map<String, Object> detailScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        Properties prop = new Properties();
+        int ret = V3Scanner.scanFile(filename, prop);
+
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        result.put("message", getMessageForReturnCode(ret));
+        result.put("details", prop);
+        return result;
+    }
+
+    public FileDto.Response scanFile(FileDto.Request fileDtoRequest) {
+        try {
+            // Decode Base64 file data and save temporarily
+            byte[] fileData = Base64.getDecoder().decode(fileDtoRequest.getFileData());
+            File tempFile = File.createTempFile("scan_", fileDtoRequest.getFileName());
+            try (FileOutputStream fos = new FileOutputStream(tempFile)) {
+                fos.write(fileData);
+            }
+
+            // Perform scan
+            int ret = V3Scanner.scanFile(tempFile.getAbsolutePath());
+            String message = getMessageForReturnCode(ret);
+
+            // Delete temporary file
+            tempFile.delete();
+
+            return FileDto.Response.builder()
+                    .fileName(fileDtoRequest.getFileName())
+                    .returnCode(ret)
+                    .message(message)
+                    .build();
+        } catch (Exception e) {
+            return FileDto.Response.builder()
+                    .fileName(fileDtoRequest.getFileName())
+                    .returnCode(-1)
+                    .message("File processing failed: " + e.getMessage())
+                    .build();
+        }
+    }
+
+    private String getMessageForReturnCode(int ret) {
+        switch (ret) {
+            case V3Const.RET_AUTH_FAILED:
+                return "인증 실패";
+            case V3Const.RET_CLIENT_TIMEOUT:
+                return "검사 요청 클라이언트 TIMEOUT";
+            case V3Const.RET_NETWORK_ERROR:
+                return "네트워크 장애";
+            case V3Const.RET_CLIENT_FAIL:
+                return "검사 요청 클라이언트 오류";
+            case V3Const.RET_CANNOT_SCAN:
+                return "검사 실패";
+            case V3Const.RET_NO_MALWARE:
+                return "악성코드 없음";
+            case V3Const.RET_MALWARE_FOUND:
+                return "악성코드 발견";
+            case V3Const.RET_CLEAN_MODIFY_SUCCESS:
+                return "수정 치료 성공";
+            case V3Const.RET_CLEAN_MODIFY_FAIL:
+                return "수정 치료 실패(삭제 권고)";
+            case V3Const.RET_CLEAN_DEL_SUCCESS:
+                return "삭제 치료 성공";
+            case V3Const.RET_CLEAN_DEL_FAIL:
+                return "삭제 치료 실패(삭제 권고)";
+            case V3Const.RET_CLEAN_DEL_FAIL_BYCONF:
+                return "삭제 치료 실패(검사 서버 옵션)";
+            default:
+                return "알 수 없음";
+        }
+    }
+}
