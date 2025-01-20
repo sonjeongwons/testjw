@@ -1,160 +1,81 @@
-package com.example.demo.controller;
+package com.scf.manager.mvc.dto;
 
-import com.example.demo.service.V3ScannerService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import com.scf.manager.base.dto.SearchParamDTO;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.*;
 
-import java.util.Map;
-import java.util.Properties;
+import jakarta.validation.constraints.NotBlank;
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+public class BaseImageDTO {
 
-@RestController
-@RequestMapping("/api/v1/scanner")
-public class V3ScannerController {
+	private Long baseImageSeq;
+	private String name;
+	private String version;
 
-    private static final Logger logger = LoggerFactory.getLogger(V3ScannerController.class);
+	@Data
+	@EqualsAndHashCode(callSuper = false)
+	@AllArgsConstructor
+	@NoArgsConstructor
+	@Builder
+	public static class Search extends SearchParamDTO {
+		@Schema(description = "이미지명을 입력해주세요")
+		private String name;
+	}
+	@Data
+	@EqualsAndHashCode(callSuper = false)
+	@AllArgsConstructor
+	@NoArgsConstructor
+	@Builder
+	public static class Register {
 
-    @Autowired
-    private V3ScannerService v3ScannerService;
-
-    @GetMapping("/simple")
-    public ResponseEntity<Map<String, Object>> simpleScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
-        logger.info("Simple scan requested. Filename: {}, API Key: {}", fileName, apiKey);
-        if (!v3ScannerService.validateApiKey(apiKey)) {
-            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
-            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
-        }
-        return ResponseEntity.ok(v3ScannerService.simpleScan(fileName));
+		@NotBlank(message = "리파지토리를 입력해주세요")
+		@Schema(description = "리파지토리 입력해주세요")
+		private String repository;
+		@NotBlank(message = "이미지명을 입력해주세요")
+		@Schema(description = "이미지명을 입력해주세요")
+		private String name;
+		@NotBlank(message = "버전을 입력해주세요")
+		@Schema(description = "버전")
+		private String version;
     }
+	@Data
+	@AllArgsConstructor
+	@NoArgsConstructor
+	@Builder
+	public static class Modify {
+		@NotBlank(message = "리파지토리를 입력해주세요")
+		@Schema(description = "리파지토리 입력해주세요")
+		private String repository;
 
-    @GetMapping("/remote")
-    public ResponseEntity<Map<String, Object>> remoteScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
-        logger.info("Remote scan requested. Filename: {}, API Key: {}", fileName, apiKey);
-        if (!v3ScannerService.validateApiKey(apiKey)) {
-            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
-            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
-        }
-        return ResponseEntity.ok(v3ScannerService.remoteScan(fileName));
-    }
+		@NotBlank(message = "이미지명을 입력해주세요")
+		@Schema(description = "이미지명")
+		private String name;
+		@NotBlank(message = "버전을 입력해주세요")
+		@Schema(description = "버전")
+		private String version;
 
-    @GetMapping("/detail")
-    public ResponseEntity<Map<String, Object>> detailScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
-        logger.info("Detail scan requested. Filename: {}, API Key: {}", fileName, apiKey);
-        if (!v3ScannerService.validateApiKey(apiKey)) {
-            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
-            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
-        }
-        return ResponseEntity.ok(v3ScannerService.detailScan(fileName));
-    }
-}
+	}
+	@Data
+	@AllArgsConstructor
+	@NoArgsConstructor
+	@Builder
+	public static class Response {
 
+		@NotBlank(message = "리파지토리를 입력해주세요")
+		@Schema(description = "리파지토리 입력해주세요")
+		private String repository;
 
+		@Schema(description = "베이스이미지일련번호")
+		private Long baseImageSeq;
 
+		@Schema(description = "이미지명")
+		private String name;
 
+		@Schema(description = "버전")
+		private String version;
+	}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-package com.example.demo.service;
-
-import com.ahnlab.v3engine.V3Const;
-import com.ahnlab.v3engine.V3Scanner;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
-
-@Service
-public class V3ScannerService {
-
-    @Value("${api.key}")
-    private String validApiKey;
-    //private static final String VALID_API_KEY = "CVCKEY";
-
-    public boolean validateApiKey(String apiKey) {
-        return validApiKey.equals(apiKey);
-    }
-
-    public Map<String, Object> simpleScan(String filename) {
-        Map<String, Object> result = new HashMap<>();
-        int ret = V3Scanner.scanFile(filename);
-        result.put("filename", filename);
-        result.put("returnCode", ret);
-        result.put("message", getMessageForReturnCode(ret));
-        return result;
-    }
-
-    public Map<String, Object> remoteScan(String filename) {
-        Map<String, Object> result = new HashMap<>();
-        Properties prop = new Properties();
-        int ret = V3Scanner.remoteScanFile(filename, prop);
-
-        result.put("filename", filename);
-        result.put("returnCode", ret);
-        result.put("message", getMessageForReturnCode(ret));
-        result.put("details", prop);
-        return result;
-    }
-
-    public Map<String, Object> detailScan(String filename) {
-        Map<String, Object> result = new HashMap<>();
-        Properties prop = new Properties();
-        int ret = V3Scanner.scanFile(filename, prop);
-
-        result.put("filename", filename);
-        result.put("returnCode", ret);
-        result.put("message", getMessageForReturnCode(ret));
-        result.put("details", prop);
-        return result;
-    }
-
-    private String getMessageForReturnCode(int ret) {
-        switch (ret) {
-            case V3Const.RET_AUTH_FAILED:
-                return "인증 실패";
-            case V3Const.RET_CLIENT_TIMEOUT:
-                return "검사 요청 클라이언트 TIMEOUT";
-            case V3Const.RET_NETWORK_ERROR:
-                return "네트워크 장애";
-            case V3Const.RET_CLIENT_FAIL:
-                return "검사 요청 클라이언트 오류";
-            case V3Const.RET_CANNOT_SCAN:
-                return "검사 실패";
-            case V3Const.RET_NO_MALWARE:
-                return "악성코드 없음";
-            case V3Const.RET_MALWARE_FOUND:
-                return "악성코드 발견";
-            case V3Const.RET_CLEAN_MODIFY_SUCCESS:
-                return "수정 치료 성공";
-            case V3Const.RET_CLEAN_MODIFY_FAIL:
-                return "수정 치료 실패(삭제 권고)";
-            case V3Const.RET_CLEAN_DEL_SUCCESS:
-                return "삭제 치료 성공";
-            case V3Const.RET_CLEAN_DEL_FAIL:
-                return "삭제 치료 실패(삭제 권고)";
-            case V3Const.RET_CLEAN_DEL_FAIL_BYCONF:
-                return "삭제 치료 실패(검사 서버 옵션)";
-            default:
-                return "알 수 없음";
-        }
-    }
 }
