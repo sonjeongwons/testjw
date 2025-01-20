@@ -1,139 +1,160 @@
-안녕하세요, 코드 리뷰를 진행하면서 클린 코드와 리팩토링 관점에서 개선할 부분들을 작성해 봤습니다. 주요 개선 방향은 가독성, 확장성, 그리고 중복 제거입니다. 각 메소드별로 상세히 정리했으니 참고해주세요.
+package com.example.demo.controller;
 
-1. callIstioAndKnative(Function function)
-개선사항 1: 단일 책임 원칙(SRP) 준수
-문제점: 이 메소드가 여러 가지 역할(토큰 확인, Istio 리소스 생성/삭제, Knative 호출 등)을 동시에 하고 있어서 가독성과 유지보수성이 떨어져요.
-개선 제안: Istio 관련 로직과 Knative 관련 로직을 각각 별도의 메소드로 분리하는 게 좋습니다.
-개선 코드:
-java
-코드 복사
-private void configureIstio(Function function, FunctionEnvironment functionEnvironment, List<AllowIp> allowIps) {
-    // Istio 관련 로직 처리
-}
+import com.example.demo.service.V3ScannerService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 
-private void configureKnative(Function function) throws IOException {
-    // Knative 관련 로직 처리
-}
-효과: 각 메소드가 단일한 책임을 가지게 되어 코드의 가독성과 유지보수성이 좋아져요.
-개선사항 2: 상수 추출
-문제점: "token", "Y", "N" 등 문자열 값이 하드코딩되어 있어 의미를 파악하기 어렵고, 변경 시 여러 군데를 수정해야 해요.
-개선 제안: 상수로 추출해서 의미를 명확히 하고 재사용성을 높여야 합니다.
-개선 코드:
-java
-코드 복사
-private static final String TOKEN_TYPE = "token";
-private static final String ENABLED = "Y";
-private static final String DISABLED = "N";
-효과: 하드코딩된 문자열 대신 의미 있는 이름을 사용할 수 있어 코드 읽기가 훨씬 쉬워집니다.
-개선사항 3: 예외 메시지 구체화
-문제점: 예외 메시지가 구체적이지 않아서 디버깅이 어려울 수 있어요.
-개선 제안: 예외 메시지에 구체적인 정보를 추가해주세요.
-개선 코드:
-java
-코드 복사
-throw new RuntimeException("토큰 정보가 없습니다. Function ID: " + function.getId());
-효과: 예외 발생 시 디버깅에 필요한 정보를 바로 확인할 수 있습니다.
-2. generateFileName(FunctionDTO.Register reqDto)
-개선사항 1: 하드코딩 제거
-문제점: 런타임별 파일 이름이 하드코딩되어 있어서 런타임이 추가될 경우 코드 수정을 해야 해요.
-개선 제안: 런타임별 파일 이름을 맵(Map) 구조로 관리하는 게 좋습니다.
-개선 코드:
-java
-코드 복사
-private static final Map<String, String> RUNTIME_FILE_NAMES = Map.of(
-    "Node.js", "function.js",
-    "Python", "pythonbase.py",
-    "PHP", "index.php",
-    "Java", "javafunction.jar"
-);
+import java.util.Map;
+import java.util.Properties;
 
-private String generateFileName(FunctionDTO.Register reqDto) {
-    return Optional.ofNullable(RUNTIME_FILE_NAMES.get(reqDto.getRuntime()))
-            .orElseThrow(() -> new RuntimeException(FILE_TYPE_EXCEPTION));
-}
-효과: 런타임별 파일 이름 추가나 수정이 훨씬 쉬워집니다.
-3. setFunctionEnvironment
-개선사항 1: Enum 활용
-문제점: if-else로 환경 변수 타입을 비교하는 방식은 확장성이 떨어집니다.
-개선 제안: FunctionEnvironment의 타입을 Enum으로 관리하고, Enum에 로직을 위임하는 방식으로 개선할 수 있습니다.
-개선 코드:
-java
-코드 복사
-public enum FunctionEnvironmentType {
-    COLD_START("coldStartYn") {
-        @Override
-        void apply(FunctionDTO.Register reqDto, String value) {
-            reqDto.setColdStartYn(value);
+@RestController
+@RequestMapping("/api/v1/scanner")
+public class V3ScannerController {
+
+    private static final Logger logger = LoggerFactory.getLogger(V3ScannerController.class);
+
+    @Autowired
+    private V3ScannerService v3ScannerService;
+
+    @GetMapping("/simple")
+    public ResponseEntity<Map<String, Object>> simpleScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
+        logger.info("Simple scan requested. Filename: {}, API Key: {}", fileName, apiKey);
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
         }
-    },
-    MEMORY("memory") {
-        @Override
-        void apply(FunctionDTO.Register reqDto, String value) {
-            reqDto.setMemory(value + "Mi");
+        return ResponseEntity.ok(v3ScannerService.simpleScan(fileName));
+    }
+
+    @GetMapping("/remote")
+    public ResponseEntity<Map<String, Object>> remoteScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
+        logger.info("Remote scan requested. Filename: {}, API Key: {}", fileName, apiKey);
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
         }
-    };
-
-    private final String type;
-
-    FunctionEnvironmentType(String type) {
-        this.type = type;
+        return ResponseEntity.ok(v3ScannerService.remoteScan(fileName));
     }
 
-    abstract void apply(FunctionDTO.Register reqDto, String value);
-
-    public static FunctionEnvironmentType fromType(String type) {
-        return Arrays.stream(values())
-                .filter(e -> e.type.equals(type))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Unknown type: " + type));
+    @GetMapping("/detail")
+    public ResponseEntity<Map<String, Object>> detailScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
+        logger.info("Detail scan requested. Filename: {}, API Key: {}", fileName, apiKey);
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+        }
+        return ResponseEntity.ok(v3ScannerService.detailScan(fileName));
     }
 }
-효과: 코드가 훨씬 깔끔해지고 확장성도 좋아져요. 새로운 타입 추가 시 Enum만 수정하면 됩니다.
-4. generateFileInfo
-개선사항 1: 중복 코드 제거
-문제점: 런타임별로 파일 권한 설정 코드가 중복되어 있어요.
-개선 제안: 공통 로직을 별도 메소드로 추출합니다.
-개선 코드:
-java
-코드 복사
-private void setFilePermissions(Path file) throws IOException {
-    Set<PosixFilePermission> permissions = Set.of(
-        PosixFilePermission.OWNER_READ,
-        PosixFilePermission.OWNER_WRITE,
-        PosixFilePermission.GROUP_READ,
-        PosixFilePermission.OTHERS_READ
-    );
-    Files.setPosixFilePermissions(file, permissions);
-}
-효과: 중복 코드 제거로 코드가 간결해지고 변경 관리가 쉬워집니다.
-5. callFunction
-개선사항 1: 런타임별 로직 개선
-문제점: 런타임별 설정이 if-else 구조로 구현되어 있어 가독성이 떨어지고 추가 작업이 어렵습니다.
-개선 제안: 런타임 설정을 Enum으로 추출하여 관리합니다.
-개선 코드:
-java
-코드 복사
-public enum RuntimeConfig {
-    NODE_JS("Node.js", "scf-nodejs", List.of("node", "/usr/src/serverless/function/function.js")),
-    PYTHON("Python", "scf-python", List.of("python", "/usr/src/serverless/pythonbase.py"));
 
-    private final String runtime;
-    private final String imagePrefix;
-    private final List<String> commands;
 
-    RuntimeConfig(String runtime, String imagePrefix, List<String> commands) {
-        this.runtime = runtime;
-        this.imagePrefix = imagePrefix;
-        this.commands = commands;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+package com.example.demo.service;
+
+import com.ahnlab.v3engine.V3Const;
+import com.ahnlab.v3engine.V3Scanner;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
+
+@Service
+public class V3ScannerService {
+
+    @Value("${api.key}")
+    private String validApiKey;
+    //private static final String VALID_API_KEY = "CVCKEY";
+
+    public boolean validateApiKey(String apiKey) {
+        return validApiKey.equals(apiKey);
     }
 
-    public static RuntimeConfig fromRuntime(String runtime) {
-        return Arrays.stream(values())
-                .filter(c -> runtime.startsWith(c.runtime))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Unsupported runtime: " + runtime));
+    public Map<String, Object> simpleScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        int ret = V3Scanner.scanFile(filename);
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        result.put("message", getMessageForReturnCode(ret));
+        return result;
+    }
+
+    public Map<String, Object> remoteScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        Properties prop = new Properties();
+        int ret = V3Scanner.remoteScanFile(filename, prop);
+
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        result.put("message", getMessageForReturnCode(ret));
+        result.put("details", prop);
+        return result;
+    }
+
+    public Map<String, Object> detailScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        Properties prop = new Properties();
+        int ret = V3Scanner.scanFile(filename, prop);
+
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        result.put("message", getMessageForReturnCode(ret));
+        result.put("details", prop);
+        return result;
+    }
+
+    private String getMessageForReturnCode(int ret) {
+        switch (ret) {
+            case V3Const.RET_AUTH_FAILED:
+                return "인증 실패";
+            case V3Const.RET_CLIENT_TIMEOUT:
+                return "검사 요청 클라이언트 TIMEOUT";
+            case V3Const.RET_NETWORK_ERROR:
+                return "네트워크 장애";
+            case V3Const.RET_CLIENT_FAIL:
+                return "검사 요청 클라이언트 오류";
+            case V3Const.RET_CANNOT_SCAN:
+                return "검사 실패";
+            case V3Const.RET_NO_MALWARE:
+                return "악성코드 없음";
+            case V3Const.RET_MALWARE_FOUND:
+                return "악성코드 발견";
+            case V3Const.RET_CLEAN_MODIFY_SUCCESS:
+                return "수정 치료 성공";
+            case V3Const.RET_CLEAN_MODIFY_FAIL:
+                return "수정 치료 실패(삭제 권고)";
+            case V3Const.RET_CLEAN_DEL_SUCCESS:
+                return "삭제 치료 성공";
+            case V3Const.RET_CLEAN_DEL_FAIL:
+                return "삭제 치료 실패(삭제 권고)";
+            case V3Const.RET_CLEAN_DEL_FAIL_BYCONF:
+                return "삭제 치료 실패(검사 서버 옵션)";
+            default:
+                return "알 수 없음";
+        }
     }
 }
-효과: 런타임별로 추가 작업이 필요한 경우 Enum만 수정하면 되므로 코드가 훨씬 유연해집니다.
-결론
-위 코멘트들을 바탕으로 리팩토링하면 코드가 더 읽기 쉽고, 유지보수하기 쉬운 구조로 개선될 것입니다. 추가적으로 필요하거나 궁금한 점 있으면 언제든 이야기해주세요! 😊
