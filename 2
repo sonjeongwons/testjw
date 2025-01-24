@@ -1,46 +1,45 @@
-public FileDto.Response scanBinaryFile(String fileName, byte[] fileData) {
-    File tempFile = null;
-    try {
-        // 파일 크기 제한 (1GB)
-        if (fileData.length > 1024L * 1024L * 1024L) {
-            return FileDto.Response.builder()
-                    .fileName(fileName)
-                    .returnCode(-1)
-                    .message("File size exceeds the 1GB limit.")
-                    .build();
-        }
+import requests
 
-        // 파일 확장자 필터링
-        if (!isAllowedExtension(fileName)) {
-            return FileDto.Response.builder()
-                    .fileName(fileName)
-                    .returnCode(-1)
-                    .message("Unsupported file type.")
-                    .build();
-        }
+# 설정
+BASE_URL = "http://<API_SERVER_IP>:<PORT>/api/v1/scanner"
+API_KEY = "CVCKEY"
+FILE_PATH = "/path/to/large_file"  # 테스트할 파일 경로
+CHUNK_SIZE = 5 * 1024 * 1024  # 청크 크기 (5MB)
 
-        Properties prop = new Properties();
-        if (fileData.length <= 50 * 1024 * 1024) { // 50MB 이하 메모리 처리
-            logger.info("Processing binary file in memory.");
-            int ret = V3Scanner.scanBuffer(fileData, prop); // 메모리 기반 검사
-            return buildResponse(fileName, ret, prop);
-        } else { // 50MB 초과 임시 디렉토리 처리
-            logger.info("Processing binary file on disk.");
-            tempFile = Files.createTempFile("scan_", "_" + fileName).toFile();
-            Files.write(tempFile.toPath(), fileData); // 파일 데이터 디스크에 저장
+# 1. 청크 업로드
+def upload_chunks():
+    file_id = "file-1234"  # 파일 ID (고유 값 설정 필요)
+    with open(FILE_PATH, "rb") as file:
+        chunk_index = 0
+        while chunk := file.read(CHUNK_SIZE):  # 청크 단위로 읽기
+            headers = {
+                "X-CVC-API-KEY": API_KEY,
+                "File-Id": file_id,
+                "Chunk-Index": str(chunk_index),
+                "Total-Chunks": str(-1)  # 총 청크 개수는 서버에서 추적 가능
+            }
+            response = requests.post(f"{BASE_URL}/upload-chunk", headers=headers, data=chunk)
+            if response.status_code != 200:
+                print(f"Failed to upload chunk {chunk_index}: {response.text}")
+                return
+            print(f"Uploaded chunk {chunk_index}")
+            chunk_index += 1
+    return file_id
 
-            int ret = V3Scanner.scanFile(tempFile.getAbsolutePath(), prop); // 디스크 기반 검사
-            return buildResponse(fileName, ret, prop);
-        }
-    } catch (Exception e) {
-        return FileDto.Response.builder()
-                .fileName(fileName)
-                .returnCode(-1)
-                .message("File processing failed: " + e.getMessage())
-                .build();
-    } finally {
-        if (tempFile != null && tempFile.exists()) {
-            tempFile.delete();
-        }
+# 2. 병합 및 스캔 요청
+def merge_and_scan(file_id):
+    headers = {
+        "X-CVC-API-KEY": API_KEY,
+        "File-Id": file_id,
+        "File-Name": FILE_PATH.split("/")[-1]  # 원래 파일 이름
     }
-}
+    response = requests.post(f"{BASE_URL}/merge-chunks", headers=headers)
+    if response.status_code == 200:
+        print("Scan completed:", response.json())
+    else:
+        print("Failed to merge and scan:", response.text)
+
+# 실행
+file_id = upload_chunks()
+if file_id:
+    merge_and_scan(file_id)
