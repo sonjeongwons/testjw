@@ -1,30 +1,46 @@
-public void saveChunk(String fileId, int chunkIndex, byte[] chunkData) throws Exception {
-    Path chunkDir = Paths.get("/tmp/chunks/" + fileId);
-    if (!Files.exists(chunkDir)) {
-        Files.createDirectories(chunkDir);
+public FileDto.Response scanBinaryFile(String fileName, byte[] fileData) {
+    File tempFile = null;
+    try {
+        // 파일 크기 제한 (1GB)
+        if (fileData.length > 1024L * 1024L * 1024L) {
+            return FileDto.Response.builder()
+                    .fileName(fileName)
+                    .returnCode(-1)
+                    .message("File size exceeds the 1GB limit.")
+                    .build();
+        }
+
+        // 파일 확장자 필터링
+        if (!isAllowedExtension(fileName)) {
+            return FileDto.Response.builder()
+                    .fileName(fileName)
+                    .returnCode(-1)
+                    .message("Unsupported file type.")
+                    .build();
+        }
+
+        Properties prop = new Properties();
+        if (fileData.length <= 50 * 1024 * 1024) { // 50MB 이하 메모리 처리
+            logger.info("Processing binary file in memory.");
+            int ret = V3Scanner.scanBuffer(fileData, prop); // 메모리 기반 검사
+            return buildResponse(fileName, ret, prop);
+        } else { // 50MB 초과 임시 디렉토리 처리
+            logger.info("Processing binary file on disk.");
+            tempFile = Files.createTempFile("scan_", "_" + fileName).toFile();
+            Files.write(tempFile.toPath(), fileData); // 파일 데이터 디스크에 저장
+
+            int ret = V3Scanner.scanFile(tempFile.getAbsolutePath(), prop); // 디스크 기반 검사
+            return buildResponse(fileName, ret, prop);
+        }
+    } catch (Exception e) {
+        return FileDto.Response.builder()
+                .fileName(fileName)
+                .returnCode(-1)
+                .message("File processing failed: " + e.getMessage())
+                .build();
+    } finally {
+        if (tempFile != null && tempFile.exists()) {
+            tempFile.delete();
+        }
     }
-    Path chunkFile = chunkDir.resolve("chunk_" + chunkIndex);
-    Files.write(chunkFile, chunkData);
-}
-
-public FileDto.Response mergeChunksAndScan(String fileId, String fileName) throws Exception {
-    Path chunkDir = Paths.get("/tmp/chunks/" + fileId);
-    Path mergedFile = Paths.get("/tmp/" + fileName);
-
-    try (FileOutputStream outputStream = new FileOutputStream(mergedFile.toFile())) {
-        Files.list(chunkDir)
-                .sorted()
-                .forEach(chunk -> {
-                    try {
-                        Files.copy(chunk, outputStream);
-                    } catch (Exception e) {
-                        throw new RuntimeException("Failed to merge chunk: " + chunk.getFileName(), e);
-                    }
-                });
-    }
-
-    // 파일 스캔 수행
-    Properties prop = new Properties();
-    int ret = V3Scanner.scanFile(mergedFile.toString(), prop);
-    return buildResponse(fileName, ret, prop);
 }
