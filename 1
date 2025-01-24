@@ -1,22 +1,53 @@
-@PostMapping(value = "/binary-scan", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
-public ResponseEntity<FileDto.Response> scanBinaryFile(
-        @RequestHeader("X-CVC-API-KEY") String apiKey,
-        @RequestHeader("File-Name") String fileName,  // 파일 이름 메타데이터를 헤더로 받음
-        @RequestBody byte[] fileData) {  // 파일 데이터를 바이너리로 받음
+public FileDto.Response mergeChunksAndScan(String fileId, String fileName) throws Exception {
+    Path chunkDir = Paths.get(chunkBaseDir, fileId);
+    Path mergedFile = Paths.get("/tmp/" + UUID.randomUUID() + "_" + fileName);  // 병합 파일 이름에 UUID 추가
 
-    logger.info("Binary file scan requested. Filename: {}, API Key: {}", fileName, apiKey);
-    if (!v3ScannerService.validateApiKey(apiKey)) {
-        logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-                FileDto.Response.builder()
-                        .fileName(fileName)
-                        .returnCode(HttpStatus.UNAUTHORIZED.value())
-                        .message("Unauthorized: Invalid API Key")
-                        .build()
-        );
+    try {
+        // 1. 병합 작업
+        try (FileOutputStream outputStream = new FileOutputStream(mergedFile.toFile())) {
+            Files.list(chunkDir)
+                    .sorted()  // 청크 파일 정렬
+                    .forEach(chunk -> {
+                        try {
+                            Files.copy(chunk, outputStream);
+                        } catch (Exception e) {
+                            throw new RuntimeException("Failed to merge chunk: " + chunk.getFileName(), e);
+                        }
+                    });
+        }
+
+        // 2. 스캔 작업 수행
+        Properties prop = new Properties();
+        int ret = V3Scanner.scanFile(mergedFile.toString(), prop);
+
+        // 3. 결과 반환
+        return FileDto.Response.builder()
+                .fileName(fileName)
+                .returnCode(ret)
+                .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "No additional information."))
+                .build();
+
+    } finally {
+        // 4. 병합 파일 및 청크 디렉토리 삭제
+        try {
+            if (Files.exists(mergedFile)) {
+                Files.delete(mergedFile);
+                logger.info("Deleted merged file: {}", mergedFile);
+            }
+            if (Files.exists(chunkDir)) {
+                Files.walk(chunkDir)
+                        .sorted(Comparator.reverseOrder())  // 하위 파일부터 삭제
+                        .forEach(path -> {
+                            try {
+                                Files.delete(path);
+                            } catch (Exception e) {
+                                logger.warn("Failed to delete chunk file: {}", path, e);
+                            }
+                        });
+                logger.info("Deleted chunk directory: {}", chunkDir);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to clean up files: {}", e.getMessage());
+        }
     }
-
-    // 바이너리 파일 스캔 처리
-    FileDto.Response response = v3ScannerService.scanBinaryFile(fileName, fileData);
-    return ResponseEntity.status(HttpStatus.OK).body(response);
 }
