@@ -1,44 +1,30 @@
-package com.example.demo.dto;
+public void saveChunk(String fileId, int chunkIndex, byte[] chunkData) throws Exception {
+    Path chunkDir = Paths.get("/tmp/chunks/" + fileId);
+    if (!Files.exists(chunkDir)) {
+        Files.createDirectories(chunkDir);
+    }
+    Path chunkFile = chunkDir.resolve("chunk_" + chunkIndex);
+    Files.write(chunkFile, chunkData);
+}
 
-import jakarta.validation.constraints.NotBlank;
-import lombok.*;
-import jakarta.validation.Valid;
+public FileDto.Response mergeChunksAndScan(String fileId, String fileName) throws Exception {
+    Path chunkDir = Paths.get("/tmp/chunks/" + fileId);
+    Path mergedFile = Paths.get("/tmp/" + fileName);
 
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-@Builder
-public class FileDto {
-
-    @NotBlank(message = "파일명을 입력해주세요")
-    private String fileName;
-
-    @NotBlank(message = "파일 데이터를 입력해주세요")
-    private String fileData;
-
-    @Data
-    @AllArgsConstructor
-    @NoArgsConstructor
-    @Builder
-    public static class Request {
-
-        @NotBlank(message = "파일명을 입력해주세요")
-        private String fileName;
-
-        @NotBlank(message = "파일 데이터를 입력해주세요")
-        private String fileData;
+    try (FileOutputStream outputStream = new FileOutputStream(mergedFile.toFile())) {
+        Files.list(chunkDir)
+                .sorted()
+                .forEach(chunk -> {
+                    try {
+                        Files.copy(chunk, outputStream);
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to merge chunk: " + chunk.getFileName(), e);
+                    }
+                });
     }
 
-    @Data
-    @AllArgsConstructor
-    @NoArgsConstructor
-    @Builder
-    public static class Response {
-
-        private String fileName;
-
-        private int returnCode;
-
-        private String message;
-    }
+    // 파일 스캔 수행
+    Properties prop = new Properties();
+    int ret = V3Scanner.scanFile(mergedFile.toString(), prop);
+    return buildResponse(fileName, ret, prop);
 }
