@@ -1,26 +1,115 @@
-import requests
+1. 현재 적용된 Spring Boot 및 Tomcat 설정 확인 방법
+Spring Boot에서 spring.servlet.multipart.max-file-size, spring.servlet.multipart.max-request-size, 그리고 Tomcat의 maxPostSize 값을 확인하려면 아래 방법을 사용할 수 있습니다:
 
-# 파일 이름 및 경로
-file_name = "fail.zip"
-file_path = "/path/to/fail.zip"  # 파일의 실제 경로를 입력
+(1) 애플리케이션 코드로 확인
+Spring Boot 애플리케이션 실행 중에 현재 설정된 값을 로그로 출력할 수 있습니다.
 
-# API URL 및 헤더 설정
-url = "http://172.28.128.13:8081/api/v1/scanner/multipart-scan"
-headers = {
-    "X-CVC-API-KEY": "CVCKEY"  # API 키
+java
+복사
+편집
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
+import org.springframework.boot.web.server.WebServerFactoryCustomizer;
+import org.springframework.stereotype.Component;
+
+import javax.annotation.PostConstruct;
+
+@Component
+public class MultipartConfigLogger {
+
+    @Value("${spring.servlet.multipart.max-file-size:1MB}")  // 기본값: 1MB
+    private String maxFileSize;
+
+    @Value("${spring.servlet.multipart.max-request-size:1MB}")  // 기본값: 1MB
+    private String maxRequestSize;
+
+    @PostConstruct
+    public void logMultipartConfig() {
+        System.out.println("spring.servlet.multipart.max-file-size = " + maxFileSize);
+        System.out.println("spring.servlet.multipart.max-request-size = " + maxRequestSize);
+    }
+
+    @Component
+    public static class TomcatConfigLogger implements WebServerFactoryCustomizer<TomcatServletWebServerFactory> {
+        @Override
+        public void customize(TomcatServletWebServerFactory factory) {
+            factory.addConnectorCustomizers(connector -> {
+                System.out.println("Tomcat maxPostSize = " + connector.getMaxPostSize());
+            });
+        }
+    }
 }
+이 코드를 추가하고 애플리케이션을 실행하면, 현재 설정된 값을 콘솔에서 확인할 수 있습니다.
+(2) Actuator를 사용하여 설정 확인
+Spring Boot의 Actuator를 활성화하면 현재 적용된 설정값을 확인할 수 있습니다.
 
-# 파일 업로드를 위한 멀티파트 데이터 준비
-files = {
-    "file": (file_name, open(file_path, "rb"))
+Actuator 활성화: application.properties에 아래 내용을 추가:
+
+properties
+복사
+편집
+management.endpoints.web.exposure.include=env
+엔드포인트 호출: Actuator의 /actuator/env 엔드포인트를 호출:
+
+bash
+복사
+편집
+curl http://localhost:8080/actuator/env | grep multipart
+결과로 spring.servlet.multipart.max-file-size와 spring.servlet.multipart.max-request-size 값이 출력됩니다.
+2. 세 가지 설정의 차이점
+(1) spring.servlet.multipart.max-file-size
+의미: 단일 파일의 최대 허용 크기입니다.
+예시:
+설정: spring.servlet.multipart.max-file-size=10MB
+업로드 요청:
+8MB 파일: 성공
+12MB 파일: 실패 (413 Status Code)
+(2) spring.servlet.multipart.max-request-size
+의미: 전체 요청의 최대 허용 크기입니다. 멀티파트 요청의 경우, 하나의 요청에 포함된 모든 파일과 기타 데이터의 총합 크기입니다.
+예시:
+설정: spring.servlet.multipart.max-request-size=20MB
+업로드 요청:
+5MB 파일 + 10MB 파일 (총 15MB): 성공
+8MB 파일 + 15MB 파일 (총 23MB): 실패 (413 Status Code)
+(3) Tomcat maxPostSize
+의미: HTTP POST 요청의 전체 크기 제한입니다. 멀티파트 요청뿐만 아니라 모든 POST 요청에 적용됩니다.
+예시:
+설정: maxPostSize=50MB
+업로드 요청:
+멀티파트 요청 (파일 크기 10MB, 요청 본문 총합 25MB): 성공
+멀티파트 요청 (파일 크기 20MB, 요청 본문 총합 55MB): 실패 (413 Status Code)
+3. 세 설정이 조합되어 동작하는 방식
+멀티파트 파일 업로드 시, 위 세 가지 설정은 동시에 적용됩니다. 각 설정이 충족되지 않으면 업로드가 실패합니다.
+
+예시: 설정값
+properties
+복사
+편집
+spring.servlet.multipart.max-file-size=10MB
+spring.servlet.multipart.max-request-size=20MB
+Tomcat maxPostSize=30MB
+업로드 시나리오
+파일 크기	요청 총 크기	결과	이유
+5MB	8MB	성공	모든 제한 조건 충족
+12MB	15MB	실패 (413)	단일 파일 크기가 max-file-size 초과
+7MB, 10MB	22MB	실패 (413)	요청 크기가 max-request-size 초과
+10MB, 15MB	27MB	성공	모든 제한 조건 충족
+10MB, 20MB	35MB	실패 (413)	요청 크기가 maxPostSize 초과
+4. 설정값 충돌 해결
+(1) 모든 설정값을 동일하게 설정
+모든 제한 조건을 동일한 값으로 설정하여 예측 가능한 동작을 보장합니다.
+
+properties
+복사
+편집
+spring.servlet.multipart.max-file-size=1GB
+spring.servlet.multipart.max-request-size=1GB
+java
+복사
+편집
+@Bean
+public WebServerFactoryCustomizer<TomcatServletWebServerFactory> customizer() {
+    return factory -> factory.addConnectorCustomizers(connector -> connector.setMaxPostSize(1024 * 1024 * 1024)); // 1GB
 }
-
-# API 호출
-response = requests.post(url, headers=headers, files=files)
-
-# 응답 출력
-print("Status Code:", response.status_code)
-try:
-    print("Response Body:", response.json())
-except Exception as e:
-    print("Response Body:", response.text)
+(2) 로그 또는 Actuator로 설정값 확인 후 조정
+위에서 제공한 코드나 Actuator로 현재 설정값을 확인하고, 필요한 값을 재설정합니다.
