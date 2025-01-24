@@ -1,47 +1,23 @@
-@RestController
-@RequestMapping("/api/v1/scanner")
-public class ChunkedFileController {
+import requests
 
-    @Autowired
-    private V3ScannerService v3ScannerService;
+# 설정
+BASE_URL = "http://<API_SERVER_IP>:<PORT>/api/v1/scanner"
+API_KEY = "CVCKEY"
+FILE_PATH = "/path/to/large_file"  # 테스트할 파일 경로
 
-    /**
-     * 청크 업로드 엔드포인트
-     */
-    @PostMapping(value = "/upload-chunk", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
-    public ResponseEntity<String> uploadChunk(
-            @RequestHeader("File-Id") String fileId,  // 파일 ID
-            @RequestHeader("Chunk-Index") int chunkIndex,  // 청크 인덱스
-            @RequestHeader("Total-Chunks") int totalChunks,  // 전체 청크 개수
-            @RequestBody byte[] chunkData) {  // 청크 데이터
-
-        try {
-            v3ScannerService.saveChunk(fileId, chunkIndex, chunkData);
-            return ResponseEntity.ok("Chunk uploaded successfully.");
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Chunk upload failed: " + e.getMessage());
-        }
+# 바이너리 파일 업로드
+def upload_binary():
+    headers = {
+        "X-CVC-API-KEY": API_KEY,
+        "File-Name": FILE_PATH.split("/")[-1],  # 파일 이름
+        "Content-Type": "application/octet-stream"
     }
+    with open(FILE_PATH, "rb") as file:
+        response = requests.post(f"{BASE_URL}/binary-scan", headers=headers, data=file)
+        if response.status_code == 200:
+            print("Scan completed:", response.json())
+        else:
+            print("Failed to scan binary file:", response.text)
 
-    /**
-     * 병합 및 스캔 엔드포인트
-     */
-    @PostMapping("/merge-chunks")
-    public ResponseEntity<FileDto.Response> mergeChunksAndScan(
-            @RequestHeader("File-Id") String fileId,  // 파일 ID
-            @RequestHeader("File-Name") String fileName) {  // 원래 파일 이름
-
-        try {
-            FileDto.Response response = v3ScannerService.mergeChunksAndScan(fileId, fileName);
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    FileDto.Response.builder()
-                            .fileName(fileName)
-                            .returnCode(-1)
-                            .message("Failed to merge and scan chunks: " + e.getMessage())
-                            .build()
-            );
-        }
-    }
-}
+# 실행
+upload_binary()
