@@ -1,35 +1,22 @@
-@PostMapping(value = "/upload-chunk", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
-public ResponseEntity<String> uploadChunk(
-        @RequestHeader("File-Id") String fileId,
-        @RequestHeader("Chunk-Index") int chunkIndex,
-        @RequestBody byte[] chunkData) {
+@PostMapping(value = "/binary-scan", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+public ResponseEntity<FileDto.Response> scanBinaryFile(
+        @RequestHeader("X-CVC-API-KEY") String apiKey,
+        @RequestHeader("File-Name") String fileName,  // 파일 이름 메타데이터를 헤더로 받음
+        @RequestBody byte[] fileData) {  // 파일 데이터를 바이너리로 받음
 
-    try {
-        // 청크 데이터 저장
-        v3ScannerService.saveChunk(fileId, chunkIndex, chunkData);
-        return ResponseEntity.ok("Chunk uploaded successfully.");
-    } catch (Exception e) {
-        logger.error("Failed to upload chunk: {}", e.getMessage());
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Chunk upload failed.");
-    }
-}
-
-@PostMapping("/merge-chunks")
-public ResponseEntity<FileDto.Response> mergeChunksAndScan(
-        @RequestHeader("File-Id") String fileId,
-        @RequestHeader("File-Name") String fileName) {
-
-    try {
-        // 청크 병합 및 악성코드 검사 수행
-        FileDto.Response response = v3ScannerService.mergeChunksAndScan(fileId, fileName);
-        return ResponseEntity.ok(response);
-    } catch (Exception e) {
-        logger.error("Failed to merge chunks: {}", e.getMessage());
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+    logger.info("Binary file scan requested. Filename: {}, API Key: {}", fileName, apiKey);
+    if (!v3ScannerService.validateApiKey(apiKey)) {
+        logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
                 FileDto.Response.builder()
                         .fileName(fileName)
-                        .returnCode(-1)
-                        .message("Failed to merge and scan chunks.")
-                        .build());
+                        .returnCode(HttpStatus.UNAUTHORIZED.value())
+                        .message("Unauthorized: Invalid API Key")
+                        .build()
+        );
     }
+
+    // 바이너리 파일 스캔 처리
+    FileDto.Response response = v3ScannerService.scanBinaryFile(fileName, fileData);
+    return ResponseEntity.status(HttpStatus.OK).body(response);
 }
