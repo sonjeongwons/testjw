@@ -1,0 +1,64 @@
+public FileDto.Response scanMultipartFile(MultipartFile file) {
+    File tempFile = null;
+    try {
+        // 파일 크기 제한 (1GB)
+        if (file.getSize() > 1024L * 1024L * 1024L) {
+            return FileDto.Response.builder()
+                    .fileName(file.getOriginalFilename())
+                    .returnCode(-1)
+                    .message("File size exceeds the 1GB limit.")
+                    .build();
+        }
+
+        // 파일 확장자 필터링
+        String fileName = file.getOriginalFilename();
+        if (!isAllowedExtension(fileName)) {
+            return FileDto.Response.builder()
+                    .fileName(fileName)
+                    .returnCode(-1)
+                    .message("Unsupported file type.")
+                    .build();
+        }
+
+        Properties prop = new Properties();
+        if (file.getSize() <= 50 * 1024 * 1024) { // 50MB 이하 메모리 처리
+            logger.info("Processing file in memory.");
+            byte[] fileData = file.getBytes();
+            int ret = V3Scanner.scanBuffer(fileData, prop); // 메모리 기반 검사
+            return buildResponse(fileName, ret, prop);
+        } else { // 50MB 초과 임시 디렉토리 처리
+            logger.info("Processing file on disk.");
+            tempFile = Files.createTempFile("scan_", "_" + fileName).toFile();
+            file.transferTo(tempFile);
+
+            int ret = V3Scanner.scanFile(tempFile.getAbsolutePath(), prop); // 디스크 기반 검사
+            return buildResponse(fileName, ret, prop);
+        }
+    } catch (Exception e) {
+        return FileDto.Response.builder()
+                .fileName(file.getOriginalFilename())
+                .returnCode(-1)
+                .message("File processing failed: " + e.getMessage())
+                .build();
+    } finally {
+        if (tempFile != null && tempFile.exists()) {
+            tempFile.delete();
+        }
+    }
+}
+
+// 지원되는 파일 확장자 확인
+private boolean isAllowedExtension(String fileName) {
+    String[] allowedExtensions = {".jpg", ".png", ".txt", ".zip", ".tar", ".gz", ".iso"};
+    String lowerFileName = fileName.toLowerCase();
+    return Arrays.stream(allowedExtensions).anyMatch(lowerFileName::endsWith);
+}
+
+// Response 생성 헬퍼 메서드
+private FileDto.Response buildResponse(String fileName, int ret, Properties prop) {
+    return FileDto.Response.builder()
+            .fileName(fileName)
+            .returnCode(ret)
+            .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "No additional information."))
+            .build();
+}
