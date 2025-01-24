@@ -1,26 +1,26 @@
-[root@node1 ~]# cat scan_file.py
 import requests
-import base64
 
-# 파일 이름 및 데이터
+# 파일 이름 및 경로
 file_name = "fail.zip"
-with open(file_name, "rb") as file:
-    file_data = base64.b64encode(file.read()).decode('utf-8')
+file_path = "/path/to/fail.zip"  # 파일의 실제 경로를 입력
 
-# API 요청 데이터
-url = "http://172.28.128.13:8081/api/v1/scanner/scan"
+# API URL 및 헤더 설정
+url = "http://172.28.128.13:8081/api/v1/scanner/multipart-scan"
 headers = {
-    "Content-Type": "application/json",
-    "X-CVC-API-KEY": "CVCKEY"
+    "X-CVC-API-KEY": "CVCKEY"  # API 키
 }
-payload = {
-    "fileName": file_name,
-    "fileData": file_data
+
+# 파일 업로드를 위한 멀티파트 데이터 준비
+files = {
+    "file": (file_name, open(file_path, "rb"))
 }
 
 # API 호출
-response = requests.post(url, json=payload, headers=headers)
+response = requests.post(url, headers=headers, files=files)
 
 # 응답 출력
 print("Status Code:", response.status_code)
-print("Response Body:", response.json())
+try:
+    print("Response Body:", response.json())
+except Exception as e:
+    print("Response Body:", response.text)
