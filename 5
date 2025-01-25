@@ -1,23 +1,135 @@
-[root@node1 lib]# nginx
-nginx: [alert] failed to load the 'resty.core' module (https://github.com/openresty/lua-resty-core); ensure you are using an OpenResty release from https://openresty.org/en/download.html (reason: module 'resty.core' not found:
-        no field package.preload['resty.core']
-        no file './resty/core.lua'
-        no file '/usr/local/share/luajit-2.1/resty/core.lua'
-        no file '/usr/local/share/lua/5.1/resty/core.lua'
-        no file '/usr/local/share/lua/5.1/resty/core/init.lua'
-        no file './resty/core.so'
-        no file '/usr/local/lib/lua/5.1/resty/core.so'
-        no file '/usr/local/lib/lua/5.1/loadall.so'
-        no file './resty.so'
-        no file '/usr/local/lib/lua/5.1/resty.so'
-        no file '/usr/local/lib/lua/5.1/loadall.so') in /etc/nginx/nginx.conf:117
-[root@node1 lib]# nginx -V
-nginx version: nginx/1.25.2
-built by gcc 8.5.0 20210514 (Red Hat 8.5.0-4) (GCC)
-built with OpenSSL 1.1.1k  FIPS 25 Mar 2021
-TLS SNI support enabled
-configure arguments: --prefix=/etc/nginx --sbin-path=/usr/sbin/nginx --conf-path=/etc/nginx/nginx.conf --error-log-path=/var/log/nginx/error.log --http-log-path=/var/log/nginx/access.log --pid-path=/var/run/nginx.pid --lock-path=/var/run/nginx.lock --with-http_ssl_module --with-http_stub_status_module --with-http_gzip_static_module --with-pcre --add-module=/usr/local/src/ngx_devel_kit --add-module=/usr/local/src/lua-nginx-module
-[root@node1 lib]# luajiv -v
--bash: luajiv: command not found
-[root@node1 lib]# luajit -v
-LuaJIT 2.1.1737090214 -- Copyright (C) 2005-2025 Mike Pall. https://luajit.org/
+현재 발생한 에러는 Nginx가 Lua 모듈(resty.core)을 로드하려고 시도했으나 해당 모듈을 찾을 수 없기 때문에 발생한 것입니다. 이 에러는 OpenResty에서 제공하는 lua-resty-core 모듈이 설치되어 있지 않거나, LuaJIT의 경로 설정이 잘못되어 생깁니다.
+
+에러 원인
+resty.core 모듈 미설치:
+
+Nginx에서 Lua 모듈(resty.core)을 로드하려면 lua-resty-core 라이브러리가 설치되어 있어야 합니다.
+이 모듈은 OpenResty 배포판에 포함되어 있지만, 직접 컴파일한 경우 수동으로 설치해야 합니다.
+LuaJIT 경로 설정 문제:
+
+Lua 모듈의 경로가 LuaJIT에 제대로 설정되지 않아 resty.core를 찾지 못하고 있습니다.
+해결 방법
+1. lua-resty-core 설치
+OpenResty에서 제공하는 lua-resty-core 라이브러리를 설치해야 합니다.
+
+LuaRocks를 이용한 설치
+LuaRocks 설치:
+
+bash
+복사
+편집
+yum install -y luarocks
+lua-resty-core 설치:
+
+bash
+복사
+편집
+luarocks install lua-resty-core
+GitHub에서 수동 설치
+lua-resty-core 다운로드:
+
+bash
+복사
+편집
+cd /usr/local/src
+git clone https://github.com/openresty/lua-resty-core.git
+설치:
+
+bash
+복사
+편집
+cp -r lua-resty-core/lib/resty /usr/local/share/lua/5.1/
+2. LuaJIT 경로 확인 및 설정
+LuaJIT이 Lua 모듈을 올바르게 로드하도록 경로를 설정해야 합니다.
+
+패키지 경로 설정 확인
+LUA_PATH와 LUA_CPATH 환경 변수가 올바르게 설정되어 있는지 확인하세요.
+
+현재 경로 확인:
+
+bash
+복사
+편집
+echo $LUA_PATH
+echo $LUA_CPATH
+설정이 없거나 올바르지 않으면 추가 설정:
+
+bash
+복사
+편집
+export LUA_PATH='/usr/local/share/lua/5.1/?.lua;/usr/local/share/lua/5.1/?/init.lua;;'
+export LUA_CPATH='/usr/local/lib/lua/5.1/?.so;;'
+영구적으로 적용하려면 ~/.bashrc에 추가:
+
+bash
+복사
+편집
+echo 'export LUA_PATH="/usr/local/share/lua/5.1/?.lua;/usr/local/share/lua/5.1/?/init.lua;;"' >> ~/.bashrc
+echo 'export LUA_CPATH="/usr/local/lib/lua/5.1/?.so;;"' >> ~/.bashrc
+source ~/.bashrc
+3. 설정 확인 및 테스트
+Nginx 설정 확인
+Nginx 설정 파일(/etc/nginx/nginx.conf)에 Lua 관련 설정이 포함되어 있는지 확인합니다.
+
+예: Lua 모듈 테스트 설정
+
+nginx
+복사
+편집
+http {
+    server {
+        listen 8080;
+
+        location /lua_test {
+            content_by_lua_block {
+                ngx.say("Hello from Lua with resty.core!")
+            }
+        }
+    }
+}
+Nginx 재시작 및 테스트
+Nginx 재시작:
+
+bash
+복사
+편집
+nginx -s reload
+테스트:
+
+bash
+복사
+편집
+curl http://localhost:8080/lua_test
+출력:
+
+plaintext
+복사
+편집
+Hello from Lua with resty.core!
+4. 에러 해결 확인
+에러 메시지가 다시 나타나는 경우, 다음을 확인하세요:
+
+LuaJIT가 올바르게 로드되고 있는지 확인:
+
+bash
+복사
+편집
+luajit -v
+Lua 모듈 경로에 resty.core가 포함되어 있는지 확인:
+
+bash
+복사
+편집
+ls /usr/local/share/lua/5.1/resty/core.lua
+결론
+에러 원인 요약
+resty.core 모듈이 설치되어 있지 않거나 LuaJIT의 경로가 제대로 설정되지 않았습니다.
+해결 방법 요약
+lua-resty-core를 설치합니다(LuaRocks 또는 GitHub).
+Lua 모듈 경로(LUA_PATH 및 LUA_CPATH)를 설정합니다.
+Nginx 설정 파일에서 Lua 블록을 테스트하여 정상 동작 여부를 확인합니다.
+Q1. LuaRocks를 사용하지 않고 OpenResty Lua 모듈을 설치할 수 있는 방법은 무엇인가?
+
+Q2. LUA_PATH와 LUA_CPATH의 경로를 최소화하여 설정할 수 있는 방법은 무엇인가?
+
+Q3. OpenResty 배포판과 직접 컴파일한 Nginx 간 Lua 모듈 관리에서 발생할 수 있는 충돌을 어떻게 방지할 수 있을까?
