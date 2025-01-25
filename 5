@@ -1,20 +1,8 @@
-[root@node1 sbin]# ls -al|grep nginx
--rwxr-xr-x   1 root root 9576840 Jan 25 14:52 nginx
-[root@node1 sbin]# nginx
--bash: /usr/local/openresty/nginx/sbin/nginx: No such file or directory
-[root@node1 sbin]# echo $PATH\]
-/usr/local/openresty/nginx/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/bin]
-[root@node1 sbin]# history |grep $PATH
-[root@node1 sbin]# history |grep PATH
-  231  PATH=/usr/local/openresty/nginx/sbin:$PATH
-  232  export PATH
-  234  echo $PATH
-  348  echo $PATH
-  458  echo $PATH\]
-  459  history |grep $PATH
-  460  history |grep PATH
-[root@node1 sbin]# nginx -t
--bash: /usr/local/openresty/nginx/sbin/nginx: No such file or directory
-[root@node1 sbin]# cd /usr/local/src/nginx-1.25.2/
-[root@node1 nginx-1.25.2]# ls
-auto  CHANGES  CHANGES.ru  conf  configure  contrib  html  LICENSE  Makefile  man  objs  README  src
+[root@node1 nginx-1.25.2]# ls -l /usr/sbin/nginx
+-rwxr-xr-x 1 root root 9576840 Jan 25 14:52 /usr/sbin/nginx
+[root@node1 nginx-1.25.2]# export PATH=/usr/sbin/:$PATH
+[root@node1 nginx-1.25.2]# nginx
+nginx: error while loading shared libraries: libluajit-5.1.so.2: cannot open shared object file: No such file or directory
+[root@node1 nginx-1.25.2]# export PATH=/usr/sbin:$PATH
+[root@node1 nginx-1.25.2]# nginx
+nginx: error while loading shared libraries: libluajit-5.1.so.2: cannot open shared object file: No such file or directory
