@@ -1,163 +1,76 @@
-[root@node1 nginx-1.25.2]# cd ../luajit2/ && make && make install
-==== Building LuaJIT 2.1 ====
-make -C src
-make[1]: Entering directory '/usr/local/src/luajit2/src'
-make[1]: Nothing to be done for 'default'.
-make[1]: Leaving directory '/usr/local/src/luajit2/src'
-==== Successfully built LuaJIT 2.1 ====
-==== Installing LuaJIT 2.1.1737090214 to /usr/local ====
-mkdir -p /usr/local/bin /usr/local/lib /usr/local/include/luajit-2.1 /usr/local/share/man/man1 /usr/local/lib/pkgconfig /usr/local/share/luajit-2.1/jit /usr/local/share/lua/5.1 /usr/local/lib/lua/5.1
-cd src && install -m 0755 luajit /usr/local/bin/luajit-2.1.1737090214
-cd src && test -f libluajit.a && install -m 0644 libluajit.a /usr/local/lib/libluajit-5.1.a || :
-rm -f /usr/local/lib/libluajit-5.1.so.2.1.1737090214 /usr/local/lib/libluajit-5.1.so /usr/local/lib/libluajit-5.1.so.2
-cd src && test -f libluajit.so && \
-  install -m 0755 libluajit.so /usr/local/lib/libluajit-5.1.so.2.1.1737090214 && \
-  ( ldconfig -n 2>/dev/null /usr/local/lib || : ) && \
-  ln -sf libluajit-5.1.so.2.1.1737090214 /usr/local/lib/libluajit-5.1.so && \
-  ln -sf libluajit-5.1.so.2.1.1737090214 /usr/local/lib/libluajit-5.1.so.2 || :
-cd etc && install -m 0644 luajit.1 /usr/local/share/man/man1
-cd etc && sed -e "s|^prefix=.*|prefix=/usr/local|" -e "s|^multilib=.*|multilib=lib|" -e "s|^relver=.*|relver=1737090214|" luajit.pc > luajit.pc.tmp && \
-  install -m 0644 luajit.pc.tmp /usr/local/lib/pkgconfig/luajit.pc && \
-  rm -f luajit.pc.tmp
-cd src && install -m 0644 lua.h lualib.h lauxlib.h luaconf.h lua.hpp luajit.h /usr/local/include/luajit-2.1
-cd src/jit && install -m 0644 bc.lua bcsave.lua dump.lua p.lua v.lua zone.lua dis_x86.lua dis_x64.lua dis_arm.lua dis_arm64.lua dis_arm64be.lua dis_ppc.lua dis_mips.lua dis_mipsel.lua dis_mips64.lua dis_mips64el.lua dis_mips64r6.lua dis_mips64r6el.lua vmdef.lua /usr/local/share/luajit-2.1/jit
-ln -sf luajit-2.1.1737090214 /usr/local/bin/luajit
-==== Successfully installed LuaJIT 2.1.1737090214 to /usr/local ====
-[root@node1 luajit2]# cd ../nginx-1.25.2/
-[root@node1 nginx-1.25.2]# ./configure \
->     --prefix=/etc/nginx \
->     --sbin-path=/usr/sbin/nginx \
->     --conf-path=/etc/nginx/nginx.conf \
->     --error-log-path=/var/log/nginx/error.log \
->     --http-log-path=/var/log/nginx/access.log \
->     --pid-path=/var/run/nginx.pid \
->     --lock-path=/var/run/nginx.lock \
->     --with-http_ssl_module \
->     --with-http_stub_status_module \
->     --with-http_gzip_static_module \
->     --with-pcre \
->     --add-module=/usr/local/src/ngx_devel_kit \
->     --add-module=/usr/local/src/lua-nginx-module
-checking for OS
- + Linux 4.18.0-348.7.1.el8_5.x86_64 x86_64
-checking for C compiler ... found
- + using GNU C compiler
- + gcc version: 8.5.0 20210514 (Red Hat 8.5.0-4) (GCC)
-checking for gcc -pipe switch ... found
-checking for -Wl,-E switch ... found
-checking for gcc builtin atomic operations ... found
-checking for C99 variadic macros ... found
-checking for gcc variadic macros ... found
-checking for gcc builtin 64 bit byteswap ... found
-checking for unistd.h ... found
-checking for inttypes.h ... found
-checking for limits.h ... found
-checking for sys/filio.h ... not found
-checking for sys/param.h ... found
-checking for sys/mount.h ... found
-checking for sys/statvfs.h ... found
-checking for crypt.h ... found
-checking for Linux specific features
-checking for epoll ... found
-checking for EPOLLRDHUP ... found
-checking for EPOLLEXCLUSIVE ... found
-checking for eventfd() ... found
-checking for O_PATH ... found
-checking for sendfile() ... found
-checking for sendfile64() ... found
-checking for sys/prctl.h ... found
-checking for prctl(PR_SET_DUMPABLE) ... found
-checking for prctl(PR_SET_KEEPCAPS) ... found
-checking for capabilities ... found
-checking for crypt_r() ... found
-checking for sys/vfs.h ... found
-checking for BPF sockhash ... found
-checking for SO_COOKIE ... found
-checking for UDP_SEGMENT ... not found
-checking for nobody group ... found
-checking for poll() ... found
-checking for /dev/poll ... not found
-checking for kqueue ... not found
-checking for crypt() ... not found
-checking for crypt() in libcrypt ... found
-checking for F_READAHEAD ... not found
-checking for posix_fadvise() ... found
-checking for O_DIRECT ... found
-checking for F_NOCACHE ... not found
-checking for directio() ... not found
-checking for statfs() ... found
-checking for statvfs() ... found
-checking for dlopen() ... not found
-checking for dlopen() in libdl ... found
-checking for sched_yield() ... found
-checking for sched_setaffinity() ... found
-checking for SO_SETFIB ... not found
-checking for SO_REUSEPORT ... found
-checking for SO_ACCEPTFILTER ... not found
-checking for SO_BINDANY ... not found
-checking for IP_TRANSPARENT ... found
-checking for IP_BINDANY ... not found
-checking for IP_BIND_ADDRESS_NO_PORT ... found
-checking for IP_RECVDSTADDR ... not found
-checking for IP_SENDSRCADDR ... not found
-checking for IP_PKTINFO ... found
-checking for IPV6_RECVPKTINFO ... found
-checking for IP_MTU_DISCOVER ... found
-checking for IPV6_MTU_DISCOVER ... found
-checking for IP_DONTFRAG ... not found
-checking for IPV6_DONTFRAG ... found
-checking for TCP_DEFER_ACCEPT ... found
-checking for TCP_KEEPIDLE ... found
-checking for TCP_FASTOPEN ... found
-checking for TCP_INFO ... found
-checking for accept4() ... found
-checking for int size ... 4 bytes
-checking for long size ... 8 bytes
-checking for long long size ... 8 bytes
-checking for void * size ... 8 bytes
-checking for uint32_t ... found
-checking for uint64_t ... found
-checking for sig_atomic_t ... found
-checking for sig_atomic_t size ... 4 bytes
-checking for socklen_t ... found
-checking for in_addr_t ... found
-checking for in_port_t ... found
-checking for rlim_t ... found
-checking for uintptr_t ... uintptr_t found
-checking for system byte ordering ... little endian
-checking for size_t size ... 8 bytes
-checking for off_t size ... 8 bytes
-checking for time_t size ... 8 bytes
-checking for AF_INET6 ... found
-checking for setproctitle() ... not found
-checking for pread() ... found
-checking for pwrite() ... found
-checking for pwritev() ... found
-checking for strerrordesc_np() ... not found
-checking for sys_nerr ... found
-checking for localtime_r() ... found
-checking for clock_gettime(CLOCK_MONOTONIC) ... found
-checking for posix_memalign() ... found
-checking for memalign() ... found
-checking for mmap(MAP_ANON|MAP_SHARED) ... found
-checking for mmap("/dev/zero", MAP_SHARED) ... found
-checking for System V shared memory ... found
-checking for POSIX semaphores ... not found
-checking for POSIX semaphores in libpthread ... found
-checking for struct msghdr.msg_control ... found
-checking for ioctl(FIONBIO) ... found
-checking for ioctl(FIONREAD) ... found
-checking for struct tm.tm_gmtoff ... found
-checking for struct dirent.d_namlen ... not found
-checking for struct dirent.d_type ... found
-checking for sysconf(_SC_NPROCESSORS_ONLN) ... found
-checking for sysconf(_SC_LEVEL1_DCACHE_LINESIZE) ... found
-checking for openat(), fstatat() ... found
-checking for getaddrinfo() ... found
-configuring additional modules
-adding module in /usr/local/src/ngx_devel_kit
- + ngx_devel_kit was configured
-adding module in /usr/local/src/lua-nginx-module
-checking for LuaJIT library in /path/to/luajit/lib and /path/to/luajit/include/luajit-2.1 (specified by the LUAJIT_LIB and LUAJIT_INC env, with -ldl) ... found
-checking for LuaJIT 2.x ... not found
-    ./configure: error: unsupported LuaJIT version; ngx_http_lua_module requires LuaJIT 2.x.
+
+Nginx 컴파일 중 ngx_http_lua_module 설정에서 LuaJIT 버전이 지원되지 않는다는 에러가 발생한 원인은 다음과 같습니다:
+
+원인 분석
+LuaJIT 경로 지정 문제:
+
+Nginx ./configure 스크립트는 환경 변수를 통해 LuaJIT의 라이브러리 경로와 헤더 파일 경로를 탐색합니다.
+기본적으로 /usr/local/lib와 /usr/local/include/luajit-2.1에서 LuaJIT 파일을 찾지만, 경로를 정확히 설정하지 않았거나 올바른 위치에 설치되지 않았을 가능성이 있습니다.
+LuaJIT 버전 확인 문제:
+
+LuaJIT 버전이 Nginx의 ngx_http_lua_module에서 요구하는 2.x 버전에 맞지 않을 수 있습니다. 하지만 로그에 따르면 LuaJIT 2.1.1737090214를 성공적으로 설치했으므로 경로 문제일 가능성이 높습니다.
+환경 변수 설정 누락:
+
+LUAJIT_LIB와 LUAJIT_INC 환경 변수가 설정되지 않아, ./configure 스크립트가 LuaJIT 파일을 찾지 못한 것으로 보입니다.
+해결 방법
+1. 환경 변수 설정
+LuaJIT 경로를 명시적으로 설정하여 Nginx가 올바른 경로를 인식하도록 합니다.
+
+bash
+복사
+편집
+export LUAJIT_LIB=/usr/local/lib
+export LUAJIT_INC=/usr/local/include/luajit-2.1
+2. ./configure 명령에 경로 추가
+환경 변수로 LuaJIT 경로를 설정한 뒤, 다시 ./configure 명령을 실행합니다:
+
+bash
+복사
+편집
+./configure \
+    --prefix=/etc/nginx \
+    --sbin-path=/usr/sbin/nginx \
+    --conf-path=/etc/nginx/nginx.conf \
+    --error-log-path=/var/log/nginx/error.log \
+    --http-log-path=/var/log/nginx/access.log \
+    --pid-path=/var/run/nginx.pid \
+    --lock-path=/var/run/nginx.lock \
+    --with-http_ssl_module \
+    --with-http_stub_status_module \
+    --with-http_gzip_static_module \
+    --with-pcre \
+    --add-module=/usr/local/src/ngx_devel_kit \
+    --add-module=/usr/local/src/lua-nginx-module \
+    --with-ld-opt="-Wl,-rpath,/usr/local/lib"
+--with-ld-opt="-Wl,-rpath,/usr/local/lib" 옵션은 LuaJIT 라이브러리를 실행 시 동적으로 연결할 수 있도록 설정합니다.
+
+3. LuaJIT 경로 확인
+LuaJIT이 올바르게 설치되었는지 다시 확인합니다.
+
+bash
+복사
+편집
+ls -l /usr/local/lib/libluajit-5.1.so*
+ls -l /usr/local/include/luajit-2.1/
+결과로 .so 파일과 헤더 파일이 있어야 합니다:
+
+/usr/local/lib/libluajit-5.1.so
+/usr/local/include/luajit-2.1/lua.h 등
+4. 의존성 설치 확인
+만약 위 설정 이후에도 동일한 에러가 발생한다면, Nginx가 사용하는 컴파일러가 LuaJIT 관련 의존성을 찾지 못하는 경우일 수 있습니다. 이 경우 pkg-config를 통해 의존성을 다시 확인합니다.
+
+bash
+복사
+편집
+sudo yum install -y pkgconfig
+pkg-config --modversion luajit
+luajit의 버전이 올바르게 출력되지 않으면 LuaJIT 설치 경로를 다시 확인해야 합니다.
+
+5. 재시도
+설정을 수정한 후, 다시 ./configure 명령을 실행해보세요. 문제가 해결되었을 가능성이 높습니다.
+
+추가 조언
+OpenResty 사용 고려: Lua 모듈과 LuaJIT을 쉽게 통합하려면 OpenResty를 사용하는 것이 더 편리할 수 있습니다. OpenResty는 ngx_http_lua_module과 LuaJIT을 기본적으로 포함합니다.
+
+로그 확인: config.log 파일을 열어 unsupported LuaJIT version 에러와 관련된 세부 로그를 확인하면 더 구체적인 원인을 파악할 수 있습니다.
+
