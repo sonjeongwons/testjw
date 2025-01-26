@@ -1,10 +1,5 @@
-[root@node1 lua-cjson]# make
-cc -c -O3 -Wall -pedantic -DNDEBUG -g  -I/usr/local/include -fpic -o lua_cjson.o lua_cjson.c
-lua_cjson.c:45:10: fatal error: lua.h: No such file or directory
- #include <lua.h>
-          ^~~~~~~
-compilation terminated.
-make: *** [Makefile:92: lua_cjson.o] Error 1
-[root@node1 lua-cjson]# ls
-build-packages.sh  devel   dtoa_config.h  fpconv.h  LICENSE  lua-cjson-2.1.0.14-1.rockspec  lua-cjson.spec  manual.adoc  performance.adoc  rfc4627.txt  strbuf.c  tests
-CMakeLists.txt     dtoa.c  fpconv.c       g_fmt.c   lua      lua_cjson.c                    Makefile        NEWS         README.md         runtests.sh  strbuf.h  THANKS
+stack traceback:
+coroutine 0:
+        [C]: in function 'require'
+        content_by_lua(nginx.conf:25):3: in main chunk, client: 127.0.0.1, server: localhost, request: "GET / HTTP/1.1", host: "localhost:8080"
+2025/01/26 15:01:48 [error] 31314#0: *11 lua entry thread aborted: runtime error: content_by_lua(nginx.conf:25):22: Expected value but found invalid token at character 1
