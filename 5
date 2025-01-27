@@ -1,16 +1,197 @@
-[root@ta-kre1-mb-scf-publicweb-01 src]# cd nginx-1.25.2/
-[root@ta-kre1-mb-scf-publicweb-01 nginx-1.25.2]# make && sudo make install
-make -f objs/Makefile
-make[1]: Entering directory `/usr/local/src/nginx-1.25.2'
-cc -c -I/usr/local/include/luajit-2.1  -pipe  -O -W -Wall -Wpointer-arith -Wno-unused-parameter -Werror -g  -DNDK_SET_VAR  -I src/core -I src/event -I src/event/modules -I src/event/quic -I src/os/unix -I /usr/local/src/ngx_devel_kit/objs -I objs/addon/ndk -I /usr/local/src/lua-nginx-module/src/api -I objs -I src/http -I src/http/modules -I /usr/local/src/ngx_devel_kit/src -I /usr/local/src/ngx_devel_kit/src -I /usr/local/src/ngx_devel_kit/objs -I objs/addon/ndk -I /usr/local/include/luajit-2.1 \
-        -o objs/addon/src/ngx_http_lua_ssl_certby.o \
-        /usr/local/src/lua-nginx-module/src/ngx_http_lua_ssl_certby.c
-/usr/local/src/lua-nginx-module/src/ngx_http_lua_ssl_certby.c: In function ‘ngx_http_lua_ffi_ssl_client_random’:
-/usr/local/src/lua-nginx-module/src/ngx_http_lua_ssl_certby.c:1651:5: error: implicit declaration of function ‘SSL_get_client_random’ [-Werror=implicit-function-declaration]
-     *outlen = SSL_get_client_random(ssl_conn, out, *outlen);
-     ^
-cc1: all warnings being treated as errors
-make[1]: *** [objs/addon/src/ngx_http_lua_ssl_certby.o] Error 1
-make[1]: Leaving directory `/usr/local/src/nginx-1.25.2'
-make: *** [build] Error 2
-[root@ta-kre1-mb-scf-publicweb-01 nginx-1.25.2]#
+[root@node1 nginx]# cat nginx.conf
+
+#user  nobody;
+worker_processes  1;
+
+#error_log  logs/error.log;
+#error_log  logs/error.log  notice;
+#error_log  logs/error.log  info;
+
+#pid        logs/nginx.pid;
+
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    lua_shared_dict cache 10m;  # Lua 공유 메모리 캐시
+    server {
+        listen 8080;
+        server_name localhost;
+        set $proxy_target "";
+        error_page 502 /502.html;
+        error_page 504 /504.html;
+
+        # 모든 요청에 대해 Lua를 사용하여 조건 처리
+        location / {
+            content_by_lua_block {
+                local http = require "resty.http"
+                local cjson = require "cjson"  -- JSON 처리를 위한 라이브러리
+
+                -- 외부 API 호출
+                local httpc = http.new()
+                local res, err = httpc:request_uri("http://172.28.128.13:8081/api/v1/scanner/status", {
+                    method = "GET",
+                    headers = {
+                        ["Content-Type"] = "application/json",
+                    },
+                })
+
+                -- API 호출 실패 처리
+                if not res then
+                    ngx.status = ngx.HTTP_INTERNAL_SERVER_ERROR
+                    ngx.say(cjson.encode({ error = "Failed to call API", detail = err }))
+                    return
+                end
+
+
+                ngx.log(ngx.ERR, "API Response Stauts: ",res.status)
+                ngx.log(ngx.ERR, "API Response Body: ",res.body)
+
+                if not res.body or res.body == "" then
+                    ngx.status = ngx.HTTP_BAD_REQUEST
+                    ngx.say(cjson.encode({ error = "Empty API response", detail = err }))
+                    return
+                end
+
+                -- 응답 JSON 데이터 파싱
+                local success, response_body = pcall(cjson.decode, res.body)
+                if not success or not response_body then
+                    ngx.status = ngx.HTTP_BAD_REQUEST
+                    ngx.say(cjson.encode({ error = "Invalid API response", detail = res.body }))
+                    return
+                end
+
+                ngx.log(ngx.ERR, "API Response: ", res.body)
+
+                -- 특정 값에 따라 로직 분기
+                if response_body.fileName == "TestFile" then
+                    ngx.say("Okay")
+                elseif response_body.fileName == "TestFolder" then
+                    ngx.say("ItsFolder1")
+                    local target = "http://172.28.128.13:8081"
+                    ngx.var.proxy_target = target
+                    ngx.say("ItsFolder2")
+                    ngx.exec("@proxy_pass")
+                    ngx.say("ItsFolder3")
+                elseif response_body.fileName == "TestZip" then
+                    ngx.say("ItsZip")
+                else
+                    ngx.say("Nothing")
+                    ngx.status = ngx.HTTP_FORBIDDEN
+                    ngx.say(cjson.encode({ error = "Forbidden: Invalid fileName" }))
+                    return
+                end
+            }
+        }
+
+                error_page 500 501 505 /500.html;
+
+                location /500.html{
+
+                        return 500 '{"error": {"status_code": 500,"status": "Internal Server Error"}}';
+
+                }
+
+                error_page 503 /503.html;
+
+                location /503.html{
+
+                        return 503 '{"error": {"status_code": 503,"status": "Service Temporarily Unavailable"}}';
+
+                }
+
+                error_page 504 /504.html;
+
+                location /504.html{
+
+                        return 504 '{"error": {"status_code": 504,"status": "Gateway Timeout"}}';
+
+                }
+
+                error_page 400 402 405 406 407 409 410 411 412 413 414 415 416 417/400.html;
+
+                location /400.html{
+
+                        return 400 '{"error": {"status_code": 400,"status": "Bad Request"}}';
+
+                }
+
+                error_page 401 /401.html;
+
+                location /401.html{
+
+                        return 401 '{"error": {"status_code": 401,"status": "Unauthorized"}}';
+
+                }
+
+                error_page 403 /403.html;
+
+                location /403.html{
+
+                        return 403 '{"error": {"status_code": 403,"status": "Forbidden"}}';
+
+                }
+
+                error_page 404 502 /404.html;
+
+                location /404.html{
+
+                        return 404 '{"error": {"status_code": 404,"status": "Not Found"}}';
+
+                }
+
+                error_page 408 /408.html;
+
+                location /408.html{
+
+                        return 408 '{"error": {"status_code": 408,"status": "Request Timeout}}';
+
+                }
+        location @proxy_pass {
+            proxy_pass $proxy_target;  # 동적으로 설정된 proxy_target으로 요청 전달
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+            # 에러 처리
+            proxy_intercept_errors on;
+        }
+
+    }
+    server {
+        listen 80;
+        server_name localhost;
+
+        location /lua_test {
+            content_by_lua_block {
+                ngx.say("Hello 80 from Lua!")
+            }
+        }
+    }
+    server {
+        listen 8008;
+        server_name localhost;
+
+        location /lua_test {
+            content_by_lua_block {
+                ngx.say("Hello 8008 from Lua!")
+            }
+        }
+    }
+
+}
+
+
+
+
+
+
+2025/01/27 13:59:10 [error] 36181#0: *204 [lua] content_by_lua(nginx.conf:27):23: API Response Body: {"fileName":"TestFolder","returnCode":0,"message":"API is running"}, client: 127.0.0.1, server: localhost, request: "GET / HTTP/1.1", host: "localhost:8080"
+2025/01/27 13:59:10 [error] 36181#0: *204 [lua] content_by_lua(nginx.conf:27):39: API Response: {"fileName":"TestFolder","returnCode":0,"message":"API is running"}, client: 127.0.0.1, server: localhost, request: "GET / HTTP/1.1", host: "localhost:8080"
+2025/01/27 13:59:10 [error] 36181#0: *204 lua entry thread aborted: runtime error: content_by_lua(nginx.conf:27):49: attempt to call ngx.exec after sending out response headers
+stack traceback:
+coroutine 0:
+        [C]: in function 'exec'
+        content_by_lua(nginx.conf:27):49: in main chunk, client: 127.0.0.1, server: localhost, request: "GET / HTTP/1.1", host: "localhost:8080"
