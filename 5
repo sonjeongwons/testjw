@@ -1,11 +1,16 @@
-nginx: configuration file /etc/nginx/nginx.conf test is successful
-[root@node1 nginx]# vi /etc/nginx/nginx.conf
-[root@node1 nginx]#  curl http://localhost:8080
-Okay
-[root@node1 nginx]#  curl http://localhost:8080
-ItsZip
-[root@node1 nginx]#  curl http://localhost:8080
-Nothing
-{"error":"Forbidden: Invalid fileName"}
-[root@node1 nginx]#  curl http://localhost:8080
-curl: (52) Empty reply from server
+[root@ta-kre1-mb-scf-publicweb-01 src]# cd nginx-1.25.2/
+[root@ta-kre1-mb-scf-publicweb-01 nginx-1.25.2]# make && sudo make install
+make -f objs/Makefile
+make[1]: Entering directory `/usr/local/src/nginx-1.25.2'
+cc -c -I/usr/local/include/luajit-2.1  -pipe  -O -W -Wall -Wpointer-arith -Wno-unused-parameter -Werror -g  -DNDK_SET_VAR  -I src/core -I src/event -I src/event/modules -I src/event/quic -I src/os/unix -I /usr/local/src/ngx_devel_kit/objs -I objs/addon/ndk -I /usr/local/src/lua-nginx-module/src/api -I objs -I src/http -I src/http/modules -I /usr/local/src/ngx_devel_kit/src -I /usr/local/src/ngx_devel_kit/src -I /usr/local/src/ngx_devel_kit/objs -I objs/addon/ndk -I /usr/local/include/luajit-2.1 \
+        -o objs/addon/src/ngx_http_lua_ssl_certby.o \
+        /usr/local/src/lua-nginx-module/src/ngx_http_lua_ssl_certby.c
+/usr/local/src/lua-nginx-module/src/ngx_http_lua_ssl_certby.c: In function ‘ngx_http_lua_ffi_ssl_client_random’:
+/usr/local/src/lua-nginx-module/src/ngx_http_lua_ssl_certby.c:1651:5: error: implicit declaration of function ‘SSL_get_client_random’ [-Werror=implicit-function-declaration]
+     *outlen = SSL_get_client_random(ssl_conn, out, *outlen);
+     ^
+cc1: all warnings being treated as errors
+make[1]: *** [objs/addon/src/ngx_http_lua_ssl_certby.o] Error 1
+make[1]: Leaving directory `/usr/local/src/nginx-1.25.2'
+make: *** [build] Error 2
+[root@ta-kre1-mb-scf-publicweb-01 nginx-1.25.2]#
