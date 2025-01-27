@@ -1,19 +1,3 @@
-[root@node1 nginx]# cat nginx.conf
-
-#user  nobody;
-worker_processes  1;
-
-#error_log  logs/error.log;
-#error_log  logs/error.log  notice;
-#error_log  logs/error.log  info;
-
-#pid        logs/nginx.pid;
-
-
-events {
-    worker_connections  1024;
-}
-
 http {
     lua_shared_dict cache 10m;  # Lua 공유 메모리 캐시
     server {
@@ -32,9 +16,11 @@ http {
                 -- 외부 API 호출
                 local httpc = http.new()
                 local res, err = httpc:request_uri("http://172.28.128.13:8081/api/v1/scanner/status", {
-                    method = "GET",
+                    method = "POST",
                     headers = {
                         ["Content-Type"] = "application/json",
+                        ["File-Id"] = "12346",  -- 요청 헤더 추가
+                        ["File-Name"] = "SonnyFile",  -- 요청 헤더 추가
                     },
                 })
 
@@ -45,9 +31,8 @@ http {
                     return
                 end
 
-
-                ngx.log(ngx.ERR, "API Response Stauts: ",res.status)
-                ngx.log(ngx.ERR, "API Response Body: ",res.body)
+                ngx.log(ngx.ERR, "API Response Status: ", res.status)
+                ngx.log(ngx.ERR, "API Response Body: ", res.body)
 
                 if not res.body or res.body == "" then
                     ngx.status = ngx.HTTP_BAD_REQUEST
@@ -63,92 +48,31 @@ http {
                     return
                 end
 
-                ngx.log(ngx.ERR, "API Response: ", res.body)
+                ngx.log(ngx.ERR, "Parsed API Response: ", res.body)
 
                 -- 특정 값에 따라 로직 분기
-                if response_body.fileName == "TestFile" then
-                    ngx.say("Okay")
-                elseif response_body.fileName == "TestFolder" then
-                    ngx.say("ItsFolder1")
-                    local target = "http://172.28.128.13:8081"
-                    ngx.var.proxy_target = target
-                    ngx.say("ItsFolder2")
-                    ngx.exec("@proxy_pass")
-                    ngx.say("ItsFolder3")
-                elseif response_body.fileName == "TestZip" then
-                    ngx.say("ItsZip")
-                else
-                    ngx.say("Nothing")
+                if response_body.fileName == 0 then
+                    -- fileName이 0인 경우 proxy_pass 실행
+                    ngx.var.proxy_target = "http://172.28.128.13:8081"
+
+                    -- proxy_pass 실행 시 헤더 설정
+                    ngx.req.set_header("File-Id", response_body.fileName)
+                    ngx.req.set_header("File-Name", response_body.message)
+
+                    ngx.exec("@proxy_pass")  -- 프록시 요청 전달
+                elseif response_body.fileName == 1 then
+                    -- fileName이 1인 경우 요청 거절
                     ngx.status = ngx.HTTP_FORBIDDEN
-                    ngx.say(cjson.encode({ error = "Forbidden: Invalid fileName" }))
+                    ngx.say(cjson.encode({ error = "Forbidden: Invalid fileName value 1" }))
+                    return
+                else
+                    ngx.status = ngx.HTTP_BAD_REQUEST
+                    ngx.say(cjson.encode({ error = "Invalid fileName value", detail = response_body.fileName }))
                     return
                 end
             }
         }
 
-                error_page 500 501 505 /500.html;
-
-                location /500.html{
-
-                        return 500 '{"error": {"status_code": 500,"status": "Internal Server Error"}}';
-
-                }
-
-                error_page 503 /503.html;
-
-                location /503.html{
-
-                        return 503 '{"error": {"status_code": 503,"status": "Service Temporarily Unavailable"}}';
-
-                }
-
-                error_page 504 /504.html;
-
-                location /504.html{
-
-                        return 504 '{"error": {"status_code": 504,"status": "Gateway Timeout"}}';
-
-                }
-
-                error_page 400 402 405 406 407 409 410 411 412 413 414 415 416 417/400.html;
-
-                location /400.html{
-
-                        return 400 '{"error": {"status_code": 400,"status": "Bad Request"}}';
-
-                }
-
-                error_page 401 /401.html;
-
-                location /401.html{
-
-                        return 401 '{"error": {"status_code": 401,"status": "Unauthorized"}}';
-
-                }
-
-                error_page 403 /403.html;
-
-                location /403.html{
-
-                        return 403 '{"error": {"status_code": 403,"status": "Forbidden"}}';
-
-                }
-
-                error_page 404 502 /404.html;
-
-                location /404.html{
-
-                        return 404 '{"error": {"status_code": 404,"status": "Not Found"}}';
-
-                }
-
-                error_page 408 /408.html;
-
-                location /408.html{
-
-                        return 408 '{"error": {"status_code": 408,"status": "Request Timeout}}';
-
-                }
         location @proxy_pass {
             proxy_pass $proxy_target;  # 동적으로 설정된 proxy_target으로 요청 전달
             proxy_set_header Host $host;
@@ -159,39 +83,45 @@ http {
             proxy_intercept_errors on;
         }
 
-    }
-    server {
-        listen 80;
-        server_name localhost;
+        # 에러 페이지 설정
+        error_page 500 501 505 /500.html;
+        location /500.html {
+            return 500 '{"error": {"status_code": 500,"status": "Internal Server Error"}}';
+        }
 
-        location /lua_test {
-            content_by_lua_block {
-                ngx.say("Hello 80 from Lua!")
-            }
+        error_page 503 /503.html;
+        location /503.html {
+            return 503 '{"error": {"status_code": 503,"status": "Service Temporarily Unavailable"}}';
+        }
+
+        error_page 504 /504.html;
+        location /504.html {
+            return 504 '{"error": {"status_code": 504,"status": "Gateway Timeout"}}';
+        }
+
+        error_page 400 402 405 406 407 409 410 411 412 413 414 415 416 417 /400.html;
+        location /400.html {
+            return 400 '{"error": {"status_code": 400,"status": "Bad Request"}}';
+        }
+
+        error_page 401 /401.html;
+        location /401.html {
+            return 401 '{"error": {"status_code": 401,"status": "Unauthorized"}}';
+        }
+
+        error_page 403 /403.html;
+        location /403.html {
+            return 403 '{"error": {"status_code": 403,"status": "Forbidden"}}';
+        }
+
+        error_page 404 502 /404.html;
+        location /404.html {
+            return 404 '{"error": {"status_code": 404,"status": "Not Found"}}';
+        }
+
+        error_page 408 /408.html;
+        location /408.html {
+            return 408 '{"error": {"status_code": 408,"status": "Request Timeout"}}';
         }
     }
-    server {
-        listen 8008;
-        server_name localhost;
-
-        location /lua_test {
-            content_by_lua_block {
-                ngx.say("Hello 8008 from Lua!")
-            }
-        }
-    }
-
 }
-
-
-
-
-
-
-2025/01/27 13:59:10 [error] 36181#0: *204 [lua] content_by_lua(nginx.conf:27):23: API Response Body: {"fileName":"TestFolder","returnCode":0,"message":"API is running"}, client: 127.0.0.1, server: localhost, request: "GET / HTTP/1.1", host: "localhost:8080"
-2025/01/27 13:59:10 [error] 36181#0: *204 [lua] content_by_lua(nginx.conf:27):39: API Response: {"fileName":"TestFolder","returnCode":0,"message":"API is running"}, client: 127.0.0.1, server: localhost, request: "GET / HTTP/1.1", host: "localhost:8080"
-2025/01/27 13:59:10 [error] 36181#0: *204 lua entry thread aborted: runtime error: content_by_lua(nginx.conf:27):49: attempt to call ngx.exec after sending out response headers
-stack traceback:
-coroutine 0:
-        [C]: in function 'exec'
-        content_by_lua(nginx.conf:27):49: in main chunk, client: 127.0.0.1, server: localhost, request: "GET / HTTP/1.1", host: "localhost:8080"
