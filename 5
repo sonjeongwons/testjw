@@ -1,4 +1,4 @@
-[root@node1 lua-cjson]# cat /etc/nginx/nginx.conf
+[root@node1 nginx]# cat /etc/nginx/nginx.conf
 
 #user  nobody;
 worker_processes  1;
@@ -61,17 +61,33 @@ http {
                     return
                 end
 
-                -- 조건 확인: fileName에 따라 다른 메세지 출력
+                ngx.log(ngx.ERR, "API Response: ", res.body)
+
+                -- 특정 값에 따라 로직 분기
                 if response_body.fileName == "TestFile" then
                     ngx.say("Okay")
                 elseif response_body.fileName == "TestFolder" then
-                    ngx.say("ItsFolder")
+                    ngx.say("ItsFolder1")
+                    local target = "http://google.com"
+                    ngx.var.proxy_target = target
+                    ngx.say("ItsFolder2")
+                    ngx.exec("@proxy_pass")
+                    ngx.say("ItsFolder3")
                 elseif response_body.fileName == "TestZip" then
                     ngx.say("ItsZip")
                 else
                     ngx.say("Nothing")
+                    ngx.status = ngx.HTTP_FORBIDDEN
+                    ngx.say(cjson.encode({ error = "Forbidden: Invalid fileName" }))
+                    return
                 end
             }
+        }
+        location @proxy_pass {
+            proxy_pass $proxy_target;  # 동적으로 설정된 proxy_target으로 요청 전달
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         }
 
     }
@@ -97,3 +113,8 @@ http {
     }
 
 }
+
+
+[root@node1 nginx]# nginx -t
+nginx: [emerg] unknown "proxy_target" variable
+nginx: configuration file /etc/nginx/nginx.conf test failed
