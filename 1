@@ -1,37 +1,103 @@
-2025-02-01 16:40:21 ERROR o.a.c.c.C.[.[.[.[dispatcherServlet] - Servlet.service() for servlet [dispatcherServlet] in context with path [] threw exception [Handler dispatch failed: java.lang.OutOfMemoryError: Java heap space] with root cause
-java.lang.OutOfMemoryError: Java heap space
-        at java.base/java.io.InputStream.readNBytes(InputStream.java:405)
-        at org.springframework.http.converter.ByteArrayHttpMessageConverter.readInternal(ByteArrayHttpMessageConverter.java:57)
-        at org.springframework.http.converter.ByteArrayHttpMessageConverter.readInternal(ByteArrayHttpMessageConverter.java:38)
-        at org.springframework.http.converter.AbstractHttpMessageConverter.read(AbstractHttpMessageConverter.java:198)
-        at org.springframework.web.servlet.mvc.method.annotation.AbstractMessageConverterMethodArgumentResolver.readWithMessageConverters(AbstractMessageConverterMethodArgumentResolver.java:203)
-        at org.springframework.web.servlet.mvc.method.annotation.RequestResponseBodyMethodProcessor.readWithMessageConverters(RequestResponseBodyMethodProcessor.java:176)
-        at org.springframework.web.servlet.mvc.method.annotation.RequestResponseBodyMethodProcessor.resolveArgument(RequestResponseBodyMethodProcessor.java:150)
-        at org.springframework.web.method.support.HandlerMethodArgumentResolverComposite.resolveArgument(HandlerMethodArgumentResolverComposite.java:122)
-        at org.springframework.web.method.support.InvocableHandlerMethod.getMethodArgumentValues(InvocableHandlerMethod.java:226)
-        at org.springframework.web.method.support.InvocableHandlerMethod.invokeForRequest(InvocableHandlerMethod.java:180)
-        at org.springframework.web.servlet.mvc.method.annotation.ServletInvocableHandlerMethod.invokeAndHandle(ServletInvocableHandlerMethod.java:118)
-        at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.invokeHandlerMethod(RequestMappingHandlerAdapter.java:986)
-        at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.handleInternal(RequestMappingHandlerAdapter.java:891)
-        at org.springframework.web.servlet.mvc.method.AbstractHandlerMethodAdapter.handle(AbstractHandlerMethodAdapter.java:87)
-        at org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1088)
-        at org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:978)
-        at org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1014)
-        at org.springframework.web.servlet.FrameworkServlet.doPost(FrameworkServlet.java:914)
-        at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:590)
-        at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)
-        at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:658)
-        at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:195)
-        at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-        at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51)
-        at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-        at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-        at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100)
-        at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
-        at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-        at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-        at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93)
-        at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
+package com.cvc.scanner.controller;
+
+import com.cvc.scanner.dto.FileDto;
+import com.cvc.scanner.service.V3ScannerService;
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.io.InputStream;
+import java.util.Random;
+
+import org.springframework.http.HttpStatus;
+import jakarta.validation.Valid;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/v1/scanner")
+public class V3ScannerController {
+
+    private static final Logger logger = LoggerFactory.getLogger(V3ScannerController.class);
+
+    @Autowired
+    private V3ScannerService v3ScannerService;
+
+    @GetMapping("/simple")
+    public ResponseEntity<Map<String, Object>> simpleScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
+        logger.info("Simple scan requested. Filename: {}, API Key: {}", fileName, apiKey);
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+        }
+        return ResponseEntity.ok(v3ScannerService.simpleScan(fileName));
+    }
+
+    @GetMapping("/remote")
+    public ResponseEntity<Map<String, Object>> remoteScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
+        logger.info("Remote scan requested. Filename: {}, API Key: {}", fileName, apiKey);
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+        }
+        return ResponseEntity.ok(v3ScannerService.remoteScan(fileName));
+    }
+
+    @GetMapping("/detail")
+    public ResponseEntity<Map<String, Object>> detailScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
+        logger.info("Detail scan requested. Filename: {}, API Key: {}", fileName, apiKey);
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+        }
+        return ResponseEntity.ok(v3ScannerService.detailScan(fileName));
+    }
+
+    @PostMapping("/base64-scan")
+    public ResponseEntity<FileDto.Response> scanFile(
+            @RequestHeader("X-CVC-API-KEY") String apiKey,
+            @Valid @RequestBody FileDto.Request fileDtoRequest) {
+        logger.info("File scan requested. Filename: {}, API Key: {}", fileDtoRequest.getFileName(), apiKey);
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                    FileDto.Response.builder()
+                            .fileName(fileDtoRequest.getFileName())
+                            .returnCode(HttpStatus.UNAUTHORIZED.value())
+                            .message("Unauthorized: Invalid API Key")
+                            .build()
+            );
+        }
+        FileDto.Response response = v3ScannerService.scanBase64File(fileDtoRequest);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    @PostMapping(value = "/multipart-scan", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<FileDto.Response> scanMultipartFile(
+            @RequestHeader("X-CVC-API-KEY") String apiKey,
+            @RequestPart("file") MultipartFile file) {
+
+        logger.info("Multipart file scan requested. Filename: {}, API Key: {}", file.getOriginalFilename(), apiKey);
+        if (!v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                    FileDto.Response.builder()
+                            .fileName(file.getOriginalFilename())
+                            .returnCode(HttpStatus.UNAUTHORIZED.value())
+                            .message("Unauthorized: Invalid API Key")
+                            .build()
+            );
+        }
+        FileDto.Response response = v3ScannerService.scanMultipartFile(file);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+}
 
 
 
@@ -41,15 +107,16 @@ java.lang.OutOfMemoryError: Java heap space
 
 
 
-package com.example.demo.service;
 
-import com.example.demo.controller.V3ScannerController;
-import com.example.demo.dto.FileDto;
+
+package com.cvc.scanner.service;
+
+import com.cvc.scanner.dto.FileDto;
 import com.ahnlab.v3engine.V3Const;
 import com.ahnlab.v3engine.V3Scanner;
-import com.ahnlab.v3engine.*;
 
-import java.nio.charset.StandardCharsets;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Properties;
@@ -64,14 +131,12 @@ import java.io.FileOutputStream;
 import java.nio.file.Files;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 
 
 @Service
 public class V3ScannerService {
 
     private static final Logger logger = LoggerFactory.getLogger(V3ScannerService.class);
-    private final String chunkBaseDir = "/tmp/chunks";  // 청크 저장 디렉토리
 
     @Value("${api.key}")
     private String validApiKey;
@@ -198,125 +263,6 @@ public class V3ScannerService {
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
-            }
-        }
-    }
-
-    public FileDto.Response scanBinaryFile(String fileName, byte[] fileData) {
-        File tempFile = null;
-        try {
-            // 파일 크기 제한 (1GB)
-            if (fileData.length > 1024L * 1024L * 1024L) {
-                return FileDto.Response.builder()
-                        .fileName(fileName)
-                        .returnCode(-1)
-                        .message("File size exceeds the 1GB limit.")
-                        .build();
-            }
-
-            // 파일 확장자 필터링
-            if (isDeniedExtension(fileName)) {
-                return FileDto.Response.builder()
-                        .fileName(fileName)
-                        .returnCode(-1)
-                        .message("Unsupported file type.")
-                        .build();
-            }
-
-            Properties prop = new Properties();
-            logger.info("Processing file on disk.");
-            tempFile = Files.createTempFile("scan_", "_" + UUID.randomUUID() + "_" + Instant.now().toEpochMilli() + "_" + fileName).toFile();
-            logger.info("tempFile : {}", tempFile.getAbsolutePath());
-            Files.write(tempFile.toPath(), fileData); // 파일 데이터 디스크에 저장
-
-            int ret = V3Scanner.scanFile(tempFile.getAbsolutePath(), prop); // 디스크 기반 검사
-            printScanInfo(tempFile.getAbsolutePath(), ret, prop);
-            return buildResponse(fileName, ret, prop);
-
-        } catch (Exception e) {
-            return FileDto.Response.builder()
-                    .fileName(fileName)
-                    .returnCode(-1)
-                    .message("File processing failed: " + e.getMessage())
-                    .build();
-        } finally {
-            if (tempFile != null && tempFile.exists()) {
-                try {
-                    tempFile.delete();
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-    }
-
-    /**
-     * 청크 저장 로직
-     */
-    public void saveChunk(String fileId, int chunkIndex, byte[] chunkData) throws Exception {
-        Path chunkDir = Paths.get(chunkBaseDir, fileId);  // 파일 ID 기반 디렉토리 생성
-        if (!Files.exists(chunkDir)) {
-            Files.createDirectories(chunkDir);  // 디렉토리가 없으면 생성
-        }
-        Path chunkFile = chunkDir.resolve("chunk_" + chunkIndex);  // 청크 파일 이름
-        Files.write(chunkFile, chunkData);  // 청크 데이터 저장
-        logger.info("Saved chunk: FileId={}, ChunkIndex={}", fileId, chunkIndex);
-    }
-
-    /**
-     * 병합 및 스캔 로직
-     */
-    public FileDto.Response mergeChunksAndScan(String fileId, String fileName) throws Exception {
-        Path chunkDir = Paths.get(chunkBaseDir, fileId);
-        Path mergedFile = Paths.get("/tmp/" + UUID.randomUUID() + "_" + fileName);  // 병합 파일 이름에 UUID 추가
-
-        try {
-            // 1. 병합 작업
-            try (FileOutputStream outputStream = new FileOutputStream(mergedFile.toFile())) {
-                Files.list(chunkDir)
-                        .sorted()  // 청크 파일 정렬
-                        .forEach(chunk -> {
-                            try {
-                                Files.copy(chunk, outputStream);
-                            } catch (Exception e) {
-                                throw new RuntimeException("Failed to merge chunk: " + chunk.getFileName(), e);
-                            }
-                        });
-            }
-            logger.info("tempFile : {}", mergedFile.toString());
-            // 2. 스캔 작업 수행
-            Properties prop = new Properties();
-            int ret = V3Scanner.scanFile(mergedFile.toString(), prop);
-            printScanInfo(mergedFile.toString(), ret, prop);
-
-            // 3. 결과 반환
-            return FileDto.Response.builder()
-                    .fileName(fileName)
-                    .returnCode(ret)
-                    .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "No additional information."))
-                    .build();
-
-        } finally {
-            // 4. 병합 파일 및 청크 디렉토리 삭제
-            try {
-                if (Files.exists(mergedFile)) {
-                    Files.delete(mergedFile);
-                    logger.info("Deleted merged file: {}", mergedFile);
-                }
-                if (Files.exists(chunkDir)) {
-                    Files.walk(chunkDir)
-                            .sorted(Comparator.reverseOrder())  // 하위 파일부터 삭제
-                            .forEach(path -> {
-                                try {
-                                    Files.delete(path);
-                                } catch (Exception e) {
-                                    logger.warn("Failed to delete chunk file: {}", path, e);
-                                }
-                            });
-                    logger.info("Deleted chunk directory: {}", chunkDir);
-                }
-            } catch (Exception e) {
-                logger.error("Failed to clean up files: {}", e.getMessage());
             }
         }
     }
