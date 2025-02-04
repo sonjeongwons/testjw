@@ -1,45 +1,185 @@
-import requests
+package com.scf.manager.mvc.service;
 
-# 설정
-BASE_URL = "http://<API_SERVER_IP>:<PORT>/api/v1/scanner"
-API_KEY = "CVCKEY"
-FILE_PATH = "/path/to/large_file"  # 테스트할 파일 경로
-CHUNK_SIZE = 5 * 1024 * 1024  # 청크 크기 (5MB)
+import com.scf.manager.common.enums.TypeEnums;
+import com.scf.manager.common.exception.ResourceNotFoundException;
+import com.scf.manager.common.exception.SourceFileException;
+import com.scf.manager.common.util.AppUtil;
+import com.scf.manager.mvc.domain.*;
+import com.scf.manager.mvc.dto.DownloadDTO;
+import com.scf.manager.mvc.dto.FunctionDTO;
+import com.scf.manager.mvc.dto.SourceFileDTO;
+import com.scf.manager.mvc.repository.*;
+import io.fabric8.istio.client.DefaultIstioClient;
+import io.fabric8.knative.client.DefaultKnativeClient;
+import io.fabric8.knative.serving.v1.Service;
+import io.fabric8.knative.serving.v1.ServiceBuilder;
+import io.fabric8.kubernetes.api.model.ContainerPort;
+import io.fabric8.kubernetes.api.model.ContainerPortBuilder;
+import io.fabric8.kubernetes.api.model.EnvVar;
+import io.fabric8.kubernetes.api.model.Quantity;
+import io.fabric8.kubernetes.client.dsl.base.PatchContext;
+import io.fabric8.kubernetes.client.dsl.base.PatchType;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
 
-# 1. 청크 업로드
-def upload_chunks():
-    file_id = "file-1234"  # 파일 ID (고유 값 설정 필요)
-    with open(FILE_PATH, "rb") as file:
-        chunk_index = 0
-        while chunk := file.read(CHUNK_SIZE):  # 청크 단위로 읽기
-            headers = {
-                "X-CVC-API-KEY": API_KEY,
-                "File-Id": file_id,
-                "Chunk-Index": str(chunk_index),
-                "Total-Chunks": str(-1)  # 총 청크 개수는 서버에서 추적 가능
-            }
-            response = requests.post(f"{BASE_URL}/upload-chunk", headers=headers, data=chunk)
-            if response.status_code != 200:
-                print(f"Failed to upload chunk {chunk_index}: {response.text}")
-                return
-            print(f"Uploaded chunk {chunk_index}")
-            chunk_index += 1
-    return file_id
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.text.ParseException;
+import java.util.*;
+import java.util.stream.Collectors;
 
-# 2. 병합 및 스캔 요청
-def merge_and_scan(file_id):
-    headers = {
-        "X-CVC-API-KEY": API_KEY,
-        "File-Id": file_id,
-        "File-Name": FILE_PATH.split("/")[-1]  # 원래 파일 이름
+import static com.scf.manager.common.constants.ExceptionConst.FILE_TYPE_EXCEPTION;
+
+@Slf4j
+@org.springframework.stereotype.Service
+@RequiredArgsConstructor
+public class SourceFileService {
+    @Value("${monitoring.http.timeout}")
+    private int timeOutValue;
+
+    private final KnativeService knativeService;
+    private final FunctionRepository functionRepository;
+    private final SourceFileRepository sourceFileRepository;
+    private static final String FILE_PATH = "/mb_scf/serverless/";
+    private static final String SAMPLE_FILE_PATH = "/mb_scf/serverless/sample.jar";
+
+
+    @Transactional
+    public SourceFileDTO.Response getSourceFile(String functionKey) {
+        Function function = functionRepository.findByFunctionKeyAndDelYn(functionKey, "N").orElseThrow(() -> new ResourceNotFoundException("유효한 펑션이 존재하지 않습니다."));
+        SourceFile sourceFile = sourceFileRepository.findByFunction(function).orElseThrow(() -> new ResourceNotFoundException("유효한 소스파일 데이터가 존재하지 않습니다."));
+
+        return sourceFile.toDto();
     }
-    response = requests.post(f"{BASE_URL}/merge-chunks", headers=headers)
-    if response.status_code == 200:
-        print("Scan completed:", response.json())
-    else:
-        print("Failed to merge and scan:", response.text)
 
-# 실행
-file_id = upload_chunks()
-if file_id:
-    merge_and_scan(file_id)
+    @Transactional
+    public SourceFileDTO.Response saveSourceFile(SourceFileDTO.Register reqDto, String functionKey) throws IOException, ParseException {
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("펑션이 존재하지 않습니다."));
+        SourceFile sourceFile = sourceFileRepository.findByFunction(function).orElse(null);
+
+        if (StringUtils.isEmpty(reqDto.getSourceFileType())) {
+            throw new RuntimeException("파일 유형을 입력해주세요.");
+        }
+
+        switch (reqDto.getSourceFileType()) {
+            case "sample": // 파일 유형: Sample 파일
+                reqDto.setBucketId("S3_OBS_BUCKET-sample");
+                reqDto.setBucketName("sample-bucket");
+                reqDto.setObjectKey("sample.jar");
+                reqDto.setClassName("com.example.Handler");
+                reqDto.setMethodName("handleRequest");
+
+                String localFilePath = FILE_PATH + function.getName();
+                log.info("localFilePath = " + localFilePath);
+
+                AppUtil.createDirectory(localFilePath);
+
+                Path sampleFile = Paths.get(SAMPLE_FILE_PATH);
+                Path functionFile = Paths.get(localFilePath.concat("/").concat("download.jar"));
+
+                Files.copy(sampleFile, functionFile, StandardCopyOption.REPLACE_EXISTING);
+                break;
+            case "custom": // 파일 유형: 사용자 정의 파일 (Obs 다운로드)
+                if (StringUtils.isEmpty(reqDto.getBucketId())) {
+                    throw new RuntimeException("버킷 ID를 입력해주세요.");
+                }
+                if (StringUtils.isEmpty(reqDto.getBucketName())) {
+                    throw new RuntimeException("버킷 이름을 입력해주세요.");
+                }
+                if (StringUtils.isEmpty(reqDto.getObjectKey())) {
+                    throw new RuntimeException("오브젝트 키를 입력해주세요.");
+                }
+                if (StringUtils.isEmpty(reqDto.getDownloadUrl())) {
+                    throw new RuntimeException("Presigned URL을 입력해주세요.");
+                }
+                if (StringUtils.isEmpty(reqDto.getClassName())) {
+                    throw new RuntimeException("클래스 이름을 입력해주세요.");
+                }
+                if (StringUtils.isEmpty(reqDto.getMethodName())) {
+                    throw new RuntimeException("메서드 이름을 입력해주세요.");
+                }
+
+                // 로컬에 저장할 파일 경로 및 파일명
+                String localFilePathCustom = FILE_PATH + function.getName();
+                log.info("localFilePath = " + localFilePathCustom);
+
+                AppUtil.createDirectory(localFilePathCustom);
+
+                // HTTP 요청을 통해 파일 다운로드 (임시 경로)
+                downloadFile(reqDto.getDownloadUrl(), localFilePathCustom + "/download.jar");
+                break;
+            default:
+                throw new RuntimeException("지원하지 않는 파일 유형입니다.");
+        }
+
+        // SourceFile DB Entity 업데이트
+        if (sourceFile != null) {
+            sourceFile.modify(reqDto);
+            sourceFileRepository.save(sourceFile);
+        } else {
+            reqDto.setFunctionSeq(function.getFunctionSeq());
+            sourceFile = sourceFileRepository.save(
+                    SourceFile.register(reqDto)
+            );
+        }
+
+        // 소스 파일 업데이트 시에도 ksvc가 만들어져야함. 단 READY 상태가 아니라면 만들어지면 안됨.
+        if(function.isReady()) {
+            function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
+            functionRepository.save(function);
+            knativeService.callIstioAndKnative(function);
+        }
+
+        return sourceFile.toDto();
+    }
+
+    // Presigned URL를 통한 Object Storage 파일 다운로드
+    private void downloadFile(String fileUrl, String savePath) throws IOException {
+        try {
+            URL url = new URL(fileUrl);
+            HttpURLConnection httpURLConnection = (HttpURLConnection) url.openConnection();
+            httpURLConnection.setConnectTimeout(timeOutValue);
+            httpURLConnection.setReadTimeout(timeOutValue);
+
+            int responseCode = httpURLConnection.getResponseCode();
+
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                downloadContent(httpURLConnection, savePath);
+            } else {
+                log.error("File download failed. Server returned HTTP status code: " + responseCode);
+                throw new RuntimeException("파일 다운로드에 실패하였습니다.");
+            }
+
+            httpURLConnection.disconnect();
+        } catch (MalformedURLException e) {
+            log.error("Invalid file URL: " + fileUrl);
+            throw new IllegalArgumentException("유효하지 않은 파일 URL입니다.", e);
+        }
+    }
+
+    private void downloadContent(HttpURLConnection connection, String savePath) throws IOException {
+        try (BufferedInputStream inputStream = new BufferedInputStream(connection.getInputStream());
+             FileOutputStream outputStream = new FileOutputStream(savePath)) {
+
+            byte[] buffer = new byte[1024];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+            log.info("파일 다운로드가 완료되었습니다: " + savePath);
+        }
+    }
+}
