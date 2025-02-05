@@ -1,239 +1,214 @@
-리팩토링 및 클린 코드 적용 개선사항
+📌 [PR 개요]
 
-이 코드의 주요 문제점은 가독성, 중복 코드, 예외 처리 미흡, 하드코딩된 문자열, 단일 책임 원칙(SRP) 위반입니다. 이를 개선하기 위해 다음과 같은 작업을 수행했습니다.
+🔹 리팩토링: FunctionLogService 코드 개선 및 클린 코드 적용
+
+이번 PR에서는 FunctionLogService 클래스의 코드 품질을 개선하고, 유지보수성을 향상시키기 위해 리팩토링 및 클린 코드 적용을 진행했습니다.
+주요 개선 사항으로는 중복 코드 제거, 예외 처리 강화, JSON 데이터 처리 최적화, 가독성 향상, 단일 책임 원칙(SRP) 적용이 포함됩니다.
 
 
 ---
 
-📌 주요 개선사항
+📌 [개발 내용]
+
+✅ 주요 개선 사항
 
 1. 중복 코드 제거 및 메소드 분리
 
-retrieveRawJSON()과 extractInformationFromRawJSON()에서 불필요한 중복이 발생.
+JSON 데이터 추출 로직을 extractLogData() 및 extractPodList() 메소드로 분리하여 단일 책임 원칙(SRP)을 적용.
 
-JSON 데이터 파싱을 extractLogData() 메소드로 분리하여 extractInformationFromRawJSON()이 너무 많은 책임을 갖지 않도록 개선.
-
-
-2. 명확한 변수명 및 상수화
-
-"user-container", "status", "resultType" 등 하드코딩된 문자열을 상수화하여 유지보수성을 향상.
-
-StringBuffer 대신 StringBuilder 사용. StringBuffer는 synchronized 처리되어 있지만, 멀티스레딩이 필요 없는 환경에서는 StringBuilder가 성능이 더 좋음.
+HTTP 연결 설정을 establishLetheConnection() 메소드로 분리하여 재사용성을 증가.
 
 
-3. 예외 처리 및 로깅 개선
 
-RuntimeException 대신 명확한 의미를 가지는 IllegalArgumentException 사용.
+2. 가독성 향상을 위한 리팩토링
 
-connection.getResponseCode()가 HTTP_OK가 아닐 때 적절한 예외를 던지도록 변경하여 디버깅이 쉬워짐.
+StringBuilder 대신 String.format()을 활용하여 가독성을 개선.
+
+retrieveRawJSON() 메소드에서 Collectors.joining()을 사용하여 더 간결한 코드 구현.
 
 
-4. 단일 책임 원칙(SRP) 적용
 
-getLogByRange() 메소드에서 makeLogQueryString()과 getLetheLogData()를 별도로 분리하여 가독성을 향상.
+3. 명확한 예외 처리 및 로깅 개선
 
-JSON 데이터를 JSONObject에서 직접 변환하는 것이 아니라, 전용 DTO 클래스를 만들어 JSON 변환 로직을 분리하는 것이 더 좋지만, 이번 리팩토링에서는 기존 구조를 유지하면서 코드만 개선.
+HTTP_OK가 아닐 경우 IOException을 발생시키도록 변경하여 예외 상황을 명확하게 처리.
+
+IllegalArgumentException을 활용하여 더 명확한 예외 메시지 제공.
+
+
+
+4. 하드코딩된 문자열 상수화
+
+"user-container", "status", "resultType" 등의 문자열을 상수화하여 유지보수성을 향상.
+
+QUERY_FORMAT을 String.format()을 활용하여 보다 가독성 높은 쿼리 생성 방식 적용.
+
+
 
 
 
 ---
 
-📌 개선된 코드
+📌 [메소드별 변경점 및 개선 사항]
 
-package com.scf.manager.mvc.service;
+1️⃣ makeLogQueryString()
 
-import com.google.gson.Gson;
-import com.scf.manager.mvc.domain.Function;
-import com.scf.manager.mvc.dto.FunctionLogDTO;
-import com.scf.manager.mvc.repository.FunctionRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.jetbrains.annotations.NotNull;
-import org.json.JSONArray;
-import org.json.JSONObject;
-import org.springframework.beans.factory.annotation.Value;
+💡 개선 전 문제점:
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.*;
-import java.util.stream.Collectors;
+pod == null || pod.isEmpty()를 체크하는 if-else 구문이 가독성을 저하시킴.
 
-@Slf4j
-@org.springframework.stereotype.Service
-@RequiredArgsConstructor
-public class FunctionLogService {
-    
-    @Value("${monitoring.http.timeout}")
-    private int timeOutValue;
-    
-    @Value("${monitoring.lethe.letheHttpApi}")
-    private String letheHttpApi;
-    
-    private final FunctionRepository functionRepository;
+StringBuilder 대신 String.format()을 사용하면 더 직관적인 코드로 변환 가능.
 
-    private static final String CONTAINER_NAME = "user-container";
-    private static final String QUERY_FORMAT = "query=pod{namespace=\"%s\",pod=\"%s\",container=\"" + CONTAINER_NAME + "\"}&start=%s&end=%s&logFormat=json";
 
-    public FunctionLogDTO getLogByRange(String functionKey, String time, String pod) throws IOException {
-        String letheLogQuery = makeLogQueryString(functionKey, time, pod);
-        String logData = getLetheLogData(letheLogQuery);
-        return new Gson().fromJson(logData, FunctionLogDTO.class);
+💡 개선 후 변경 사항:
+
+String.format()을 활용하여 더 직관적인 쿼리 문자열 생성 방식 적용.
+
+Integer.parseInt(time)을 활용하여 Calendar 계산 시 "-" 문자열 연산을 제거하고 가독성 향상.
+
+
+✅ 개선 후 코드:
+
+private String makeLogQueryString(String functionKey, String time, String pod) {
+    Function function = functionRepository.findByFunctionKey(functionKey)
+            .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 펑션입니다."));
+
+    String functionName = (pod == null || pod.isEmpty()) ? function.getName().concat(".*") : pod;
+
+    long queryEndTime = System.currentTimeMillis() / 1000L; // 현재 시각 타임스탬프
+    long queryStartTime = (System.currentTimeMillis() - (Integer.parseInt(time) * 3600L * 1000L)) / 1000L; // time 시간 전 타임스탬프 계산
+
+    return String.format(QUERY_FORMAT, function.getName(), functionName, queryStartTime, queryEndTime);
+}
+
+📌 개선 효과:
+
+가독성 향상: StringBuilder 대신 String.format()을 사용하여 더 깔끔한 코드로 변환.
+
+불필요한 Calendar 객체 제거: System.currentTimeMillis()를 직접 활용하여 코드 단순화.
+
+
+
+---
+
+2️⃣ getLetheLogData()
+
+💡 개선 전 문제점:
+
+HTTP_OK가 아닐 경우 null을 반환하는 방식 → 예외 발생 시 적절한 오류 메시지를 제공하지 않음.
+
+
+💡 개선 후 변경 사항:
+
+HTTP_OK가 아닐 경우 IOException을 던져서 에러 발생 시 원인을 명확히 알 수 있도록 변경.
+
+
+✅ 개선 후 코드:
+
+private String getLetheLogData(String query) throws IOException {
+    HttpURLConnection connection = establishLetheConnection(query);
+
+    if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
+        throw new IOException("Lethe 로그 요청 실패: HTTP 상태 코드 " + connection.getResponseCode());
     }
 
-    @NotNull
-    private String makeLogQueryString(String functionKey, String time, String pod) {
-        Function function = functionRepository.findByFunctionKey(functionKey)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 펑션입니다."));
+    String jsonResponse = retrieveRawJSON(connection);
+    return extractInformationFromRawJSON(jsonResponse);
+}
 
-        String functionName = (pod == null || pod.isEmpty()) ? function.getName().concat(".*") : pod;
+📌 개선 효과:
 
-        long queryEndTime = System.currentTimeMillis() / 1000L; // 현재 시각 타임스탬프
+예외 상황을 명확하게 처리하여 문제 발생 시 디버깅이 쉬워짐.
 
-        Calendar currentCal = Calendar.getInstance();
-        currentCal.add(Calendar.HOUR_OF_DAY, -Integer.parseInt(time)); // 시간 계산
-        long queryStartTime = currentCal.getTimeInMillis() / 1000L;
+HTTP 상태 코드 확인 후 예외 처리 적용 → null을 반환하는 방식 대신, 적절한 예외를 던져 디버깅 가능.
 
-        return String.format(QUERY_FORMAT, function.getName(), functionName, queryStartTime, queryEndTime);
-    }
 
-    private String getLetheLogData(String query) throws IOException {
-        HttpURLConnection connection = establishLetheConnection(query);
 
-        if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
-            throw new IOException("Lethe 로그 요청 실패: HTTP 상태 코드 " + connection.getResponseCode());
-        }
+---
 
-        String jsonResponse = retrieveRawJSON(connection);
-        return extractInformationFromRawJSON(jsonResponse);
-    }
+3️⃣ retrieveRawJSON()
 
-    private HttpURLConnection establishLetheConnection(String query) throws IOException {
-        URL url = new URL(letheHttpApi + "?" + query);
-        log.info("Lethe 요청 URL: {}", url);
+💡 개선 전 문제점:
 
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setConnectTimeout(timeOutValue);
-        connection.setReadTimeout(timeOutValue);
-        connection.setRequestMethod("GET");
-        connection.setDoOutput(true);
-        connection.connect();
-        return connection;
-    }
+StringBuffer 대신 멀티스레딩이 필요 없는 환경에서는 StringBuilder가 성능이 더 좋음.
 
-    private String retrieveRawJSON(HttpURLConnection connection) throws IOException {
-        try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
-            return bufferedReader.lines().collect(Collectors.joining());
-        }
-    }
+BufferedReader의 데이터를 더 직관적으로 처리할 수 있는 방법이 존재.
 
-    private String extractInformationFromRawJSON(String jsonResponse) {
-        JSONObject jsonObject = new JSONObject(jsonResponse);
-        JSONObject dataObject = jsonObject.getJSONObject("data");
-        JSONArray resultArray = dataObject.getJSONArray("result");
 
-        JSONArray extractedArray = extractLogData(resultArray);
-        List<String> podList = extractPodList(resultArray);
+💡 개선 후 변경 사항:
 
-        JSONObject extractedJson = new JSONObject();
-        extractedJson.put("status", jsonObject.getString("status"));
-        extractedJson.put("data", new JSONObject()
-                .put("resultType", dataObject.getString("resultType"))
-                .put("pods", podList)
-                .put("result", extractedArray));
+Collectors.joining()을 활용하여 더 간결한 코드로 변환.
 
-        return extractedJson.toString();
-    }
 
-    private JSONArray extractLogData(JSONArray resultArray) {
-        JSONArray extractedArray = new JSONArray();
-        for (int i = resultArray.length() - 1; i >= 0; i--) {
-            JSONObject logObject = resultArray.getJSONObject(i);
-            JSONObject extractedLogObject = new JSONObject()
-                    .put("time", logObject.getString("time"))
-                    .put("log", logObject.getString("log"));
-            extractedArray.put(extractedLogObject);
-        }
-        return extractedArray;
-    }
+✅ 개선 후 코드:
 
-    private List<String> extractPodList(JSONArray resultArray) {
-        return resultArray.toList().stream()
-                .map(obj -> ((Map<String, Object>) obj).get("pod").toString())
-                .distinct()
-                .sorted()
-                .collect(Collectors.toList());
+private String retrieveRawJSON(HttpURLConnection connection) throws IOException {
+    try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+        return bufferedReader.lines().collect(Collectors.joining());
     }
 }
 
+📌 개선 효과:
 
----
+불필요한 while 루프 제거 → Collectors.joining()을 활용하여 더 간결한 코드로 변경.
 
-📌 개선 사항 요약
-
-1. makeLogQueryString()
-
-기존 문제점:
-
-if-else에서 pod == null || pod.isEmpty()를 체크하는 부분이 코드 가독성을 저하시킴.
-
-StringBuilder 대신 String.format()을 활용할 수 있음.
-
-
-개선:
-
-String.format()을 사용하여 가독성을 개선.
-
-time 값을 Integer.parseInt(time)으로 변환 시 - 연산을 활용하여 직관적으로 수정.
-
-
-
-2. getLetheLogData()
-
-기존 문제점:
-
-HTTP_OK가 아닐 경우 아무런 처리 없이 null을 반환.
-
-
-개선:
-
-IOException을 던지도록 수정하여 예외 상황을 명확히 처리.
-
-
-
-3. retrieveRawJSON()
-
-기존 문제점:
-
-StringBuffer 사용 (멀티스레드 환경이 아니라면 StringBuilder가 더 적절함).
-
-
-개선:
-
-Collectors.joining()을 활용하여 더 깔끔하게 변환.
-
-
-
-4. extractInformationFromRawJSON()
-
-기존 문제점:
-
-JSON 변환 로직이 너무 복잡하여 하나의 메소드에서 너무 많은 역할을 담당.
-
-
-개선:
-
-extractLogData() 및 extractPodList() 메소드로 분리하여 단일 책임 원칙(SRP) 적용.
-
+try-with-resources 적용 → 리소스 누수를 방지.
 
 
 
 ---
 
-📌 결론
+4️⃣ extractInformationFromRawJSON()
 
-이 리팩토링을 통해 코드 가독성, 유지보수성, 예외 처리, 중복 코드 제거 등을 개선했습니다.
-이제 더 직관적이고 유지보수하기 쉬운 코드 구조를 갖추게 되었습니다! 🚀
+💡 개선 전 문제점:
+
+JSON 데이터를 처리하는 로직이 하나의 메소드에서 너무 많은 역할을 수행.
+
+"time"과 "log" 키만 추출하는 부분을 별도의 메소드로 분리하는 것이 바람직함.
+
+
+💡 개선 후 변경 사항:
+
+extractLogData() 및 extractPodList() 메소드를 생성하여 단일 책임 원칙(SRP) 적용.
+
+
+✅ 개선 후 코드:
+
+private String extractInformationFromRawJSON(String jsonResponse) {
+    JSONObject jsonObject = new JSONObject(jsonResponse);
+    JSONObject dataObject = jsonObject.getJSONObject("data");
+    JSONArray resultArray = dataObject.getJSONArray("result");
+
+    JSONArray extractedArray = extractLogData(resultArray);
+    List<String> podList = extractPodList(resultArray);
+
+    JSONObject extractedJson = new JSONObject();
+    extractedJson.put("status", jsonObject.getString("status"));
+    extractedJson.put("data", new JSONObject()
+            .put("resultType", dataObject.getString("resultType"))
+            .put("pods", podList)
+            .put("result", extractedArray));
+
+    return extractedJson.toString();
+}
+
+📌 개선 효과:
+
+각 역할을 메소드 단위로 분리하여 코드 가독성 향상.
+
+중복 코드 제거 및 단일 책임 원칙(SRP) 적용.
+
+
+
+---
+
+📌 [결론]
+
+이 PR을 통해 코드 가독성, 유지보수성, 예외 처리, 중복 코드 제거 등을 개선했습니다.
+📍 주요 개선 효과:
+✅ 중복 코드 제거 및 책임 분리 → extractLogData(), extractPodList() 분리
+✅ 가독성 향상 → String.format()을 활용하여 가독성을 개선
+✅ 예외 처리 강화 → IOException을 활용하여 오류 발생 시 명확한 메시지 제공
+✅ 불필요한 객체 제거 → System.currentTimeMillis()를 활용하여 코드 단순화
+
+이제 더 직관적이고 유지보수하기 쉬운 코드 구조를 갖추게 되었습니다! 🚀✨
 
