@@ -1,84 +1,39 @@
-네, handleInvalidLatencyValues 메소드를 정의해야 합니다. 기존 코드에서 RequestLatencyMetricInvalidValueHandling 메소드는 NaN, Inf 같은 값을 "0"으로 변환하는 역할을 하고 있었습니다. 이를 의미가 명확한 메소드명으로 변경하고, 코드 스타일을 개선하겠습니다.
+Pull Request: FunctionMetricService 리팩토링 및 코드 품질 개선
 
+📌 PR 개요
 
----
+이번 PR에서는 FunctionMetricService 클래스의 코드 품질을 향상시키기 위해 리팩토링을 수행하였습니다.
+클린 코드 원칙 (SOLID, DRY, KISS, YAGNI) 을 적용하여 중복 제거, 가독성 향상, 성능 개선, 유지보수성 향상을 목표로 개선하였습니다.
 
-✅ handleInvalidLatencyValues 메소드 정의
+🛠 개발 내용
 
-1️⃣ 기존 RequestLatencyMetricInvalidValueHandling 문제점
+1. 중복 코드 제거 및 공통 로직 분리
 
-private void RequestLatencyMetricInvalidValueHandling(FunctionMetricElementsListDTO element){
-    if(element.getData().getResult().size() > 0){
-        if("NaN".equals(element.getData().getResult().get(0).getValue().get(1)) || "Inf".equals(element.getData().getResult().get(0).getValue().get(1))
-                || "-Inf".equals(element.getData().getResult().get(0).getValue().get(1)) || "+Inf".equals(element.getData().getResult().get(0).getValue().get(1))){
-            element.getData().getResult().get(0).getValue().set(1, "0");
-        }
-    }
-}
+PromQL을 생성하는 코드에서 공통 패턴을 추출하여 buildQuery 메소드를 도입
 
-⚠️ 기존 코드의 문제점
-
-1. 메소드명이 PascalCase (RequestLatencyMetricInvalidValueHandling)
-→ Java의 일반적인 camelCase 스타일을 따르지 않음
-
-
-2. if(element.getData().getResult().size() > 0) → isEmpty()를 사용 가능
-→ 더 직관적이고 간결한 코드 작성 가능
-
-
-3. 값 검증을 더 간결한 방식으로 리팩토링 가능
-→ "NaN", "Inf", "-Inf", "+Inf"을 Set<String>에 넣고 contains()로 체크하면 가독성 향상
-
-
-4. 메소드명을 더 명확하게 변경
-→ handleInvalidLatencyValues
+Prometheus API 호출 코드에서 불필요한 자원 관리 및 중복 코드 제거
 
 
 
+2. 불필요한 객체 및 변수 제거
 
----
-
-✅ 개선된 handleInvalidLatencyValues 메소드
-
-private void handleInvalidLatencyValues(FunctionMetricElementsListDTO element) {
-    if (element.getData().getResult().isEmpty()) {
-        return;
-    }
-
-    List<String> invalidValues = List.of("NaN", "Inf", "-Inf", "+Inf");
-    String currentValue = element.getData().getResult().get(0).getValue().get(1);
-
-    if (invalidValues.contains(currentValue)) {
-        element.getData().getResult().get(0).getValue().set(1, "0");
-    }
-}
-
-
----
-
-✨ 개선된 점
-
-1. 메소드명을 handleInvalidLatencyValues로 변경
-
-"잘못된 값을 처리한다"는 의미를 직관적으로 전달
+MetricRequest 내부 클래스에서 불필요한 필드 및 초기화 코드 정리
 
 
 
-2. isEmpty()를 사용하여 리스트의 크기 검증
+3. 가독성 및 유지보수성 향상
 
-element.getData().getResult().size() > 0 대신 isEmpty()를 사용하여 더 가독성 높은 코드 작성
+불필요한 replaceNextlineTabBlank 메소드 제거 및 정규식 적용
 
-
-
-3. 불필요한 중복 조건문을 제거
-
-"NaN", "Inf", "-Inf", "+Inf"을 List.of()로 정의하고 contains()를 사용하여 더 간결한 검증 코드 작성
+RequestLatencyMetricInvalidValueHandling을 handleInvalidLatencyValues로 변경하여 이름을 명확화
 
 
 
-4. return을 조기에 실행 (Early Return)
+4. 성능 최적화
 
-리스트가 비어 있으면 즉시 반환하여 불필요한 연산을 방지
+BufferedReader.lines()를 활용하여 응답 처리 속도 개선
+
+Calendar 대신 Instant와 Duration을 사용하여 시간 계산 로직 단순화
 
 
 
@@ -86,30 +41,11 @@ element.getData().getResult().size() > 0 대신 isEmpty()를 사용하여 더 �
 
 ---
 
-📌 결론
+🔍 메소드별 변경점과 개선사항
 
-이제 handleInvalidLatencyValues는 클린 코드 원칙을 적용하여 더 직관적이고 유지보수하기 쉬운 코드가 되었습니다.
-이제 이 메소드를 getMetricList와 getCloudMonitoringMetric에서 활용하면 됩니다.
+1️⃣ MetricRequest 클래스 리팩토링
 
-for (FunctionMetricElementsListDTO element : metricRequest.requestLatencyList) {
-    handleInvalidLatencyValues(element);
-}
-
-이제 코드가 더 안정적이고 가독성이 뛰어난 형태로 개선되었습니다!
-
-
-
-코드 리팩토링을 진행하며 클린 코드 원칙(SOLID, DRY, KISS, YAGNI 등)을 적용하고, 코드의 가독성, 유지보수성, 성능을 개선하겠습니다.
-주요 개선 사항을 메소드 단위로 설명하고, 각각의 변경 이유를 상세히 설명하겠습니다.
-
-
----
-
-1. 개선된 코드
-
-변경된 코드와 함께 주요 개선 사항을 설명합니다.
-
-(1) MetricRequest 내부 클래스를 static으로 변경
+변경 내용
 
 private static class MetricRequest {
     URL url;
@@ -121,55 +57,45 @@ private static class MetricRequest {
     List<FunctionMetricElementsListDTO> functionMemoryList = new ArrayList<>();
     List<FunctionMetricElementsListDTO> actualPodsList = new ArrayList<>();
     List<FunctionMetricElementsListDTO> successCountList = new ArrayList<>();
-    List<FunctionMetricElementsListDTO> failCountList;
+    List<FunctionMetricElementsListDTO> failCountList = new ArrayList<>();
     String timeRange;
 }
 
-개선 이유
+개선 사항
 
-MetricRequest 내부 필드 초기화를 생성자 없이 필드에서 바로 수행 → 불필요한 코드 제거
+내부 클래스를 static으로 선언하여 불필요한 외부 참조 방지
 
-static 클래스화하여 불필요한 외부 클래스 참조를 방지
+failCountList 초기화 추가 (new ArrayList<>())
 
-g라는 애매한 변수명을 gson으로 명확히 변경
-
-failCountList가 초기화되지 않았으므로 명시적으로 new ArrayList<>()로 초기화
+Gson 객체를 필드 초기화에서 바로 생성 (gson 변수명 명확화)
 
 
 
 ---
 
-(2) replaceNextlineTabBlank 메소드 개선
+2️⃣ replaceNextlineTabBlank → sanitizeQuery로 변경
+
+변경 내용
 
 private String sanitizeQuery(String query) {
     return query.replaceAll("[\\n\\t ]", "");
 }
 
-개선 이유
+개선 사항
 
-정규식 replaceAll("[\\n\\t ]", "")을 사용하여 불필요한 개행, 공백, 탭을 한 번에 처리 → 성능 향상
+기존 방식 (replace("\n", "").replace("\t", "").replace(" ", "")) 대신 정규식 replaceAll("[\\n\\t ]", "") 적용
 
-메소드명을 sanitizeQuery로 변경하여 의미 명확화
+코드 가독성과 성능 개선
+
+메소드명을 sanitizeQuery로 변경하여 명확한 의미 전달
 
 
 
 ---
 
-(3) PromQL 생성 메소드 개선
+3️⃣ PromQL 쿼리 생성 로직 개선 (buildQuery 추가)
 
-기존 문제점
-
-1. $변수$ 치환 방식이 유지보수에 불리함 → String.format 적용
-
-
-2. replaceNextlineTabBlank() 메소드가 필요 이상으로 호출됨
-
-
-3. &time=$queryTiming$가 모든 쿼리에 포함되므로 중복 제거 가능
-
-
-
-개선된 코드
+변경 내용
 
 private String buildQuery(String baseQuery, String functionName, String timeRange, String queryTiming) {
     String query = String.format(baseQuery, functionName, timeRange);
@@ -181,28 +107,21 @@ public String generateQueryForRequestCount(String functionName, String timeRange
     return buildQuery(queryTemplate, functionName, timeRange, queryTiming);
 }
 
-개선 이유
+개선 사항
 
 String.format을 사용하여 가독성 및 유지보수성 향상
 
-중복된 &time=$queryTiming$을 메소드에서 자동으로 추가
+공통 패턴을 buildQuery로 분리하여 코드 중복 제거
 
-모든 쿼리 생성 로직을 buildQuery로 통합하여 중복 제거
+모든 쿼리에 반복적으로 붙던 &time=$queryTiming$을 메소드 내부에서 자동 추가
 
 
 
 ---
 
-(4) getPrometheusMetric 메소드 개선
+4️⃣ Prometheus API 호출 최적화 (getPrometheusMetric 개선)
 
-기존 문제점
-
-DataOutputStream을 굳이 사용할 필요 없음
-
-BufferedReader를 간결하게 변환 가능
-
-
-개선된 코드
+변경 내용
 
 private String getPrometheusMetric(URL url, String query) throws IOException {
     HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -223,30 +142,21 @@ private String getPrometheusMetric(URL url, String query) throws IOException {
     return null;
 }
 
-개선 이유
+개선 사항
 
-try-with-resources 사용 → 명시적 close() 호출 불필요
+try-with-resources 적용 → 명시적 close() 호출 불필요
 
-BufferedReader.lines().reduce() 사용 → 간결한 코드 구현
+BufferedReader.lines().reduce()를 사용하여 간결한 코드 구현
 
-DataOutputStream의 flush() 호출 불필요 → 자동으로 처리됨
+불필요한 flush() 호출 제거 → try-with-resources에서 자동 처리
 
 
 
 ---
 
-(5) getMetricList 메소드 개선
+5️⃣ getMetricList 리팩토링
 
-기존 문제점
-
-MetricRequest 객체를 매번 생성하는데 불필요한 필드가 많음
-
-Calendar를 사용하여 Date 변환을 반복 → Instant와 Duration을 사용하면 간결화 가능
-
-중복된 반복문을 메소드로 분리
-
-
-개선된 코드
+변경 내용
 
 public FunctionMetricListDTO getMetricList(String functionKey, String time, String start, String end) throws IOException, ParseException {
     URL url = new URL(prometheusHttpApi);
@@ -283,30 +193,7 @@ public FunctionMetricListDTO getMetricList(String functionKey, String time, Stri
     return createMetricListResponse(metricRequest);
 }
 
-private Instant parseDate(String date) throws ParseException {
-    return new SimpleDateFormat("yyyyMMdd").parse(date).toInstant();
-}
-
-private void fetchMetrics(MetricRequest metricRequest, int iterationCount, int timeUnit) throws IOException {
-    metricRequest.timeRange = String.valueOf(timeUnit);
-    for (int i = 0; i <= iterationCount; i++) {
-        metricRequest.queryTiming = String.valueOf(Instant.now().minus(Duration.ofMinutes(timeUnit * i)).getEpochSecond());
-        getEachMetricInstance(metricRequest);
-    }
-}
-
-private FunctionMetricListDTO createMetricListResponse(MetricRequest metricRequest) {
-    return new FunctionMetricListDTO(
-            metricRequest.requestCountList,
-            metricRequest.requestLatencyList,
-            metricRequest.functionMemoryList,
-            metricRequest.actualPodsList,
-            metricRequest.successCountList,
-            metricRequest.failCountList
-    );
-}
-
-개선 이유
+개선 사항
 
 반복문 로직을 fetchMetrics 메소드로 분리 → 중복 제거
 
@@ -320,11 +207,41 @@ parseDate 메소드 추가 → 중복 제거 및 코드 가독성 향상
 
 ---
 
-2. 최종적인 개선 요약
+6️⃣ handleInvalidLatencyValues 추가
+
+변경 내용
+
+private void handleInvalidLatencyValues(FunctionMetricElementsListDTO element) {
+    if (element.getData().getResult().isEmpty()) {
+        return;
+    }
+
+    List<String> invalidValues = List.of("NaN", "Inf", "-Inf", "+Inf");
+    String currentValue = element.getData().getResult().get(0).getValue().get(1);
+
+    if (invalidValues.contains(currentValue)) {
+        element.getData().getResult().get(0).getValue().set(1, "0");
+    }
+}
+
+개선 사항
+
+isEmpty()를 사용하여 리스트의 크기 검증 → 가독성 향상
+
+"NaN", "Inf", "-Inf", "+Inf" 값을 List.of()로 변환하여 contains() 체크 → 더 간결한 코드 작성
+
+Early Return 적용 → 불필요한 연산 방지
+
 
 
 ---
 
-이제 코드가 더 직관적이고 유지보수하기 쉬운 형태로 정리되었습니다.
-이런 리팩토링이 실제 운영 시스템에서도 적용될 수 있도록 지속적인 코드 개선이 필요합니다.
+🎯 기대 효과
+
+✅ 중복 코드 제거
+✅ 가독성 및 유지보수성 향상
+✅ API 호출 최적화로 성능 개선
+✅ 리팩토링을 통해 더 안정적인 코드 구현
+
+이번 PR을 통해 FunctionMetricService의 품질을 개선하였으며, 이후 유지보수 비용이 절감될 것으로 기대됩니다. 🚀
 
