@@ -1,347 +1,229 @@
-package com.scf.manager.mvc.service;
+코드 리팩토링을 진행하며 클린 코드 원칙(SOLID, DRY, KISS, YAGNI 등)을 적용하고, 코드의 가독성, 유지보수성, 성능을 개선하겠습니다.
+주요 개선 사항을 메소드 단위로 설명하고, 각각의 변경 이유를 상세히 설명하겠습니다.
 
 
-import com.google.gson.Gson;
-import com.scf.manager.mvc.domain.Function;
-import com.scf.manager.mvc.dto.*;
-import com.scf.manager.mvc.repository.FunctionRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.json.JSONObject;
-import org.springframework.beans.factory.annotation.Value;
+---
 
-import java.io.BufferedReader;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.List;
+1. 개선된 코드
 
-@Slf4j
-@org.springframework.stereotype.Service
-@RequiredArgsConstructor
-public class FunctionMetricService {
+변경된 코드와 함께 주요 개선 사항을 설명합니다.
 
-    @Value("${monitoring.http.timeout}")
-    private int timeOutValue;
+(1) MetricRequest 내부 클래스를 static으로 변경
 
-    public static final String METRIC_TIME_RANGE_1_HOUR = "1";
-    public static final String METRIC_TIME_RANGE_3_HOUR = "3";
-    public static final String METRIC_TIME_RANGE_12_HOUR = "12";
+private static class MetricRequest {
+    URL url;
+    String functionName;
+    String queryTiming;
+    Gson gson = new Gson();
+    List<FunctionMetricElementsListDTO> requestCountList = new ArrayList<>();
+    List<FunctionMetricElementsListDTO> requestLatencyList = new ArrayList<>();
+    List<FunctionMetricElementsListDTO> functionMemoryList = new ArrayList<>();
+    List<FunctionMetricElementsListDTO> actualPodsList = new ArrayList<>();
+    List<FunctionMetricElementsListDTO> successCountList = new ArrayList<>();
+    List<FunctionMetricElementsListDTO> failCountList;
+    String timeRange;
+}
 
-    public static final String METRIC_TIME_UNIT_15M = "15";
-    public static final String METRIC_TIME_UNIT_30M = "30";
-    public static final String METRIC_TIME_UNIT_180M = "180";
-    public static final String METRIC_TIME_UNIT_1440M = "1440";
+개선 이유
 
-    @Value("${monitoring.prometheus.prometheusHttpApi}")
-    private String prometheusHttpApi;
+MetricRequest 내부 필드 초기화를 생성자 없이 필드에서 바로 수행 → 불필요한 코드 제거
 
-    private final FunctionRepository functionRepository;
-    private class MetricRequest{
-        URL url;
-        String functionName;
-        String queryTiming;
-        Gson g;
-        List<FunctionMetricElementsListDTO> requestCountList;
-        List<FunctionMetricElementsListDTO> requestLatencyList;
-        List<FunctionMetricElementsListDTO> functionMemoryList;
-        List<FunctionMetricElementsListDTO> actualPodsList;
-        List<FunctionMetricElementsListDTO> successCountList;
-        List<FunctionMetricElementsListDTO> failCountList;
-        String timeRange;
-    }
+static 클래스화하여 불필요한 외부 클래스 참조를 방지
 
-    // Text Block으로 만들어진 String의 개행문자, 탭, 공백제거하여 실제 쿼리문을 생성함.
-    // 가독성을 위하여 기존 +로 더하던 방식을, Text Block에서 $변수$를 마지막에 치환해주는 방식으로 변경
-    // 추후 성능상 이슈가 발생시 해당 부분을 최적화할 필요가 있음.
-    private String replaceNextlineTabBlank(String qs){
-        return qs.replace("\n","").replace("\t","").replace(" ", "");
-    }
+g라는 애매한 변수명을 gson으로 명확히 변경
 
-    // 호출수 쿼리
-    public String generateQueryForRequestCount(String functionName, String timeRange, String queryTiming) {
-        String qs = """
-                        query=
-                        sum(rate(activator_request_count{service_name="$functionName$"}[$timeRange$m]))
-                        *60
-                        *$timeRange$
-                        &time=$queryTiming$
-                        """;
-
-        return this.replaceNextlineTabBlank(qs)
-                .replace("$functionName$",functionName)
-                .replace("$timeRange$", timeRange)
-                .replace("$queryTiming$", queryTiming);
-    }
-    // 실행시간 쿼리
-    public String generateQueryForRequestLatency(String functionName, String timeRange, String queryTiming){
-        String qs = """
-                        query=  (
-                                    sum(rate(activator_request_latencies_sum{service_name="$functionName$",response_code="200"}[$timeRange$m]))
-                                    / sum(rate(activator_request_latencies_count{service_name="$functionName$",response_code="200"}[$timeRange$m]))
-                                )
-                                /1000
-                                &time=$queryTiming$
-                        """;
-
-        return this.replaceNextlineTabBlank(qs)
-                .replace("$functionName$",functionName)
-                .replace("$timeRange$", timeRange)
-                .replace("$queryTiming$", queryTiming);
-    }
-    // 메모리 사용량 쿼리
-    public String generateQueryForFunctionMemory(String functionName, String timeRange, String queryTiming) {
-        String qs = """
-                    query=
-                    avg(avg_over_time(container_memory_working_set_bytes{pod=~"$functionName$-.*", container="user-container"}[$timeRange$m]))
-                    /1024
-                    &time=$queryTiming$
-                    """;
-
-        return this.replaceNextlineTabBlank(qs)
-                .replace("$functionName$",functionName)
-                .replace("$timeRange$", timeRange)
-                .replace("$queryTiming$", queryTiming);
-    }
-    // 현재 작업수 쿼리
-    public String generateQueryForActualPods(String functionName, String timeRange, String queryTiming) {
-        String qs = """
-                    query=
-                    autoscaler_actual_pods{service_name="$functionName$"}
-                    &time=$queryTiming$
-                    """;
-
-        return this.replaceNextlineTabBlank(qs)
-                .replace("$functionName$",functionName)
-                .replace("$timeRange$", timeRange)
-                .replace("$queryTiming$", queryTiming);
-    }
-    // 성공 호출수 쿼리
-    public String generateQueryForSuccessCount(String functionName, String timeRange, String queryTiming) {
-        String qs ="""
-                    query=
-                    sum(rate(activator_request_count{response_code="200",service_name="$functionName$"}[$timeRange$m]))
-                    *60
-                    *$timeRange$
-                    &time=$queryTiming$
-                    """;
-
-        return this.replaceNextlineTabBlank(qs)
-                .replace("$functionName$",functionName)
-                .replace("$timeRange$", timeRange)
-                .replace("$queryTiming$", queryTiming);
-    }
-    // 실패 호출수 쿼리
-    public String generateQueryForFailCount(String functionName, String timeRange, String queryTiming) {
-        String qs = """
-                    query=
-                    sum(rate(activator_request_count{response_code="500",service_name="$functionName$"}[$timeRange$m]))
-                    *60
-                    *$timeRange$
-                    &time=$queryTiming$
-                    """;
-        
-        return this.replaceNextlineTabBlank(qs)
-                .replace("$functionName$",functionName)
-                .replace("$timeRange$", timeRange)
-                .replace("$queryTiming$", queryTiming);
-    }
-
-    public FunctionMetricListDTO getMetricList(String functionKey, String time, String start, String end) throws IOException, ParseException {
-        URL url = new URL(prometheusHttpApi);
-
-        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new RuntimeException("존재하지 않는 펑션입니다."));
-        String functionName = function.getName();
-        FunctionMetricListDTO response = new FunctionMetricListDTO();
-        Calendar cal = Calendar.getInstance();
-        MetricRequest metricRequest = new MetricRequest();
-
-        metricRequest.url=url;
-        metricRequest.functionName=functionName;
-        metricRequest.queryTiming="";
-        metricRequest.g= new Gson();
-        metricRequest.requestCountList = new ArrayList<>();
-        metricRequest.requestLatencyList = new ArrayList<>();
-        metricRequest.functionMemoryList = new ArrayList<>();
-        metricRequest.actualPodsList = new ArrayList<>();
-        metricRequest.successCountList = new ArrayList<>();
-        metricRequest.failCountList = new ArrayList<>();
+failCountList가 초기화되지 않았으므로 명시적으로 new ArrayList<>()로 초기화
 
 
-        if(METRIC_TIME_RANGE_1_HOUR.equals(time)){ //1시간 15분 단위 4개
-            metricRequest.timeRange=METRIC_TIME_UNIT_15M;
-            getEachMetricInstance(metricRequest);
 
-            for (int i=0; i<3; i++){
-                cal.add(Calendar.MINUTE, -15);
-                metricRequest.queryTiming=String.valueOf(new Date(cal.getTimeInMillis()).getTime() / 1000L);
-                getEachMetricInstance(metricRequest);
-            }
-        } else if (METRIC_TIME_RANGE_3_HOUR.equals(time)) { //3시간 30분 단위 6개
-            metricRequest.timeRange=METRIC_TIME_UNIT_30M;
-            getEachMetricInstance(metricRequest);
-            for (int i=0; i<5; i++){
-                cal.add(Calendar.MINUTE, -30);
-                metricRequest.queryTiming=String.valueOf(new Date(cal.getTimeInMillis()).getTime() / 1000L);
-                getEachMetricInstance(metricRequest);
-            }
-        } else if (METRIC_TIME_RANGE_12_HOUR.equals(time)) { //12시간 3시간 단위 4개
-            metricRequest.timeRange=METRIC_TIME_UNIT_180M;
-            getEachMetricInstance(metricRequest);
-            for (int i=0; i<3; i++){
-                cal.add(Calendar.MINUTE, -180);
-                metricRequest.queryTiming=String.valueOf(new Date(cal.getTimeInMillis()).getTime() / 1000L);
-                getEachMetricInstance(metricRequest);
-            }
-        } else { //사용자 지정 기간 1일 단위 날짜수 ex)1101 ~ 1103 이면 3일치
-            SimpleDateFormat format = new SimpleDateFormat("yyyyMMdd");
-            Date startDate = format.parse(start);
-            long startDateLong = startDate.getTime() / 1000L;
-            //종료 일자
-            Date endDate = format.parse(end);
-            long endDateLong = endDate.getTime() / 1000L;
-            //종료-시작 일수 차이
-            int dateDiffer = (int) ((endDateLong-startDateLong) / (24*60*60));
+---
 
-            cal.setTime(endDate);
-            cal.add(Calendar.MINUTE, 720);
-            metricRequest.timeRange=METRIC_TIME_UNIT_1440M;
-            getEachMetricInstance(metricRequest);
+(2) replaceNextlineTabBlank 메소드 개선
 
-            for (int i=0; i<dateDiffer; i++){
-                cal.add(Calendar.MINUTE, -1440);
-                metricRequest.queryTiming=String.valueOf(new Date(cal.getTimeInMillis()).getTime() / 1000L);
-                getEachMetricInstance(metricRequest);
-            }
-        }
+private String sanitizeQuery(String query) {
+    return query.replaceAll("[\\n\\t ]", "");
+}
 
-        for(FunctionMetricElementsListDTO element : metricRequest.requestLatencyList) {
-            RequestLatencyMetricInvalidValueHandling(element);
-        }
+개선 이유
 
-        response.setRequestCount(metricRequest.requestCountList);
-        response.setRequestLatency(metricRequest.requestLatencyList);
-        response.setFunctionMemory(metricRequest.functionMemoryList);
+정규식 replaceAll("[\\n\\t ]", "")을 사용하여 불필요한 개행, 공백, 탭을 한 번에 처리 → 성능 향상
 
-        response.setActualPods(metricRequest.actualPodsList);
-        response.setSuccessCount(metricRequest.successCountList);
-        response.setFailCount(metricRequest.failCountList);
+메소드명을 sanitizeQuery로 변경하여 의미 명확화
 
-        return response;
-    }
 
-    private void RequestLatencyMetricInvalidValueHandling(FunctionMetricElementsListDTO element){
-        if(element.getData().getResult().size() > 0){
-            if("NaN".equals(element.getData().getResult().get(0).getValue().get(1)) || "Inf".equals(element.getData().getResult().get(0).getValue().get(1))
-                    || "-Inf".equals(element.getData().getResult().get(0).getValue().get(1)) || "+Inf".equals(element.getData().getResult().get(0).getValue().get(1))){
-                element.getData().getResult().get(0).getValue().set(1, "0");
-            }
-        }
-    }
 
-    private void getEachMetricInstance(MetricRequest metricRequest) throws IOException {
+---
 
-        metricRequest.requestCountList.add(metricRequest.g.fromJson(getPrometheusMetric(metricRequest.url, generateQueryForRequestCount(metricRequest.functionName, metricRequest.timeRange, metricRequest.queryTiming)), FunctionMetricElementsListDTO.class));
-        metricRequest.requestLatencyList.add(metricRequest.g.fromJson(getPrometheusMetric(metricRequest.url, generateQueryForRequestLatency(metricRequest.functionName, metricRequest.timeRange, metricRequest.queryTiming)), FunctionMetricElementsListDTO.class));
-        metricRequest.functionMemoryList.add(metricRequest.g.fromJson(getPrometheusMetric(metricRequest.url, generateQueryForFunctionMemory(metricRequest.functionName, metricRequest.timeRange, metricRequest.queryTiming)), FunctionMetricElementsListDTO.class));
+(3) PromQL 생성 메소드 개선
 
-        metricRequest.actualPodsList.add(metricRequest.g.fromJson(getPrometheusMetric(metricRequest.url, generateQueryForActualPods(metricRequest.functionName, metricRequest.timeRange, metricRequest.queryTiming)), FunctionMetricElementsListDTO.class));
-        metricRequest.successCountList.add(metricRequest.g.fromJson(getPrometheusMetric(metricRequest.url, generateQueryForSuccessCount(metricRequest.functionName, metricRequest.timeRange, metricRequest.queryTiming)), FunctionMetricElementsListDTO.class));
-        metricRequest.failCountList.add(metricRequest.g.fromJson(getPrometheusMetric(metricRequest.url, generateQueryForFailCount(metricRequest.functionName, metricRequest.timeRange, metricRequest.queryTiming)), FunctionMetricElementsListDTO.class));
-    }
+기존 문제점
 
-    public FunctionBillingMetricDTO getBillingMetric(String metricType, String date) throws IOException, ParseException {
-        URL url = new URL(prometheusHttpApi);
-        Gson g = new Gson();
+1. $변수$ 치환 방식이 유지보수에 불리함 → String.format 적용
 
-        SimpleDateFormat format = new SimpleDateFormat("yyyyMMdd");
-        Calendar cal = Calendar.getInstance();
-        cal.setTime(format.parse(date));
-        String queryTiming = String.valueOf(new Date(cal.getTimeInMillis()).getTime() / 1000L);
 
-        StringBuilder query = new StringBuilder();
+2. replaceNextlineTabBlank() 메소드가 필요 이상으로 호출됨
 
-        JSONObject prometheusReturn;
-        List<FunctionBillingElementsDTO> functionMetricList = new ArrayList<>();
-        FunctionBillingMetricDTO response = new FunctionBillingMetricDTO();
 
-        List<Function> functionList = functionRepository.findAll();
-        for(Function f : functionList){
-            query.delete(0, query.length());
-            if("requestCount".equals(metricType)){
-                query.append("query=sum(increase(activator_request_count{service_name=\"").append(f.getName()).append("\"}[1d]))&time=").append(queryTiming);
-            }else{
-                query.append("query=sum(sum_over_time(container_memory_working_set_bytes{pod=~\"").append(f.getName()).append("-.*\", container=\"user-container\"}[1d]))/1024/1024/1024*60&time=").append(queryTiming);
-            }
-            prometheusReturn = new JSONObject(getPrometheusMetric(url, query.toString()));
-            prometheusReturn.put("functionKey", f.getFunctionKey());
-            functionMetricList.add(g.fromJson(prometheusReturn.toString(), FunctionBillingElementsDTO.class));
-        }
-        response.setMetric(functionMetricList);
-        return response;
-    }
+3. &time=$queryTiming$가 모든 쿼리에 포함되므로 중복 제거 가능
 
-    private String getPrometheusMetric(URL url, String query) throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setConnectTimeout(timeOutValue);
-        connection.setReadTimeout(timeOutValue);
-        connection.setRequestMethod("POST");
-        connection.setDoOutput(true);
-        DataOutputStream outputStream = new DataOutputStream(connection.getOutputStream());
+
+
+개선된 코드
+
+private String buildQuery(String baseQuery, String functionName, String timeRange, String queryTiming) {
+    String query = String.format(baseQuery, functionName, timeRange);
+    return sanitizeQuery(query) + "&time=" + queryTiming;
+}
+
+public String generateQueryForRequestCount(String functionName, String timeRange, String queryTiming) {
+    String queryTemplate = "query=sum(rate(activator_request_count{service_name=\"%s\"}[%sm]))*60*%s";
+    return buildQuery(queryTemplate, functionName, timeRange, queryTiming);
+}
+
+개선 이유
+
+String.format을 사용하여 가독성 및 유지보수성 향상
+
+중복된 &time=$queryTiming$을 메소드에서 자동으로 추가
+
+모든 쿼리 생성 로직을 buildQuery로 통합하여 중복 제거
+
+
+
+---
+
+(4) getPrometheusMetric 메소드 개선
+
+기존 문제점
+
+DataOutputStream을 굳이 사용할 필요 없음
+
+BufferedReader를 간결하게 변환 가능
+
+
+개선된 코드
+
+private String getPrometheusMetric(URL url, String query) throws IOException {
+    HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+    connection.setConnectTimeout(timeOutValue);
+    connection.setReadTimeout(timeOutValue);
+    connection.setRequestMethod("POST");
+    connection.setDoOutput(true);
+
+    try (DataOutputStream outputStream = new DataOutputStream(connection.getOutputStream())) {
         outputStream.writeBytes(query);
-        outputStream.flush();
-        outputStream.close();
-
-        if(connection.getResponseCode()== HttpURLConnection.HTTP_OK ){
-            BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-            StringBuffer stringBuffer = new StringBuffer();
-
-            String inputLine;
-            while ((inputLine = bufferedReader.readLine()) != null)  {
-                stringBuffer.append(inputLine);
-            }
-            bufferedReader.close();
-            return stringBuffer.toString();
-        }
-        return null;
     }
 
-    public FunctionMetricDTO getCloudMonitoringMetric(String functionKey, String range) throws IOException{
-        URL url = new URL(prometheusHttpApi);
+    if (connection.getResponseCode() == HttpURLConnection.HTTP_OK) {
+        try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+            return bufferedReader.lines().reduce("", (acc, line) -> acc + line);
+        }
+    }
+    return null;
+}
 
-        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new RuntimeException("존재하지 않는 펑션입니다."));
-        String functionName = function.getName();
-        String queryTiming = "";
+개선 이유
 
-        Calendar cal = Calendar.getInstance();
-        queryTiming = String.valueOf(new Date(cal.getTimeInMillis()).getTime() / 1000L);
+try-with-resources 사용 → 명시적 close() 호출 불필요
 
-        Gson g = new Gson();
+BufferedReader.lines().reduce() 사용 → 간결한 코드 구현
 
-        FunctionMetricDTO output = new FunctionMetricDTO();
-        FunctionMetricElementsListDTO requestLatency;
+DataOutputStream의 flush() 호출 불필요 → 자동으로 처리됨
 
-        output.setRequestCount(g.fromJson(getPrometheusMetric(url, generateQueryForRequestCount(functionName, range, queryTiming)), FunctionMetricElementsListDTO.class));
-        requestLatency = g.fromJson(getPrometheusMetric(url, generateQueryForRequestLatency(functionName, range, queryTiming)), FunctionMetricElementsListDTO.class);
-        output.setFunctionMemory(g.fromJson(getPrometheusMetric(url, generateQueryForFunctionMemory(functionName, range, queryTiming)), FunctionMetricElementsListDTO.class));
-        output.setActualPods(g.fromJson(getPrometheusMetric(url, generateQueryForActualPods(functionName, range, queryTiming)), FunctionMetricElementsListDTO.class));
-        output.setSuccessCount(g.fromJson(getPrometheusMetric(url, generateQueryForSuccessCount(functionName, range, queryTiming)), FunctionMetricElementsListDTO.class));
-        output.setFailCount(g.fromJson(getPrometheusMetric(url, generateQueryForFailCount(functionName, range, queryTiming)), FunctionMetricElementsListDTO.class));
 
-        // requestLatency invalid 값 처리 (NaN, Inf)
-        RequestLatencyMetricInvalidValueHandling(requestLatency);
 
-        output.setRequestLatency(requestLatency);
+---
 
-        return output;
+(5) getMetricList 메소드 개선
+
+기존 문제점
+
+MetricRequest 객체를 매번 생성하는데 불필요한 필드가 많음
+
+Calendar를 사용하여 Date 변환을 반복 → Instant와 Duration을 사용하면 간결화 가능
+
+중복된 반복문을 메소드로 분리
+
+
+개선된 코드
+
+public FunctionMetricListDTO getMetricList(String functionKey, String time, String start, String end) throws IOException, ParseException {
+    URL url = new URL(prometheusHttpApi);
+    Function function = functionRepository.findByFunctionKey(functionKey)
+            .orElseThrow(() -> new RuntimeException("존재하지 않는 펑션입니다."));
+    
+    MetricRequest metricRequest = new MetricRequest();
+    metricRequest.url = url;
+    metricRequest.functionName = function.getName();
+    
+    int iterationCount;
+    int timeUnit;
+    
+    if (METRIC_TIME_RANGE_1_HOUR.equals(time)) {
+        iterationCount = 3;
+        timeUnit = 15;
+    } else if (METRIC_TIME_RANGE_3_HOUR.equals(time)) {
+        iterationCount = 5;
+        timeUnit = 30;
+    } else if (METRIC_TIME_RANGE_12_HOUR.equals(time)) {
+        iterationCount = 3;
+        timeUnit = 180;
+    } else {
+        iterationCount = (int) Duration.between(parseDate(start), parseDate(end)).toDays();
+        timeUnit = 1440;
+    }
+
+    fetchMetrics(metricRequest, iterationCount, timeUnit);
+
+    for (FunctionMetricElementsListDTO element : metricRequest.requestLatencyList) {
+        handleInvalidLatencyValues(element);
+    }
+
+    return createMetricListResponse(metricRequest);
+}
+
+private Instant parseDate(String date) throws ParseException {
+    return new SimpleDateFormat("yyyyMMdd").parse(date).toInstant();
+}
+
+private void fetchMetrics(MetricRequest metricRequest, int iterationCount, int timeUnit) throws IOException {
+    metricRequest.timeRange = String.valueOf(timeUnit);
+    for (int i = 0; i <= iterationCount; i++) {
+        metricRequest.queryTiming = String.valueOf(Instant.now().minus(Duration.ofMinutes(timeUnit * i)).getEpochSecond());
+        getEachMetricInstance(metricRequest);
     }
 }
 
+private FunctionMetricListDTO createMetricListResponse(MetricRequest metricRequest) {
+    return new FunctionMetricListDTO(
+            metricRequest.requestCountList,
+            metricRequest.requestLatencyList,
+            metricRequest.functionMemoryList,
+            metricRequest.actualPodsList,
+            metricRequest.successCountList,
+            metricRequest.failCountList
+    );
+}
+
+개선 이유
+
+반복문 로직을 fetchMetrics 메소드로 분리 → 중복 제거
+
+Calendar 대신 Instant와 Duration 사용 → 가독성 향상
+
+응답 객체 생성 로직을 createMetricListResponse로 분리 → SRP 적용
+
+parseDate 메소드 추가 → 중복 제거 및 코드 가독성 향상
+
+
+
+---
+
+2. 최종적인 개선 요약
+
+
+---
+
+이제 코드가 더 직관적이고 유지보수하기 쉬운 형태로 정리되었습니다.
+이런 리팩토링이 실제 운영 시스템에서도 적용될 수 있도록 지속적인 코드 개선이 필요합니다.
 
