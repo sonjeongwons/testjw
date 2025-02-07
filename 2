@@ -1,247 +1,148 @@
-Pull Request: FunctionMetricService 리팩토링 및 코드 품질 개선
+📌 PR 코드리뷰 코멘트
 
-📌 PR 개요
-
-이번 PR에서는 FunctionMetricService 클래스의 코드 품질을 향상시키기 위해 리팩토링을 수행하였습니다.
-클린 코드 원칙 (SOLID, DRY, KISS, YAGNI) 을 적용하여 중복 제거, 가독성 향상, 성능 개선, 유지보수성 향상을 목표로 개선하였습니다.
-
-🛠 개발 내용
-
-1. 중복 코드 제거 및 공통 로직 분리
-
-PromQL을 생성하는 코드에서 공통 패턴을 추출하여 buildQuery 메소드를 도입
-
-Prometheus API 호출 코드에서 불필요한 자원 관리 및 중복 코드 제거
+팀원이 작성한 PR 코드에 대해 다양한 관점에서 코드 리뷰 코멘트를 달아보겠습니다.
+각 리뷰는 칭찬과 개선 제안을 적절히 조화하면서, 기술적 지식과 예시 코드를 포함하여 진행하겠습니다.
 
 
+---
 
-2. 불필요한 객체 및 변수 제거
+💡 getPrometheusMetric 메소드 리뷰
 
-MetricRequest 내부 클래스에서 불필요한 필드 및 초기화 코드 정리
+📝 코멘트:
 
+> 이 코드 정말 깔끔하게 잘 정리됐네요! try-with-resources를 활용해서 BufferedReader와 DataOutputStream을 안전하게 다뤄준 부분이 인상적이에요. 💯
 
+다만, 응답을 읽을 때 bufferedReader.lines().reduce("", (acc, line) -> acc + line);을 사용한 부분은 성능적으로 collect(Collectors.joining())을 활용하면 조금 더 최적화될 수 있을 것 같아요.
 
-3. 가독성 및 유지보수성 향상
+🔍 현재 코드:
 
-불필요한 replaceNextlineTabBlank 메소드 제거 및 정규식 적용
+bufferedReader.lines().reduce("", (acc, line) -> acc + line);
 
-RequestLatencyMetricInvalidValueHandling을 handleInvalidLatencyValues로 변경하여 이름을 명확화
+🔥 제안하는 코드 (더 효율적임):
 
+String response = bufferedReader.lines().collect(Collectors.joining());
 
+reduce("", (acc, line) -> acc + line);는 내부적으로 계속 문자열을 새로 생성하는 비용이 발생하지만,
+Collectors.joining()은 내부적으로 StringBuilder를 사용하여 더 효율적인 문자열 조합을 수행합니다.
 
-4. 성능 최적화
-
-BufferedReader.lines()를 활용하여 응답 처리 속도 개선
-
-Calendar 대신 Instant와 Duration을 사용하여 시간 계산 로직 단순화
-
+결론적으로 더 빠르고, 메모리 사용량도 줄일 수 있는 방법이니 한 번 고려해보시면 좋을 것 같아요! 🚀
 
 
 
 
 ---
 
-🔍 메소드별 변경점과 개선사항
+💡 buildQuery 메소드 리뷰
 
-1️⃣ MetricRequest 클래스 리팩토링
+📝 코멘트:
 
-변경 내용
+> 쿼리 문자열을 String.format()으로 정리한 방식 너무 좋아요! 😍
+가독성도 좋고, 이후 새로운 쿼리가 추가될 때 유지보수하기 쉬운 방식이라 정말 깔끔하네요.
 
-private static class MetricRequest {
-    URL url;
-    String functionName;
-    String queryTiming;
-    Gson gson = new Gson();
-    List<FunctionMetricElementsListDTO> requestCountList = new ArrayList<>();
-    List<FunctionMetricElementsListDTO> requestLatencyList = new ArrayList<>();
-    List<FunctionMetricElementsListDTO> functionMemoryList = new ArrayList<>();
-    List<FunctionMetricElementsListDTO> actualPodsList = new ArrayList<>();
-    List<FunctionMetricElementsListDTO> successCountList = new ArrayList<>();
-    List<FunctionMetricElementsListDTO> failCountList = new ArrayList<>();
-    String timeRange;
-}
+그런데 sanitizeQuery(query)를 호출하는 것 대신, buildQuery 내부에서 이미 문자열을 다듬은 상태로 반환하면 어떨까요?
 
-개선 사항
-
-내부 클래스를 static으로 선언하여 불필요한 외부 참조 방지
-
-failCountList 초기화 추가 (new ArrayList<>())
-
-Gson 객체를 필드 초기화에서 바로 생성 (gson 변수명 명확화)
-
-
-
----
-
-2️⃣ replaceNextlineTabBlank → sanitizeQuery로 변경
-
-변경 내용
-
-private String sanitizeQuery(String query) {
-    return query.replaceAll("[\\n\\t ]", "");
-}
-
-개선 사항
-
-기존 방식 (replace("\n", "").replace("\t", "").replace(" ", "")) 대신 정규식 replaceAll("[\\n\\t ]", "") 적용
-
-코드 가독성과 성능 개선
-
-메소드명을 sanitizeQuery로 변경하여 명확한 의미 전달
-
-
-
----
-
-3️⃣ PromQL 쿼리 생성 로직 개선 (buildQuery 추가)
-
-변경 내용
+🔍 현재 코드:
 
 private String buildQuery(String baseQuery, String functionName, String timeRange, String queryTiming) {
     String query = String.format(baseQuery, functionName, timeRange);
     return sanitizeQuery(query) + "&time=" + queryTiming;
 }
 
-public String generateQueryForRequestCount(String functionName, String timeRange, String queryTiming) {
-    String queryTemplate = "query=sum(rate(activator_request_count{service_name=\"%s\"}[%sm]))*60*%s";
-    return buildQuery(queryTemplate, functionName, timeRange, queryTiming);
+🔥 제안하는 코드:
+
+private String buildQuery(String baseQuery, String functionName, String timeRange, String queryTiming) {
+    return "query=" + sanitizeQuery(String.format(baseQuery, functionName, timeRange)) + "&time=" + queryTiming;
 }
 
-개선 사항
+이렇게 하면 sanitizeQuery 호출이 필요한 부분을 줄여서 쿼리 생성 과정이 더욱 직관적이 되고,
+메소드가 실제로 하는 역할이 **"쿼리 생성"**에만 집중되도록 리팩토링할 수 있어요! 🎯
 
-String.format을 사용하여 가독성 및 유지보수성 향상
-
-공통 패턴을 buildQuery로 분리하여 코드 중복 제거
-
-모든 쿼리에 반복적으로 붙던 &time=$queryTiming$을 메소드 내부에서 자동 추가
 
 
 
 ---
 
-4️⃣ Prometheus API 호출 최적화 (getPrometheusMetric 개선)
+💡 handleInvalidLatencyValues 메소드 리뷰
 
-변경 내용
+📝 코멘트:
 
-private String getPrometheusMetric(URL url, String query) throws IOException {
-    HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-    connection.setConnectTimeout(timeOutValue);
-    connection.setReadTimeout(timeOutValue);
-    connection.setRequestMethod("POST");
-    connection.setDoOutput(true);
+> 이 메소드 정말 좋은 개선이네요! "NaN", "Inf" 같은 값을 미리 리스트로 정의해서 contains()로 처리한 부분 너무 깔끔해요. 👍
 
-    try (DataOutputStream outputStream = new DataOutputStream(connection.getOutputStream())) {
-        outputStream.writeBytes(query);
-    }
+다만, 혹시나 이 값이 대소문자가 다르게 들어오는 경우도 있을까요? 🤔
+예를 들어, "nan"이나 "inf" 같은 값이 들어오면 현재 방식에서는 걸러지지 않을 수도 있어요!
 
-    if (connection.getResponseCode() == HttpURLConnection.HTTP_OK) {
-        try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
-            return bufferedReader.lines().reduce("", (acc, line) -> acc + line);
-        }
-    }
-    return null;
-}
-
-개선 사항
-
-try-with-resources 적용 → 명시적 close() 호출 불필요
-
-BufferedReader.lines().reduce()를 사용하여 간결한 코드 구현
-
-불필요한 flush() 호출 제거 → try-with-resources에서 자동 처리
-
-
-
----
-
-5️⃣ getMetricList 리팩토링
-
-변경 내용
-
-public FunctionMetricListDTO getMetricList(String functionKey, String time, String start, String end) throws IOException, ParseException {
-    URL url = new URL(prometheusHttpApi);
-    Function function = functionRepository.findByFunctionKey(functionKey)
-            .orElseThrow(() -> new RuntimeException("존재하지 않는 펑션입니다."));
-    
-    MetricRequest metricRequest = new MetricRequest();
-    metricRequest.url = url;
-    metricRequest.functionName = function.getName();
-    
-    int iterationCount;
-    int timeUnit;
-    
-    if (METRIC_TIME_RANGE_1_HOUR.equals(time)) {
-        iterationCount = 3;
-        timeUnit = 15;
-    } else if (METRIC_TIME_RANGE_3_HOUR.equals(time)) {
-        iterationCount = 5;
-        timeUnit = 30;
-    } else if (METRIC_TIME_RANGE_12_HOUR.equals(time)) {
-        iterationCount = 3;
-        timeUnit = 180;
-    } else {
-        iterationCount = (int) Duration.between(parseDate(start), parseDate(end)).toDays();
-        timeUnit = 1440;
-    }
-
-    fetchMetrics(metricRequest, iterationCount, timeUnit);
-
-    for (FunctionMetricElementsListDTO element : metricRequest.requestLatencyList) {
-        handleInvalidLatencyValues(element);
-    }
-
-    return createMetricListResponse(metricRequest);
-}
-
-개선 사항
-
-반복문 로직을 fetchMetrics 메소드로 분리 → 중복 제거
-
-Calendar 대신 Instant와 Duration 사용 → 가독성 향상
-
-응답 객체 생성 로직을 createMetricListResponse로 분리 → SRP 적용
-
-parseDate 메소드 추가 → 중복 제거 및 코드 가독성 향상
-
-
-
----
-
-6️⃣ handleInvalidLatencyValues 추가
-
-변경 내용
+간단한 개선안 제시해볼게요:
 
 private void handleInvalidLatencyValues(FunctionMetricElementsListDTO element) {
     if (element.getData().getResult().isEmpty()) {
         return;
     }
-
+    
     List<String> invalidValues = List.of("NaN", "Inf", "-Inf", "+Inf");
-    String currentValue = element.getData().getResult().get(0).getValue().get(1);
-
-    if (invalidValues.contains(currentValue)) {
+    String currentValue = element.getData().getResult().get(0).getValue().get(1).trim();
+    
+    if (invalidValues.contains(currentValue) || invalidValues.contains(currentValue.toUpperCase())) {
         element.getData().getResult().get(0).getValue().set(1, "0");
     }
 }
 
-개선 사항
+이렇게 하면 혹시라도 대소문자 이슈로 인해 누락될 가능성을 방지할 수 있어요.
+실제로 Prometheus에서 반환하는 값이 항상 대문자인지 한번 확인해보면 좋을 것 같아요! 🧐
 
-isEmpty()를 사용하여 리스트의 크기 검증 → 가독성 향상
-
-"NaN", "Inf", "-Inf", "+Inf" 값을 List.of()로 변환하여 contains() 체크 → 더 간결한 코드 작성
-
-Early Return 적용 → 불필요한 연산 방지
 
 
 
 ---
 
-🎯 기대 효과
+💡 fetchMetrics 메소드 리뷰
 
-✅ 중복 코드 제거
-✅ 가독성 및 유지보수성 향상
-✅ API 호출 최적화로 성능 개선
-✅ 리팩토링을 통해 더 안정적인 코드 구현
+📝 코멘트:
 
-이번 PR을 통해 FunctionMetricService의 품질을 개선하였으며, 이후 유지보수 비용이 절감될 것으로 기대됩니다. 🚀
+> fetchMetrics로 반복적인 메트릭 수집 로직을 따로 빼낸 점이 너무 좋네요!
+메소드가 더 읽기 쉬워지고, getMetricList의 SRP(Single Responsibility Principle, 단일 책임 원칙) 도 잘 지켜진 것 같아요! 👏
+
+하나 제안하고 싶은 부분이 있는데, queryTiming을 현재 Instant.now()에서 계산하고 있는데,
+혹시 메소드 내부에서 Instant를 매번 호출하는 대신, 기준 시간을 받아서 처리하는 방식으로 리팩토링하면 어떨까요?
+
+🔍 현재 코드:
+
+private void fetchMetrics(MetricRequest metricRequest, int iterationCount, int timeUnit) throws IOException {
+    metricRequest.timeRange = String.valueOf(timeUnit);
+    for (int i = 0; i <= iterationCount; i++) {
+        metricRequest.queryTiming = String.valueOf(Instant.now().minus(Duration.ofMinutes(timeUnit * i)).getEpochSecond());
+        getEachMetricInstance(metricRequest);
+    }
+}
+
+🔥 제안하는 코드:
+
+private void fetchMetrics(MetricRequest metricRequest, int iterationCount, int timeUnit, Instant baseTime) throws IOException {
+    metricRequest.timeRange = String.valueOf(timeUnit);
+    for (int i = 0; i <= iterationCount; i++) {
+        metricRequest.queryTiming = String.valueOf(baseTime.minus(Duration.ofMinutes(timeUnit * i)).getEpochSecond());
+        getEachMetricInstance(metricRequest);
+    }
+}
+
+그리고 getMetricList에서 fetchMetrics(metricRequest, iterationCount, timeUnit, Instant.now()) 처럼 호출하면,
+기준 시간을 한 번만 받아서 사용하므로 성능적으로 더 최적화될 수 있을 것 같아요! 🚀
+
+
+
+
+---
+
+🎯 전체적인 피드백
+
+🔥 정말 좋은 리팩토링입니다!
+이번 PR에서 코드 중복을 줄이고, 가독성을 개선하는 방향으로 리팩토링된 점이 정말 인상적이었어요.
+특히,
+✅ buildQuery를 통해 쿼리 생성 로직을 일관되게 처리한 점
+✅ fetchMetrics를 따로 분리해서 SRP 원칙을 적용한 점
+✅ handleInvalidLatencyValues를 개선해서 예외 케이스를 잘 처리한 점
+
+이 부분들은 정말 잘된 개선이라 생각합니다! 🎉
+약간의 최적화 아이디어와 사전 오류 방지를 위한 보완 아이디어를 추가적으로 제안드렸으니 참고해주시면 좋을 것 같아요! 🚀
+
+💡 좋은 코드 작성해주셔서 감사합니다! 다음 PR도 기대할게요! 😊
 
