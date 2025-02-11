@@ -1,165 +1,152 @@
-📋 PR 개요
-이번 PR에서는 FunctionEnvironmentService 클래스의 코드 품질을 향상시키기 위해 리팩토링을 수행하였습니다.
-클린 코드 원칙 (SOLID, DRY, KISS, YAGNI, SRP) 을 적용하여 중복 제거, 가독성 향상, 성능 최적화, 예외 처리 개선을 목표로 개선하였습니다.
+📌 코드리뷰 코멘트 (클린코드 & 리팩토링 관점)
+팀원이 작성한 PR 코드에 대해 칭찬과 함께 개선점을 제안하는 방식으로 여러 코멘트를 남기겠습니다.
+각 코멘트에는 기술적 설명, 개선 방법, 예제 코드를 포함하여 더욱 실용적인 피드백을 제공하겠습니다! 🚀
 
-🛠 개발 내용
-1️⃣ 코드 중복 제거 및 공통 로직 분리
-환경 변수 검증을 단일 메소드 (validateEnvironment) 로 통합하여 중복 제거
-정규식 검증을 단순화하여 코드 가독성 향상 (validateEnv 내부 개선)
-2️⃣ 불필요한 객체 및 변수 제거
-new Date(new Date().getTime() + YEAR_SIZE_100) → 불필요한 new Date() 객체 생성 제거
-Set<String>을 활용하여 반복적인 조건문을 단순화 (VALID_BOOLEAN_VALUES, VALID_PROTOCOLS 등)
-3️⃣ 가독성 및 유지보수성 향상
-switch-case를 활용한 환경 변수 검증 (validateEnvironment 추가)
-try-with-resources를 활용하여 리소스 누수 방지
-new TokenDTO.Register(function, function.getFunctionKey()) 로 직접 객체 생성하여 setter 사용 최소화
-4️⃣ 성능 최적화
-정규식 검증 최적화 (Pattern.matches() 제거, .matches() 메소드 활용)
-System.currentTimeMillis() 활용하여 불필요한 객체 생성 감소
-5️⃣ 예외 처리 개선
-RuntimeException → 보다 명확한 예외 (IllegalArgumentException, ResourceNotFoundException) 로 변경
-환경 변수 타입이 잘못된 경우 default 예외 처리 추가
-🔍 메소드별 변경점과 개선사항
-1️⃣ registerFunctionToken 개선
-🔹 기존 문제점
-불필요한 new Date() 호출
-TokenDTO.Register 객체에 setter 사용
-✅ 개선 사항
+💡 validateEnvironment 메소드 리뷰
+이 메소드에서 switch-case로 검증 로직을 통합한 점 정말 좋아요! 🎯
+기존에 개별적인 checkEnvironmentX() 메소드가 중복되면서 유지보수가 어려웠는데,
+이렇게 하나의 메소드로 통합되니까 새로운 환경 변수 타입을 추가할 때도 훨씬 수월할 것 같아요! 👏
+
+다만, switch-case 내부에서 각 케이스를 메소드로 호출하는 방식은 괜찮지만,
+enum을 활용하면 더욱 확장성이 좋아질 수 있을 것 같아요.
+
+🔍 제안하는 개선 방향:
+각 환경 변수 타입을 enum으로 관리하면, 새로운 타입 추가 시 switch-case를 직접 수정할 필요 없이,
+각 타입에 맞는 검증 로직을 enum 내부에서 처리할 수 있어요.
+
+🔥 예제 코드 (Enum 적용):
+
 java
 복사
 편집
-@Transactional
-public FunctionDTO.Response registerFunctionToken(String functionKey) throws ParseException, JOSEException {
-    Function function = functionRepository.findByFunctionKey(functionKey)
-            .orElseThrow(() -> new ResourceNotFoundException("펑션키가 존재하지 않습니다."));
+public enum EnvironmentType {
+    TOKEN(req -> validateToken(req)),
+    URL(req -> validateUrl(req)),
+    LIMIT(req -> validateLimit(req)),
+    MEMORY(req -> validateMemory(req)),
+    ENV(req -> validateEnv(req, new AtomicInteger())),
+    COLD_START(req -> validateColdStart(req));
 
-    RSAKey rsaJWK = RSAKey.parse(functionService.registerJWK(new TokenDTO.Register(function, function.getFunctionKey())));
+    private final Consumer<FunctionEnvironmentDTO.Register> validator;
 
-    SignedJWT signedJWT = createSignedJWT(
-            new JWTClaimsSet.Builder()
-                    .subject(function.getName())
-                    .issuer("https://scp.com")
-                    .expirationTime(new Date(System.currentTimeMillis() + YEAR_SIZE_100))
-                    .build(),
-            rsaJWK
-    );
+    EnvironmentType(Consumer<FunctionEnvironmentDTO.Register> validator) {
+        this.validator = validator;
+    }
 
-    function.updateToken(signedJWT.serialize());
-    return function.toDto();
+    public void validate(FunctionEnvironmentDTO.Register reqDto) {
+        validator.accept(reqDto);
+    }
 }
-✅ setter 제거, System.currentTimeMillis() 활용하여 불필요한 객체 생성 최소화
 
-2️⃣ createSignedJWT 개선
-🔹 기존 문제점
-서명 과정 (signer.sign())이 분리됨 → SRP 원칙 위배 가능성
-✅ 개선 사항
-java
-복사
-편집
-private SignedJWT createSignedJWT(JWTClaimsSet claimsSet, RSAKey rsaJWK) throws JOSEException {
-    SignedJWT signedJWT = new SignedJWT(
-            new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(rsaJWK.getKeyID()).build(),
-            claimsSet
-    );
-    signedJWT.sign(new RSASSASigner(rsaJWK));
-    return signedJWT;
-}
-✅ 객체 생성과 서명을 하나의 과정으로 통합 → 응집력 향상
-
-3️⃣ registerFunctionEnvironment 개선
-🔹 기존 문제점
-환경 변수 검증이 메소드 여러 개로 분산됨 (checkEnvironmentToken(), checkEnvironmentUrl() 등)
-✅ 개선 사항
-java
-복사
-편집
-public FunctionEnvironmentDTO.Response registerFunctionEnvironment(FunctionEnvironmentDTO.Register reqDto, Function function, AtomicInteger envCountChecker) {
-    validateEnvironment(reqDto, envCountChecker);
-    reqDto.setFunctionSeq(function.getFunctionSeq());
-    return functionEnvironmentRepository.save(FunctionEnvironment.register(reqDto)).toDto();
-}
-✅ 검증 로직을 validateEnvironment로 통합하여 중복 제거
-
-4️⃣ validateEnvironment 추가
-🔹 기존 문제점
-검증 메소드가 개별적으로 존재하여 중복 코드 발생, 유지보수 어려움
-새로운 환경 변수 타입 추가 시 여러 메소드 수정 필요
-✅ 개선 사항
-java
-복사
-편집
+// validateEnvironment 메소드에서 enum 활용
 private static void validateEnvironment(FunctionEnvironmentDTO.Register reqDto, AtomicInteger envCountChecker) {
-    switch (reqDto.getType()) {
-        case "token":
-            validateToken(reqDto);
-            break;
-        case "url":
-            validateUrl(reqDto);
-            break;
-        case "limit":
-            validateLimit(reqDto);
-            break;
-        case "memory":
-            validateMemory(reqDto);
-            break;
-        case "env":
-            validateEnv(reqDto, envCountChecker);
-            break;
-        case "coldStartYn":
-            validateColdStart(reqDto);
-            break;
-        default:
-            throw new IllegalArgumentException("유효하지 않은 환경 변수 타입입니다.");
-    }
+    EnvironmentType type = EnvironmentType.valueOf(reqDto.getType().toUpperCase());
+    type.validate(reqDto);
 }
-✅ 단일 메소드에서 환경 변수 검증을 처리 → 새로운 타입 추가 시 유지보수 용이
+이렇게 하면, 새로운 환경 변수 타입을 추가할 때 enum에만 정의하면 되고,
+switch-case가 필요 없어져서 유지보수성이 더 향상됩니다! 🚀
+현재 방식도 깔끔하지만, 추후 확장성을 고려했을 때 enum을 활용하는 것도 고려해보면 좋을 것 같아요!
 
-5️⃣ validateToken 개선
-🔹 기존 문제점
-"Y", "N" 값을 직접 비교 → Set<String> 사용 가능
-✅ 개선 사항
+💡 validateEnv 메소드 리뷰
+환경 변수 검증 로직이 깔끔하게 정리된 점 정말 좋네요! 💯
+특히, 정규식을 활용해서 허용되는 문자만 필터링한 점이 인상적이에요.
+
+여기서 한 가지 개선하면 더 좋을 부분이 있습니다.
+현재 정규식을 "^[a-zA-Z_][a-zA-Z0-9._-]*$"로 사용하고 있는데,
+숫자로 시작할 수 없도록 하는 검증을 정규식 안에서 해결할 수도 있어요.
+
+🔍 제안하는 개선 방향:
+현재는 if (!reqDto.getKey().matches("^[a-zA-Z_][a-zA-Z0-9._-]*$")) 이 부분과
+if (Pattern.matches("^[\\d]$", reqDto.getKey().substring(0, 1))) 이 부분이
+동일한 검증을 중복 수행하고 있어요.
+
+정규식만으로도 숫자로 시작하는 키를 방지할 수 있으므로, 하나로 통합하면 더 깔끔해집니다!
+
+🔥 제안하는 코드 (정규식 단순화):
+
 java
 복사
 편집
-private static void validateToken(FunctionEnvironmentDTO.Register reqDto) {
-    if (!VALID_BOOLEAN_VALUES.contains(reqDto.getValue())) {
-        throw new IllegalArgumentException("토큰사용여부 값은 Y 또는 N이어야 합니다.");
-    }
-    if ("Y".equals(reqDto.getValue()) && StringUtils.isEmpty(reqDto.getKey())) {
-        throw new IllegalArgumentException("토큰 값이 Y인 경우 키를 입력해야 합니다.");
-    }
-    if ("N".equals(reqDto.getValue()) && StringUtils.isNotEmpty(reqDto.getKey())) {
-        throw new IllegalArgumentException("토큰 값이 N인 경우 키를 입력할 수 없습니다.");
-    }
-}
-✅ Set<String>을 사용하여 비교 연산 최적화
+private static final Pattern ENV_KEY_PATTERN = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9._-]*$");
 
-6️⃣ validateEnv 개선
-🔹 기존 문제점
-정규식 검증을 중복해서 수행 (Pattern.matches() 호출 여러 번)
-✅ 개선 사항
-java
-복사
-편집
 private static void validateEnv(FunctionEnvironmentDTO.Register reqDto, AtomicInteger envCountChecker) {
     envCountChecker.incrementAndGet();
     if (StringUtils.isEmpty(reqDto.getKey()) || reqDto.getKey().contains(" ")) {
         throw new IllegalArgumentException("환경변수의 키는 공백일 수 없습니다.");
     }
-    if (!reqDto.getKey().matches("^[a-zA-Z_][a-zA-Z0-9._-]*$")) {
+    if (!ENV_KEY_PATTERN.matcher(reqDto.getKey()).matches()) {
         throw new IllegalArgumentException("환경변수 키는 영문, 숫자, 특수문자 . _ - 만 사용할 수 있습니다.");
     }
     if (reqDto.getKey().length() > MAX_KEY_LENGTH) {
         throw new IllegalArgumentException("환경변수 키는 최대 50자까지 가능합니다.");
     }
-    if (StringUtils.isNotEmpty(reqDto.getValue()) && reqDto.getValue().length() > MAX_VALUE_LENGTH) {
-        throw new IllegalArgumentException("환경변수 값은 최대 50자까지 가능합니다.");
+}
+이렇게 하면 중복된 검증 로직이 제거되고, 정규식 패턴이 재사용 가능해집니다! 🚀
+
+💡 createSignedJWT 메소드 리뷰
+JWT 생성 메소드가 정말 깔끔하게 정리되었네요!
+기존에는 sign() 호출이 별도로 떨어져 있었는데,
+객체 생성과 서명을 함께 수행하도록 묶어서 응집도를 높인 점이 좋습니다! 🎯
+
+그런데, 혹시 예외 처리를 좀 더 명확하게 하면 어떨까요?
+현재 throws JOSEException 으로 예외를 던지고 있는데,
+JWT 서명 과정에서 발생하는 예외가 그대로 호출한 메소드로 전파되면
+어떤 문제가 발생했는지 명확하지 않을 수도 있어요.
+
+🔍 제안하는 개선 방향:
+예외를 RuntimeException으로 감싸서 좀 더 명확한 메시지를 던지도록 변경하면 어떨까요?
+
+🔥 예제 코드 (예외 감싸기):
+
+java
+복사
+편집
+private SignedJWT createSignedJWT(JWTClaimsSet claimsSet, RSAKey rsaJWK) {
+    try {
+        SignedJWT signedJWT = new SignedJWT(
+                new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(rsaJWK.getKeyID()).build(),
+                claimsSet
+        );
+        signedJWT.sign(new RSASSASigner(rsaJWK));
+        return signedJWT;
+    } catch (JOSEException e) {
+        throw new RuntimeException("JWT 서명 과정에서 오류가 발생했습니다.", e);
     }
 }
-✅ 정규식 검증을 한 줄로 단순화하여 성능 향상
+이렇게 하면, JWT 서명에서 발생하는 예외를 좀 더 구체적인 메시지로 처리할 수 있고,
+로그에 예외 정보를 남길 때도 더 직관적인 정보가 출력됩니다! 🚀
 
-🎯 기대 효과
-✅ 중복 코드 제거 → 유지보수성 향상
-✅ 환경 변수 검증 로직 통합 → 코드 가독성 및 확장성 개선
-✅ 정규식 최적화 → 성능 향상
-✅ 일관된 예외 처리 적용 → 오류 방지 강화
+💡 registerFunctionEnvironment 메소드 리뷰
+환경 변수 등록 메소드가 전체적으로 잘 리팩토링되었네요!
+특히, 환경 변수 검증을 validateEnvironment 하나의 메소드로 정리한 점이 정말 좋습니다. 👏
+
+하지만, 혹시 envCountChecker가 AtomicInteger로 선언된 이유가 있을까요? 🤔
+envCountChecker.incrementAndGet()을 단일 스레드 환경에서 사용하고 있어서
+굳이 AtomicInteger를 사용할 필요가 없어 보입니다.
+
+🔍 제안하는 개선 방향:
+int 타입으로 변경하면 불필요한 객체 생성 비용을 줄일 수 있습니다!
+
+🔥 예제 코드 (int 타입으로 변경):
+
+java
+복사
+편집
+public FunctionEnvironmentDTO.Response registerFunctionEnvironment(FunctionEnvironmentDTO.Register reqDto, Function function, int envCount) {
+    validateEnvironment(reqDto, envCount);
+    reqDto.setFunctionSeq(function.getFunctionSeq());
+    return functionEnvironmentRepository.save(FunctionEnvironment.register(reqDto)).toDto();
+}
+혹시 멀티스레드 환경에서 공유되는 값이라면 AtomicInteger가 필요하지만,
+단순히 개수를 세는 용도라면 int 타입이 더 적절할 것 같습니다! 🚀
+
+🎯 전체적인 피드백
+🔥 리팩토링이 정말 잘 진행된 코드입니다!
+특히,
+✅ 환경 변수 검증을 단일 메소드로 정리한 점
+✅ 정규식 활용을 통한 코드 간결화
+✅ JWT 서명 과정의 코드 응집력 향상
+
+이 부분들이 정말 인상적이었습니다! 🎉
+위에 제안한 작은 최적화 포인트들도 고려해보시면 코드가 더욱 완성도 높아질 것 같아요.
+좋은 코드 작성해주셔서 감사합니다! 다음 PR도 기대할게요! 🚀🔥
