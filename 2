@@ -1,148 +1,254 @@
-📌 PR 코드리뷰 코멘트
+package com.scf.manager.mvc.service;
 
-팀원이 작성한 PR 코드에 대해 다양한 관점에서 코드 리뷰 코멘트를 달아보겠습니다.
-각 리뷰는 칭찬과 개선 제안을 적절히 조화하면서, 기술적 지식과 예시 코드를 포함하여 진행하겠습니다.
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.JWSSigner;
+import com.nimbusds.jose.crypto.RSASSASigner;
+import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
+import com.scf.manager.common.enums.TypeEnums;
+import com.scf.manager.common.exception.ResourceNotFoundException;
+import com.scf.manager.common.util.UrlUtil;
+import com.scf.manager.mvc.domain.Function;
+import com.scf.manager.mvc.domain.FunctionEnvironment;
+import com.scf.manager.mvc.dto.FunctionDTO;
+import com.scf.manager.mvc.dto.FunctionEnvironmentDTO;
+import com.scf.manager.mvc.dto.TokenDTO;
+import com.scf.manager.mvc.dto.UrlDTO;
+import com.scf.manager.mvc.repository.FunctionEnvironmentRepository;
+import com.scf.manager.mvc.repository.FunctionRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.builder.CompareToBuilder;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.text.ParseException;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
----
+@Slf4j
+@org.springframework.stereotype.Service
+@RequiredArgsConstructor
+public class FunctionEnvironmentService {
+    private static final long YEAR_SIZE_100 = 60L * 1000 * 60 * 24 * 365 * 100;
+    private static final int MAX_ENV_COUNT = 50;
+    private static final int MIN_MEMORY_VALUE = 128;
 
-💡 getPrometheusMetric 메소드 리뷰
+    private static final int MAX_KEY_LENGTH = 50;
+    private static final int MAX_VALUE_LENGTH = 50;
 
-📝 코멘트:
+    private final FunctionRepository functionRepository;
+    private final FunctionEnvironmentRepository functionEnvironmentRepository;
+    private final FunctionService functionService;
+    private final KnativeService knativeService;
 
-> 이 코드 정말 깔끔하게 잘 정리됐네요! try-with-resources를 활용해서 BufferedReader와 DataOutputStream을 안전하게 다뤄준 부분이 인상적이에요. 💯
+    @Transactional
+    public FunctionDTO.Response registerFunctionToken(String functionKey) throws ParseException, JOSEException {
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("펑션키가 존재하지않습니다."));
 
-다만, 응답을 읽을 때 bufferedReader.lines().reduce("", (acc, line) -> acc + line);을 사용한 부분은 성능적으로 collect(Collectors.joining())을 활용하면 조금 더 최적화될 수 있을 것 같아요.
+        TokenDTO.Register reqDto = new TokenDTO.Register();
+        reqDto.setFunction(function);
+        reqDto.setKeyId(function.getFunctionKey());
 
-🔍 현재 코드:
+        RSAKey rsaJWK = RSAKey.parse(functionService.registerJWK(reqDto));
 
-bufferedReader.lines().reduce("", (acc, line) -> acc + line);
+        JWTClaimsSet claimsSet = new JWTClaimsSet.Builder()
+                .subject(function.getName())
+                .issuer("https://scp.com")
+                .expirationTime(new Date(new Date().getTime() + YEAR_SIZE_100))
+                .build();
 
-🔥 제안하는 코드 (더 효율적임):
+        SignedJWT signedJWT = createSignedJWT(claimsSet, rsaJWK);
+        String token = signedJWT.serialize();
+        function.updateToken(token);
 
-String response = bufferedReader.lines().collect(Collectors.joining());
-
-reduce("", (acc, line) -> acc + line);는 내부적으로 계속 문자열을 새로 생성하는 비용이 발생하지만,
-Collectors.joining()은 내부적으로 StringBuilder를 사용하여 더 효율적인 문자열 조합을 수행합니다.
-
-결론적으로 더 빠르고, 메모리 사용량도 줄일 수 있는 방법이니 한 번 고려해보시면 좋을 것 같아요! 🚀
-
-
-
-
----
-
-💡 buildQuery 메소드 리뷰
-
-📝 코멘트:
-
-> 쿼리 문자열을 String.format()으로 정리한 방식 너무 좋아요! 😍
-가독성도 좋고, 이후 새로운 쿼리가 추가될 때 유지보수하기 쉬운 방식이라 정말 깔끔하네요.
-
-그런데 sanitizeQuery(query)를 호출하는 것 대신, buildQuery 내부에서 이미 문자열을 다듬은 상태로 반환하면 어떨까요?
-
-🔍 현재 코드:
-
-private String buildQuery(String baseQuery, String functionName, String timeRange, String queryTiming) {
-    String query = String.format(baseQuery, functionName, timeRange);
-    return sanitizeQuery(query) + "&time=" + queryTiming;
-}
-
-🔥 제안하는 코드:
-
-private String buildQuery(String baseQuery, String functionName, String timeRange, String queryTiming) {
-    return "query=" + sanitizeQuery(String.format(baseQuery, functionName, timeRange)) + "&time=" + queryTiming;
-}
-
-이렇게 하면 sanitizeQuery 호출이 필요한 부분을 줄여서 쿼리 생성 과정이 더욱 직관적이 되고,
-메소드가 실제로 하는 역할이 **"쿼리 생성"**에만 집중되도록 리팩토링할 수 있어요! 🎯
-
-
-
-
----
-
-💡 handleInvalidLatencyValues 메소드 리뷰
-
-📝 코멘트:
-
-> 이 메소드 정말 좋은 개선이네요! "NaN", "Inf" 같은 값을 미리 리스트로 정의해서 contains()로 처리한 부분 너무 깔끔해요. 👍
-
-다만, 혹시나 이 값이 대소문자가 다르게 들어오는 경우도 있을까요? 🤔
-예를 들어, "nan"이나 "inf" 같은 값이 들어오면 현재 방식에서는 걸러지지 않을 수도 있어요!
-
-간단한 개선안 제시해볼게요:
-
-private void handleInvalidLatencyValues(FunctionMetricElementsListDTO element) {
-    if (element.getData().getResult().isEmpty()) {
-        return;
+        return function.toDto();
     }
-    
-    List<String> invalidValues = List.of("NaN", "Inf", "-Inf", "+Inf");
-    String currentValue = element.getData().getResult().get(0).getValue().get(1).trim();
-    
-    if (invalidValues.contains(currentValue) || invalidValues.contains(currentValue.toUpperCase())) {
-        element.getData().getResult().get(0).getValue().set(1, "0");
+
+    private SignedJWT createSignedJWT(JWTClaimsSet claimsSet, RSAKey rsaJWK) throws JOSEException {
+        JWSSigner signer = new RSASSASigner(rsaJWK);
+
+        SignedJWT signedJWT = new SignedJWT(
+                new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(rsaJWK.getKeyID()).build(),
+                claimsSet);
+        // Compute the RSA signature
+        signedJWT.sign(signer);
+
+        return signedJWT;
+    }
+
+    public FunctionEnvironmentDTO.Response registerFunctionEnvironment(FunctionEnvironmentDTO.Register reqDto, Function function,AtomicInteger envCountChecker) {
+
+        checkEnvironmentColdStart(reqDto);
+        checkEnvironmentEnv(reqDto, envCountChecker);
+        checkEnvironmentMemory(reqDto);
+        checkEnvironmentLimit(reqDto);
+        checkEnvironmentUrl(reqDto);
+        checkEnvironmentToken(reqDto);
+
+        reqDto.setFunctionSeq(function.getFunctionSeq());
+        FunctionEnvironment functionEnvironment = functionEnvironmentRepository.save(FunctionEnvironment.register(reqDto));
+
+        return functionEnvironment.toDto();
+    }
+
+    private static void checkEnvironmentToken(FunctionEnvironmentDTO.Register reqDto) {
+        if ("token".equals(reqDto.getType())) {
+            if("Y".equals(reqDto.getValue()) && StringUtils.isEmpty(reqDto.getKey())){
+                throw new RuntimeException("토큰값이 Y 인경우 키를 입력해주십시오.");
+            }
+
+            if("N".equals(reqDto.getValue()) && StringUtils.isNotEmpty(reqDto.getKey())){
+                throw new RuntimeException("토큰값이 N 인경우 키를 입력할 수 없습니다.");
+            }
+
+            if(!"Y".equals(reqDto.getValue()) && !"N".equals(reqDto.getValue())) {
+                throw new RuntimeException("토큰사용여부 값을 확인해주십시오.");
+            }
+        }
+    }
+
+    private static void checkEnvironmentUrl(FunctionEnvironmentDTO.Register reqDto) {
+        if ("url".equals(reqDto.getType())) {
+            if (!"http".equals(reqDto.getKey()) && !"https".equals(reqDto.getKey()))
+                throw new RuntimeException("키의 허용값은 http 또는 https 입니다.");
+            if (StringUtils.isEmpty(reqDto.getValue())) throw new RuntimeException("함수 주소값이 입력되지않았습니다.");
+        }
+    }
+
+    private static void checkEnvironmentLimit(FunctionEnvironmentDTO.Register reqDto) {
+        if ("limit".equals(reqDto.getType())) {
+            if (!"minute".equals(reqDto.getKey()) && !"second".equals(reqDto.getKey()))
+                throw new RuntimeException("제한시간의 key는 minute 과 second 로 입력해야합니다.");
+            if (!StringUtils.isNumeric(reqDto.getValue())) throw new RuntimeException("제한시간을 숫자타입으로 입력해주세요.");
+        }
+    }
+
+    private static void checkEnvironmentMemory(FunctionEnvironmentDTO.Register reqDto) {
+        if ("memory".equals(reqDto.getType())) {
+            if (!StringUtils.isNumeric(reqDto.getValue())) throw new RuntimeException("메모리의 값을 숫자타입으로 입력해주십시오.");
+            if (Integer.parseInt(reqDto.getValue()) < MIN_MEMORY_VALUE) {
+                throw new RuntimeException("메모리의 값을 128이상 입력해주십시오");
+            }
+        }
+    }
+
+    private static void checkEnvironmentEnv(FunctionEnvironmentDTO.Register reqDto, AtomicInteger envCountChecker) {
+        if ("env".equals(reqDto.getType())) {
+            envCountChecker.getAndIncrement();
+            log.info("envCountChecker = " + envCountChecker);
+            if (StringUtils.isEmpty(reqDto.getKey())) {
+                throw new RuntimeException("환경변수의 키는 공백일 수 없습니다.");
+            }
+            if(reqDto.getKey().contains(" ")){
+                throw new RuntimeException("환경변수의 키는 공백을 포함할 수 없습니다.");
+            }
+            String first = reqDto.getKey().substring(0,1);
+
+            if (Pattern.matches("^[\\d]$", first)) {
+                throw new RuntimeException("환경변수의 키는 숫자로 시작할 수 없습니다.");
+            }
+            if(!Pattern.matches("^[a-zA-Z0-9._-]*$", reqDto.getKey())){
+                throw new RuntimeException("환경변수는 영문 a-z,A-Z, 숫자0-9, 특수문자._- 만 입력할 수 있습니다.");
+            }
+
+            if(reqDto.getKey().length() > MAX_KEY_LENGTH){
+                throw new RuntimeException("키의 길이는 50자를 넘을수 없습니다.");
+            }
+            if(StringUtils.isNotEmpty(reqDto.getValue()) && reqDto.getValue().length()>MAX_VALUE_LENGTH){
+                throw new RuntimeException("value 의 길이는 50자를 넘을수 없습니다.");
+            }
+        }
+    }
+
+    private static void checkEnvironmentColdStart(FunctionEnvironmentDTO.Register reqDto) {
+        if ("coldStartYn".equals(reqDto.getType())) {
+            if (!"Y".equals(reqDto.getValue()) && !"N".equals(reqDto.getValue()))
+                throw new RuntimeException("콜드스타트여부는 Y 또는 N으로 입력해주세요");
+        }
+    }
+
+
+    @Transactional
+    public List<FunctionEnvironmentDTO.Response> registerAll(List<FunctionEnvironmentDTO.Register> reqDto, String functionKey) throws IOException, ParseException {
+        // id가 update ,없으면 insert
+        // update시 변경여부가 있는체크해야함.
+        // 기존 구성과 전체 내역을 비교해서 변경건이 있는지를 체크해야함
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new RuntimeException("펑션키를 입력해주세요"));
+        List<FunctionEnvironment> functions = functionEnvironmentRepository.findByFunction(function);
+
+        List<FunctionEnvironmentDTO.Register> dbItems = functions.stream().map(f -> FunctionEnvironmentDTO.Register.builder().key(f.getKey()).value(f.getValue()).type(f.getType()).functionSeq(function.getFunctionSeq()).build()).collect(Collectors.toList());
+        //화면에서는 url값 따로 안넘겨줌. #신승훈프로와 협의
+        List<UrlDTO> urlDTOs = UrlUtil.generateUrl(function.getName(), function.getRegion(),"none");
+        urlDTOs.stream().forEach(urlDTO -> reqDto.add(FunctionEnvironmentDTO.Register.builder().type("url").key(urlDTO.getProtocol()).value(urlDTO.getUrl()).build()));
+
+        sortFunctionEnvironment(reqDto);
+        sortFunctionEnvironment(dbItems);
+
+        if (checkEnvironmentKeyValueUpdate(reqDto, dbItems)) {
+            functionEnvironmentRepository.deleteByFunction(function);
+            AtomicInteger counter = new AtomicInteger(0);
+
+
+            reqDto.stream().forEach(dto -> registerFunctionEnvironment(dto, function,counter));
+            if(counter.get() > MAX_ENV_COUNT) {
+                throw new RuntimeException("환경변수는 50개를 초과할 수 없습니다.");
+            }
+
+            //20240827. gyeongyeol
+            //구성 수정 시에도 ksvc가 만들어져야함. 단 READY 상태가 아니라면 만들어지면 안됨.
+            // 함수 재배포 시, 함수 상태를 다시 DEPLOYING으로 업데이트
+            if(function.isReady()) {
+                function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
+                functionRepository.save(function);
+                // 환경 변수 적용에 따른 함수 재배포
+                knativeService.callIstioAndKnative(function);
+            }
+        }
+
+        functions = functionEnvironmentRepository.findByFunction(function);
+
+        return functions.stream().map(FunctionEnvironment::toDto).collect(Collectors.toList());
+    }
+
+    private boolean checkEnvironmentKeyValueUpdate(List<FunctionEnvironmentDTO.Register> reqItems, List<FunctionEnvironmentDTO.Register> dbItems) {
+        if (reqItems.size() != dbItems.size()) {
+            return true;
+        }
+
+        for (int i = 0; i < reqItems.size(); i++) {
+            if (!StringUtils.equals(reqItems.get(i).getType(), dbItems.get(i).getType()) ||
+                    !StringUtils.equals(reqItems.get(i).getKey(), dbItems.get(i).getKey())||
+                    !StringUtils.equals(reqItems.get(i).getValue(), dbItems.get(i).getValue())
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+    private void sortFunctionEnvironment(List<FunctionEnvironmentDTO.Register> items) {
+        Collections.sort(items, new Comparator<FunctionEnvironmentDTO.Register>() {
+            @Override
+            public int compare(FunctionEnvironmentDTO.Register p1, FunctionEnvironmentDTO.Register p2) {
+                return new CompareToBuilder().append(p1.getType(), p2.getType()).append(p1.getKey(), p2.getKey()).append(p1.getValue(), p2.getValue()).toComparison();
+            }
+        });
+    }
+
+    public List<FunctionEnvironmentDTO.Response> searchFunctionEnvironment(String functionKey) {
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new RuntimeException("펑션키를 입력해주세요"));
+        List<FunctionEnvironment> environments = functionEnvironmentRepository.findByFunction(function);
+        return environments.stream().map(FunctionEnvironment::toDto).collect(Collectors.toList());
     }
 }
-
-이렇게 하면 혹시라도 대소문자 이슈로 인해 누락될 가능성을 방지할 수 있어요.
-실제로 Prometheus에서 반환하는 값이 항상 대문자인지 한번 확인해보면 좋을 것 같아요! 🧐
-
-
-
-
----
-
-💡 fetchMetrics 메소드 리뷰
-
-📝 코멘트:
-
-> fetchMetrics로 반복적인 메트릭 수집 로직을 따로 빼낸 점이 너무 좋네요!
-메소드가 더 읽기 쉬워지고, getMetricList의 SRP(Single Responsibility Principle, 단일 책임 원칙) 도 잘 지켜진 것 같아요! 👏
-
-하나 제안하고 싶은 부분이 있는데, queryTiming을 현재 Instant.now()에서 계산하고 있는데,
-혹시 메소드 내부에서 Instant를 매번 호출하는 대신, 기준 시간을 받아서 처리하는 방식으로 리팩토링하면 어떨까요?
-
-🔍 현재 코드:
-
-private void fetchMetrics(MetricRequest metricRequest, int iterationCount, int timeUnit) throws IOException {
-    metricRequest.timeRange = String.valueOf(timeUnit);
-    for (int i = 0; i <= iterationCount; i++) {
-        metricRequest.queryTiming = String.valueOf(Instant.now().minus(Duration.ofMinutes(timeUnit * i)).getEpochSecond());
-        getEachMetricInstance(metricRequest);
-    }
-}
-
-🔥 제안하는 코드:
-
-private void fetchMetrics(MetricRequest metricRequest, int iterationCount, int timeUnit, Instant baseTime) throws IOException {
-    metricRequest.timeRange = String.valueOf(timeUnit);
-    for (int i = 0; i <= iterationCount; i++) {
-        metricRequest.queryTiming = String.valueOf(baseTime.minus(Duration.ofMinutes(timeUnit * i)).getEpochSecond());
-        getEachMetricInstance(metricRequest);
-    }
-}
-
-그리고 getMetricList에서 fetchMetrics(metricRequest, iterationCount, timeUnit, Instant.now()) 처럼 호출하면,
-기준 시간을 한 번만 받아서 사용하므로 성능적으로 더 최적화될 수 있을 것 같아요! 🚀
-
-
-
-
----
-
-🎯 전체적인 피드백
-
-🔥 정말 좋은 리팩토링입니다!
-이번 PR에서 코드 중복을 줄이고, 가독성을 개선하는 방향으로 리팩토링된 점이 정말 인상적이었어요.
-특히,
-✅ buildQuery를 통해 쿼리 생성 로직을 일관되게 처리한 점
-✅ fetchMetrics를 따로 분리해서 SRP 원칙을 적용한 점
-✅ handleInvalidLatencyValues를 개선해서 예외 케이스를 잘 처리한 점
-
-이 부분들은 정말 잘된 개선이라 생각합니다! 🎉
-약간의 최적화 아이디어와 사전 오류 방지를 위한 보완 아이디어를 추가적으로 제안드렸으니 참고해주시면 좋을 것 같아요! 🚀
-
-💡 좋은 코드 작성해주셔서 감사합니다! 다음 PR도 기대할게요! 😊
-
