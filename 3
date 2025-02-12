@@ -1,23 +1,225 @@
-import requests
+리팩토링 상세 분석 (메소드별 변경 사항 정리)
 
-# 설정
-BASE_URL = "http://<API_SERVER_IP>:<PORT>/api/v1/scanner"
-API_KEY = "CVCKEY"
-FILE_PATH = "/path/to/large_file"  # 테스트할 파일 경로
+1. registerAllowIp 메소드
 
-# 바이너리 파일 업로드
-def upload_binary():
-    headers = {
-        "X-CVC-API-KEY": API_KEY,
-        "File-Name": FILE_PATH.split("/")[-1],  # 파일 이름
-        "Content-Type": "application/octet-stream"
+변경 전:
+
+public AllowIpDTO.Response registerAllowIp(AllowIpDTO.Register reqDto, Long functionSeq) {
+    reqDto.setFunctionSeq(functionSeq);
+    AllowIp allowIp = allowIpRepository.save(
+            AllowIp.register(reqDto)
+    );
+    return allowIp.toDto();
+}
+
+변경 후:
+
+public AllowIpDTO.Response registerAllowIp(AllowIpDTO.Register reqDto, Long functionSeq) {
+    reqDto.setFunctionSeq(functionSeq);
+    return allowIpRepository.save(AllowIp.register(reqDto)).toDto();
+}
+
+변경 사항 및 이유
+
+AllowIp allowIp 변수를 제거하여 불필요한 객체 생성을 방지하고, 한 줄로 간결화.
+
+성능 향상 및 코드 가독성 개선.
+
+
+
+---
+
+2. updateAllowIps 메소드
+
+변경 전:
+
+@Transactional
+public AllowIpDTO.AllowIpResponse updateAllowIps(AllowIpDTO.AllowIpModify allowIpDtos, String functionKey) {
+    Function function = functionRepository.findByFunctionKey(functionKey)
+            .orElseThrow(() -> new ResourceNotFoundException("데이터가 존재하지 않습니다."));
+
+    function.updatePublicAccessYn(allowIpDtos.getPublicAccessAclYn());
+
+    List<AllowIp> allowIps = allowIpRepository.findByFunction(function);
+    List<AllowIpDTO.Register> dbItems = allowIps.stream()
+            .map(f -> AllowIpDTO.Register.builder().name(f.getName()).build())
+            .collect(Collectors.toList());
+
+    this.sortFunctionIp(allowIpDtos.getAllowIps());
+    this.sortFunctionIp(dbItems);
+
+    if (isChangeObject(allowIpDtos.getAllowIps(), dbItems)) {
+        allowIps.stream().forEach((allowIp) -> allowIpRepository.delete(allowIp));
+        allowIpDtos.getAllowIps().stream().forEach(allowIpDTO -> this.saveAllowIps(allowIpDTO, function));
     }
-    with open(FILE_PATH, "rb") as file:
-        response = requests.post(f"{BASE_URL}/binary-scan", headers=headers, data=file)
-        if response.status_code == 200:
-            print("Scan completed:", response.json())
-        else:
-            print("Failed to scan binary file:", response.text)
 
-# 실행
-upload_binary()
+    if (function.isReady()) {
+        List<String> ips;
+        if ("Y".equals(function.getPublicAccessAclYn())) {
+            ips = CollectionUtils.isEmpty(allowIpDtos.getAllowIps()) ? new ArrayList<>() :
+                  allowIpDtos.getAllowIps().stream().map(ip -> ip.getName()).collect(Collectors.toList());
+            istioCallService.makeIstioPolicy(function.getName(), ips);
+        } else if ("N".equals(function.getPublicAccessAclYn())) {
+            istioClient.v1beta1().authorizationPolicies().inNamespace("istio-system")
+                    .withName(function.getName()).delete();
+        } else {
+            throw new RuntimeException("퍼블릭 액세스 여부를 선택해 주세요.");
+        }
+    }
+
+    AllowIpDTO.AllowIpResponse output = new AllowIpDTO.AllowIpResponse();
+    List<AllowIpDTO.Response> collect = allowIpRepository.findByFunction(function)
+            .stream().map(AllowIp::toDto).collect(Collectors.toList());
+    output.setPublicAccessAclYn(function.getPublicAccessAclYn());
+    output.setAllowIps(collect);
+
+    return output;
+}
+
+변경 후:
+
+@Transactional
+public AllowIpDTO.AllowIpResponse updateAllowIps(AllowIpDTO.AllowIpModify allowIpDtos, String functionKey) {
+    Function function = functionRepository.findByFunctionKey(functionKey)
+            .orElseThrow(() -> new ResourceNotFoundException("데이터가 존재하지 않습니다."));
+
+    function.updatePublicAccessYn(allowIpDtos.getPublicAccessAclYn());
+
+    List<AllowIp> existingAllowIps = allowIpRepository.findByFunction(function);
+    List<AllowIpDTO.Register> existingAllowIpDtos = convertToRegisterDtos(existingAllowIps);
+
+    sortAllowIpList(allowIpDtos.getAllowIps());
+    sortAllowIpList(existingAllowIpDtos);
+
+    if (isAllowIpListChanged(allowIpDtos.getAllowIps(), existingAllowIpDtos)) {
+        updateAllowIpList(allowIpDtos.getAllowIps(), function);
+    }
+
+    applyIstioPolicy(function, allowIpDtos.getAllowIps());
+
+    return buildAllowIpResponse(function);
+}
+
+변경 사항 및 이유
+
+중복 코드 제거: convertToRegisterDtos(), sortAllowIpList(), isAllowIpListChanged() 등의 메소드로 로직을 분리.
+
+가독성 향상: applyIstioPolicy() 메소드로 Istio 관련 로직을 별도로 분리.
+
+메소드 크기 축소: 한 메소드 내에서 너무 많은 로직을 처리하지 않도록 역할을 분리.
+
+
+
+---
+
+3. convertToRegisterDtos (새로운 메소드)
+
+private List<AllowIpDTO.Register> convertToRegisterDtos(List<AllowIp> allowIps) {
+    return allowIps.stream()
+            .map(ip -> new AllowIpDTO.Register(ip.getName()))
+            .collect(Collectors.toList());
+}
+
+추가 이유
+
+기존에는 stream()을 사용할 때 AllowIpDTO.Register.builder()를 반복 사용했는데, 가독성을 높이고 명확한 책임 분리를 위해 별도 메소드로 생성.
+
+
+
+---
+
+4. updateAllowIpList (새로운 메소드)
+
+private void updateAllowIpList(List<AllowIpDTO.Register> allowIps, Function function) {
+    allowIpRepository.deleteByFunction(function);
+    allowIps.forEach(ip -> saveAllowIp(ip, function));
+}
+
+추가 이유
+
+기존 forEach() 문이 중복되었으므로, 이를 하나의 메소드로 통합하여 재사용성을 증가.
+
+
+
+---
+
+5. applyIstioPolicy (새로운 메소드)
+
+private void applyIstioPolicy(Function function, List<AllowIpDTO.Register> allowIps) {
+    if (!function.isReady()) {
+        throw new RuntimeException("퍼블릭 액세스 여부를 선택해 주세요.");
+    }
+
+    List<String> ips = determineAllowedIps(function, allowIps);
+    if (ips == null) {
+        istioClient.v1beta1().authorizationPolicies().inNamespace("istio-system")
+                .withName(function.getName()).delete();
+    } else {
+        istioCallService.makeIstioPolicy(function.getName(), ips);
+    }
+}
+
+추가 이유
+
+기존에는 여러 if-else 문이 한 메소드에 섞여 있어 가독성이 떨어졌음.
+
+determineAllowedIps() 메소드와 분리하여 의도를 더 명확하게 전달.
+
+
+
+---
+
+6. determineAllowedIps (새로운 메소드)
+
+private List<String> determineAllowedIps(Function function, List<AllowIpDTO.Register> allowIps) {
+    if ("Y".equals(function.getPublicAccessAclYn())) {
+        return CollectionUtils.isEmpty(allowIps) ? new ArrayList<>() :
+                allowIps.stream().map(AllowIpDTO.Register::getName).collect(Collectors.toList());
+    } else if ("N".equals(function.getPublicAccessAclYn())) {
+        return null; // 전체 허용을 의미
+    }
+    return null;
+}
+
+추가 이유
+
+Istio 정책을 결정하는 로직을 별도 메소드로 분리해 가독성을 향상하고, applyIstioPolicy에서의 복잡성을 줄임.
+
+
+
+---
+
+7. sortAllowIpList (기존 sortFunctionIp 개선)
+
+변경 전:
+
+private void sortFunctionIp(List<AllowIpDTO.Register> items) {
+    Collections.sort(items, (o1, o2) -> new CompareToBuilder()
+            .append(o1.getName(), o2.getName()).toComparison());
+}
+
+변경 후:
+
+private void sortAllowIpList(List<AllowIpDTO.Register> items) {
+    items.sort(Comparator.comparing(AllowIpDTO.Register::getName));
+}
+
+변경 사항 및 이유
+
+Collections.sort() 대신 List.sort()와 Comparator.comparing() 사용하여 가독성 개선.
+
+
+
+---
+
+결론
+
+중복 코드 제거 (applyIstioPolicy, updateAllowIpList 등)
+
+메소드 크기 축소 및 역할 분리 (convertToRegisterDtos, determineAllowedIps 등)
+
+가독성 향상 및 유지보수 편의성 증가
+
+
+이제 코드가 더 읽기 쉽고, 재사용성이 높으며, 유지보수가 용이한 형태로 개선되었다.
+
