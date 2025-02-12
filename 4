@@ -1,12 +1,37 @@
+AllowIpRepository에서 deleteByFunction 메소드를 호출할 수 없는 이유는 해당 메소드가 AllowIpRepository에 정의되어 있지 않기 때문입니다. JPA의 JpaRepository는 기본적인 CRUD 메소드들을 제공하지만, 커스텀 쿼리 메소드(예: deleteByFunction)는 직접 정의해야 합니다.
+
+따라서 AllowIpRepository에 deleteByFunction 메소드를 추가하여 이 문제를 해결할 수 있습니다. 아래와 같이 deleteByFunction 메소드를 추가해 주세요.
+
+수정된 AllowIpRepository 코드
+
 package com.scf.manager.mvc.repository;
 
 import com.scf.manager.mvc.domain.AllowIp;
 import com.scf.manager.mvc.domain.Function;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-
-public interface AllowIpRepository extends JpaRepository<AllowIp, Long>{
+public interface AllowIpRepository extends JpaRepository<AllowIp, Long> {
     List<AllowIp> findByFunction(Function function);
+
+    // Function에 해당하는 AllowIp 엔티티를 삭제하는 메소드 추가
+    @Transactional
+    void deleteByFunction(Function function);
 }
+
+변경된 부분 설명
+
+deleteByFunction 메소드 추가: JPA의 메소드 네이밍 규칙을 따르며, Function을 기준으로 관련된 AllowIp 엔티티들을 삭제할 수 있도록 deleteByFunction 메소드를 추가했습니다.
+
+@Transactional 어노테이션 추가: deleteByFunction 메소드에 @Transactional 어노테이션을 추가하여 데이터베이스에서 삭제 작업이 트랜잭션 범위 내에서 수행되도록 했습니다.
+
+
+기타 주의사항
+
+@Transactional은 deleteByFunction 메소드가 실행될 때 데이터베이스 트랜잭션을 관리합니다. 이 어노테이션을 추가하지 않으면, 삭제 작업이 제대로 처리되지 않을 수 있습니다.
+
+
+이제 AllowIpRepository에서 deleteByFunction 메소드를 사용하여 Function과 관련된 AllowIp 엔티티들을 삭제할 수 있게 됩니다.
+
