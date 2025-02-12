@@ -1,152 +1,113 @@
-📌 코드리뷰 코멘트 (클린코드 & 리팩토링 관점)
-팀원이 작성한 PR 코드에 대해 칭찬과 함께 개선점을 제안하는 방식으로 여러 코멘트를 남기겠습니다.
-각 코멘트에는 기술적 설명, 개선 방법, 예제 코드를 포함하여 더욱 실용적인 피드백을 제공하겠습니다! 🚀
+package com.scf.manager.mvc.service;
 
-💡 validateEnvironment 메소드 리뷰
-이 메소드에서 switch-case로 검증 로직을 통합한 점 정말 좋아요! 🎯
-기존에 개별적인 checkEnvironmentX() 메소드가 중복되면서 유지보수가 어려웠는데,
-이렇게 하나의 메소드로 통합되니까 새로운 환경 변수 타입을 추가할 때도 훨씬 수월할 것 같아요! 👏
+import com.scf.manager.common.enums.TypeEnums;
+import com.scf.manager.common.exception.ResourceNotFoundException;
+import com.scf.manager.mvc.domain.AllowIp;
+import com.scf.manager.mvc.domain.Function;
+import com.scf.manager.mvc.dto.AllowIpDTO;
+import com.scf.manager.mvc.repository.AllowIpRepository;
+import com.scf.manager.mvc.repository.FunctionRepository;
+import io.fabric8.istio.client.DefaultIstioClient;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.builder.CompareToBuilder;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
 
-다만, switch-case 내부에서 각 케이스를 메소드로 호출하는 방식은 괜찮지만,
-enum을 활용하면 더욱 확장성이 좋아질 수 있을 것 같아요.
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Collectors;
 
-🔍 제안하는 개선 방향:
-각 환경 변수 타입을 enum으로 관리하면, 새로운 타입 추가 시 switch-case를 직접 수정할 필요 없이,
-각 타입에 맞는 검증 로직을 enum 내부에서 처리할 수 있어요.
+@Slf4j
+@org.springframework.stereotype.Service
+@RequiredArgsConstructor
+public class AllowIpService {
 
-🔥 예제 코드 (Enum 적용):
+    private final FunctionRepository functionRepository;
+    private final AllowIpRepository allowIpRepository;
+    private final IstioCallService istioCallService;
+    private final DefaultIstioClient istioClient;
 
-java
-복사
-편집
-public enum EnvironmentType {
-    TOKEN(req -> validateToken(req)),
-    URL(req -> validateUrl(req)),
-    LIMIT(req -> validateLimit(req)),
-    MEMORY(req -> validateMemory(req)),
-    ENV(req -> validateEnv(req, new AtomicInteger())),
-    COLD_START(req -> validateColdStart(req));
+    public AllowIpDTO.Response registerAllowIp(AllowIpDTO.Register reqDto, Long functionSeq) {
 
-    private final Consumer<FunctionEnvironmentDTO.Register> validator;
-
-    EnvironmentType(Consumer<FunctionEnvironmentDTO.Register> validator) {
-        this.validator = validator;
-    }
-
-    public void validate(FunctionEnvironmentDTO.Register reqDto) {
-        validator.accept(reqDto);
-    }
-}
-
-// validateEnvironment 메소드에서 enum 활용
-private static void validateEnvironment(FunctionEnvironmentDTO.Register reqDto, AtomicInteger envCountChecker) {
-    EnvironmentType type = EnvironmentType.valueOf(reqDto.getType().toUpperCase());
-    type.validate(reqDto);
-}
-이렇게 하면, 새로운 환경 변수 타입을 추가할 때 enum에만 정의하면 되고,
-switch-case가 필요 없어져서 유지보수성이 더 향상됩니다! 🚀
-현재 방식도 깔끔하지만, 추후 확장성을 고려했을 때 enum을 활용하는 것도 고려해보면 좋을 것 같아요!
-
-💡 validateEnv 메소드 리뷰
-환경 변수 검증 로직이 깔끔하게 정리된 점 정말 좋네요! 💯
-특히, 정규식을 활용해서 허용되는 문자만 필터링한 점이 인상적이에요.
-
-여기서 한 가지 개선하면 더 좋을 부분이 있습니다.
-현재 정규식을 "^[a-zA-Z_][a-zA-Z0-9._-]*$"로 사용하고 있는데,
-숫자로 시작할 수 없도록 하는 검증을 정규식 안에서 해결할 수도 있어요.
-
-🔍 제안하는 개선 방향:
-현재는 if (!reqDto.getKey().matches("^[a-zA-Z_][a-zA-Z0-9._-]*$")) 이 부분과
-if (Pattern.matches("^[\\d]$", reqDto.getKey().substring(0, 1))) 이 부분이
-동일한 검증을 중복 수행하고 있어요.
-
-정규식만으로도 숫자로 시작하는 키를 방지할 수 있으므로, 하나로 통합하면 더 깔끔해집니다!
-
-🔥 제안하는 코드 (정규식 단순화):
-
-java
-복사
-편집
-private static final Pattern ENV_KEY_PATTERN = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9._-]*$");
-
-private static void validateEnv(FunctionEnvironmentDTO.Register reqDto, AtomicInteger envCountChecker) {
-    envCountChecker.incrementAndGet();
-    if (StringUtils.isEmpty(reqDto.getKey()) || reqDto.getKey().contains(" ")) {
-        throw new IllegalArgumentException("환경변수의 키는 공백일 수 없습니다.");
-    }
-    if (!ENV_KEY_PATTERN.matcher(reqDto.getKey()).matches()) {
-        throw new IllegalArgumentException("환경변수 키는 영문, 숫자, 특수문자 . _ - 만 사용할 수 있습니다.");
-    }
-    if (reqDto.getKey().length() > MAX_KEY_LENGTH) {
-        throw new IllegalArgumentException("환경변수 키는 최대 50자까지 가능합니다.");
-    }
-}
-이렇게 하면 중복된 검증 로직이 제거되고, 정규식 패턴이 재사용 가능해집니다! 🚀
-
-💡 createSignedJWT 메소드 리뷰
-JWT 생성 메소드가 정말 깔끔하게 정리되었네요!
-기존에는 sign() 호출이 별도로 떨어져 있었는데,
-객체 생성과 서명을 함께 수행하도록 묶어서 응집도를 높인 점이 좋습니다! 🎯
-
-그런데, 혹시 예외 처리를 좀 더 명확하게 하면 어떨까요?
-현재 throws JOSEException 으로 예외를 던지고 있는데,
-JWT 서명 과정에서 발생하는 예외가 그대로 호출한 메소드로 전파되면
-어떤 문제가 발생했는지 명확하지 않을 수도 있어요.
-
-🔍 제안하는 개선 방향:
-예외를 RuntimeException으로 감싸서 좀 더 명확한 메시지를 던지도록 변경하면 어떨까요?
-
-🔥 예제 코드 (예외 감싸기):
-
-java
-복사
-편집
-private SignedJWT createSignedJWT(JWTClaimsSet claimsSet, RSAKey rsaJWK) {
-    try {
-        SignedJWT signedJWT = new SignedJWT(
-                new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(rsaJWK.getKeyID()).build(),
-                claimsSet
+        reqDto.setFunctionSeq(functionSeq);
+        AllowIp allowIp = allowIpRepository.save(
+                AllowIp.register(reqDto)
         );
-        signedJWT.sign(new RSASSASigner(rsaJWK));
-        return signedJWT;
-    } catch (JOSEException e) {
-        throw new RuntimeException("JWT 서명 과정에서 오류가 발생했습니다.", e);
+        return allowIp.toDto();
+    }
+
+    @Transactional
+    public AllowIpDTO.AllowIpResponse updateAllowIps(AllowIpDTO.AllowIpModify allowIpDtos, String functionKey) {
+
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("데이터가 존재하지않습니다."));
+        function.updatePublicAccessYn(allowIpDtos.getPublicAccessAclYn());
+
+        List<AllowIp> allowIps = allowIpRepository.findByFunction(function);
+        List<AllowIpDTO.Register> dbItems = allowIps.stream().map(f -> AllowIpDTO.Register.builder().name(f.getName()).build()).collect(Collectors.toList());
+
+        //사용자 입력으로 전달된 허용 IP 리스트 정렬
+        this.sortFunctionIp(allowIpDtos.getAllowIps());
+        //현재 DB에 저장된 허용 IP 리스트 정렬
+        this.sortFunctionIp(dbItems);
+
+        if (isChangeObject(allowIpDtos.getAllowIps(), dbItems)) {
+            allowIps.stream().forEach((allowIp) -> allowIpRepository.delete(allowIp));
+            allowIpDtos.getAllowIps().stream().forEach(allowIpDTO -> this.saveAllowIps(allowIpDTO, function));
+        }
+
+        //"Y" : publicAccessEndpointAcl 를 체크하고 IP를 입력하면 해당 IP만 허용
+        //"Y" : publicAccessEndpointAcl 를 체크하고 IP를 입력 안하면 모두 막음
+        //"N" : publicAccessEndpointAcl 을 체크를 해제 ("N") 하면 다 허용
+        if (function.isReady()) {
+            List<String> ips;
+
+            if ("Y".equals(function.getPublicAccessAclYn())) {
+                if (CollectionUtils.isEmpty(allowIpDtos.getAllowIps())) {
+                    //전체차단
+                    ips = new ArrayList<>();
+                } else {
+                    //IP리스트에 한해 허용
+                    ips = allowIpDtos.getAllowIps().stream().map(ip -> ip.getName()).collect(Collectors.toList());
+                }
+                istioCallService.makeIstioPolicy(function.getName(), ips);
+            } else if ("N".equals(function.getPublicAccessAclYn())) {
+                istioClient.v1beta1().authorizationPolicies().inNamespace("istio-system").withName(function.getName()).delete();
+            }
+            else throw new RuntimeException("퍼블릭 액세스 여부를 선택해 주세요.");
+        }
+        AllowIpDTO.AllowIpResponse output = new AllowIpDTO.AllowIpResponse();
+        List<AllowIpDTO.Response> collect = allowIpRepository.findByFunction(function).stream().map(AllowIp::toDto).collect(Collectors.toList());
+        output.setPublicAccessAclYn(function.getPublicAccessAclYn());
+        output.setAllowIps(collect);
+
+        return output;
+    }
+
+    private void saveAllowIps(AllowIpDTO.Register allowIpDTO, Function function) {
+        allowIpDTO.setFunctionSeq(function.getFunctionSeq());
+        this.allowIpRepository.save(AllowIp.register(allowIpDTO));
+    }
+
+
+    // 사용자가 입력한 IP허용 리스트와, 현재 DB에 있는 IP 허용리스트를 비교하기 위한 리스트 정렬
+    private void sortFunctionIp(List<AllowIpDTO.Register> items) {
+        Collections.sort(items, (o1, o2) -> new CompareToBuilder().append(o1.getName(), o2.getName()).toComparison());
+    }
+
+    private boolean isChangeObject(List<AllowIpDTO.Register> reqItems, List<AllowIpDTO.Register> dbItems) {
+        if (reqItems.size() != dbItems.size()) {
+            return true;
+        } else {
+            for (int i = 0; i < reqItems.size(); i++) {
+                if (!StringUtils.equals(reqItems.get(i).getName(), dbItems.get(i).getName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }
-이렇게 하면, JWT 서명에서 발생하는 예외를 좀 더 구체적인 메시지로 처리할 수 있고,
-로그에 예외 정보를 남길 때도 더 직관적인 정보가 출력됩니다! 🚀
-
-💡 registerFunctionEnvironment 메소드 리뷰
-환경 변수 등록 메소드가 전체적으로 잘 리팩토링되었네요!
-특히, 환경 변수 검증을 validateEnvironment 하나의 메소드로 정리한 점이 정말 좋습니다. 👏
-
-하지만, 혹시 envCountChecker가 AtomicInteger로 선언된 이유가 있을까요? 🤔
-envCountChecker.incrementAndGet()을 단일 스레드 환경에서 사용하고 있어서
-굳이 AtomicInteger를 사용할 필요가 없어 보입니다.
-
-🔍 제안하는 개선 방향:
-int 타입으로 변경하면 불필요한 객체 생성 비용을 줄일 수 있습니다!
-
-🔥 예제 코드 (int 타입으로 변경):
-
-java
-복사
-편집
-public FunctionEnvironmentDTO.Response registerFunctionEnvironment(FunctionEnvironmentDTO.Register reqDto, Function function, int envCount) {
-    validateEnvironment(reqDto, envCount);
-    reqDto.setFunctionSeq(function.getFunctionSeq());
-    return functionEnvironmentRepository.save(FunctionEnvironment.register(reqDto)).toDto();
-}
-혹시 멀티스레드 환경에서 공유되는 값이라면 AtomicInteger가 필요하지만,
-단순히 개수를 세는 용도라면 int 타입이 더 적절할 것 같습니다! 🚀
-
-🎯 전체적인 피드백
-🔥 리팩토링이 정말 잘 진행된 코드입니다!
-특히,
-✅ 환경 변수 검증을 단일 메소드로 정리한 점
-✅ 정규식 활용을 통한 코드 간결화
-✅ JWT 서명 과정의 코드 응집력 향상
-
-이 부분들이 정말 인상적이었습니다! 🎉
-위에 제안한 작은 최적화 포인트들도 고려해보시면 코드가 더욱 완성도 높아질 것 같아요.
-좋은 코드 작성해주셔서 감사합니다! 다음 PR도 기대할게요! 🚀🔥
