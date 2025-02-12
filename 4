@@ -1,56 +1,12 @@
-@Service
-public class V3ScannerService {
+package com.scf.manager.mvc.repository;
 
-    private static final Logger logger = LoggerFactory.getLogger(V3ScannerService.class);
+import com.scf.manager.mvc.domain.AllowIp;
+import com.scf.manager.mvc.domain.Function;
+import org.springframework.data.jpa.repository.JpaRepository;
 
-    private final String chunkBaseDir = "/tmp/chunks";  // 청크 저장 디렉토리
+import java.util.List;
 
-    /**
-     * 청크 저장 로직
-     */
-    public void saveChunk(String fileId, int chunkIndex, byte[] chunkData) throws Exception {
-        Path chunkDir = Paths.get(chunkBaseDir, fileId);  // 파일 ID 기반 디렉토리 생성
-        if (!Files.exists(chunkDir)) {
-            Files.createDirectories(chunkDir);  // 디렉토리가 없으면 생성
-        }
-        Path chunkFile = chunkDir.resolve("chunk_" + chunkIndex);  // 청크 파일 이름
-        Files.write(chunkFile, chunkData);  // 청크 데이터 저장
-        logger.info("Saved chunk: FileId={}, ChunkIndex={}", fileId, chunkIndex);
-    }
 
-    /**
-     * 병합 및 스캔 로직
-     */
-    public FileDto.Response mergeChunksAndScan(String fileId, String fileName) throws Exception {
-        Path chunkDir = Paths.get(chunkBaseDir, fileId);
-        Path mergedFile = Paths.get("/tmp/" + UUID.randomUUID() + "_" + fileName);  // 병합 파일에 UUID 추가
-
-        // 1. 병합 작업 비동기로 수행
-        CompletableFuture.runAsync(() -> {
-            try (FileOutputStream outputStream = new FileOutputStream(mergedFile.toFile())) {
-                Files.list(chunkDir)
-                        .sorted()  // 청크 파일을 순서대로 병합
-                        .forEach(chunk -> {
-                            try {
-                                Files.copy(chunk, outputStream);
-                            } catch (Exception e) {
-                                throw new RuntimeException("Failed to merge chunk: " + chunk.getFileName(), e);
-                            }
-                        });
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to merge chunks for fileId: " + fileId, e);
-            }
-        }).get();  // 병합 작업 완료될 때까지 대기
-
-        // 2. 병합 완료 후 스캔 수행
-        Properties prop = new Properties();
-        int ret = V3Scanner.scanFile(mergedFile.toString(), prop);
-
-        // 3. 응답 반환
-        return FileDto.Response.builder()
-                .fileName(fileName)
-                .returnCode(ret)
-                .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "No additional information."))
-                .build();
-    }
+public interface AllowIpRepository extends JpaRepository<AllowIp, Long>{
+    List<AllowIp> findByFunction(Function function);
 }
