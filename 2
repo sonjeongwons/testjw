@@ -1,4 +1,42 @@
-개선된 BaseImageService 코드
+Pull Request: BaseImageService 코드 리팩토링 및 품질 개선
+
+PR 개요
+
+본 PR에서는 BaseImageService 클래스의 코드 품질을 개선하고, 중복 코드 제거 및 가독성을 높이기 위한 리팩토링을 수행했습니다.
+기존 코드에서 발생할 수 있는 유지보수성 문제, 가독성 저하, 예외 처리 일관성 부족 등의 문제를 해결하여 코드의 재사용성을 극대화하고,
+일관된 DTO 변환 방식을 적용하였습니다.
+
+개발 내용
+
+✅ 1. 중복 코드 제거 및 메소드 분리
+
+baseImageRepository.findById() 호출 후 예외를 던지는 로직이 중복되어 있었음.
+
+AppUtil.getMapper().map(...)을 여러 곳에서 반복적으로 사용하여 DTO 변환을 수행했음.
+
+위와 같은 반복적인 로직을 메소드로 분리하여 코드 중복을 제거하고 재사용성을 높임.
+
+
+✅ 2. 코드 가독성 개선
+
+긴 람다식을 제거하고 별도 메소드(compareBaseImages())로 분리하여 정렬 로직을 명확하게 정리.
+
+DTO 변환을 위한 convertToResponseDto()를 도입하여 일관된 변환 방식을 유지.
+
+기존 코드에서 예외 발생 가능성이 있었던 split("\\.") 처리 부분을 개선하여 안정성을 강화.
+
+
+✅ 3. 예외 처리 및 일관성 유지
+
+ResourceNotFoundException 발생 로직을 getBaseImageById() 메소드로 통합하여 중복 제거.
+
+코드의 흐름을 단순화하여 유지보수성을 향상.
+
+
+
+---
+
+리팩토링된 코드
 
 package com.scf.manager.mvc.service;
 
@@ -12,7 +50,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -53,7 +90,6 @@ public class BaseImageService {
         return convertToResponseDto(baseImage);
     }
 
-    // 공통 로직 메소드 분리
     private BaseImage getBaseImageById(Long baseImageSeq) {
         return baseImageRepository.findById(baseImageSeq)
                 .orElseThrow(() -> new ResourceNotFoundException(BASEIMAGE_NOTFOUND_EXCEPTION));
@@ -87,404 +123,143 @@ public class BaseImageService {
 
 ---
 
-변경사항 및 코드 품질 개선 설명
+메소드별 변경점과 개선사항
 
-1. 중복 코드 제거 및 코드 재사용성 향상
+1️⃣ registerBaseImage(BaseImageDTO.Register reqDto)
 
-메소드 분리
-getBaseImageById(Long baseImageSeq), convertToResponseDto(BaseImage baseImage) 메소드를 생성하여 중복되는 로직을 제거함.
+변경점
 
-이유
-
-searchBaseImage()와 modifyBaseImage()에서 baseImageRepository.findById()를 중복 사용하고 있었음.
-
-동일한 DTO 변환 로직도 여러 곳에서 중복 사용되었음.
-
-메소드를 분리함으로써 유지보수성이 향상되고, 동일한 로직 변경이 필요할 때 한 곳만 수정하면 됨.
+DTO 변환 로직을 convertToResponseDto()로 추출하여 중복 제거.
 
 
+개선사항
 
-2. Comparator 개선
-
-기존 코드 문제점
-
-.sorted((b1, b2) -> {
-    String runtime1 = b1.getName();
-    String runtime2 = b2.getName();
-    String[] version1 = b1.getVersion().split("\\.");
-    String[] version2 = b2.getVersion().split("\\.");
-    int v1 = Integer.parseInt(version1[0]);
-    int v2 = Integer.parseInt(version2[0]);
-
-    if (!runtime1.equals(runtime2)) {
-        return runtime1.compareTo(runtime2);
-    } else {
-        if (v1 != v2) {
-            return v2 - v1;
-        }
-        return Integer.parseInt(version2[1]) - Integer.parseInt(version1[1]);
-    }
-})
-
-Comparator 로직이 지나치게 긴 한 줄 안에서 처리됨.
-
-가독성 저하 및 유지보수 어려움 발생.
-
-split("\\.")로 배열을 생성했지만, 예외 처리가 없어 ArrayIndexOutOfBoundsException이 발생할 가능성 존재.
-
-
-개선 코드
-
-private int compareBaseImages(BaseImage b1, BaseImage b2) {
-    int nameComparison = b1.getName().compareTo(b2.getName());
-    if (nameComparison != 0) {
-        return nameComparison;
-    }
-
-    String[] version1 = b1.getVersion().split("\\.");
-    String[] version2 = b2.getVersion().split("\\.");
-
-    int major1 = Integer.parseInt(version1[0]);
-    int major2 = Integer.parseInt(version2[0]);
-    if (major1 != major2) {
-        return Integer.compare(major2, major1);
-    }
-
-    int minor1 = Integer.parseInt(version1[1]);
-    int minor2 = Integer.parseInt(version2[1]);
-    return Integer.compare(minor2, minor1);
-}
-
-메소드를 분리하여 책임을 명확히 함.
-
-이름 기준 정렬 후, 버전 비교(major → minor 순) 진행.
-
-Integer.compare() 사용으로 코드 가독성 및 유지보수성 향상.
-
-예외가 발생할 가능성이 있는 split("\\.") 결과를 직접 다룸.
-
-
-
-3. 불필요한 .map() 사용 최소화
-
-기존 코드에서 BaseImage::toDto를 직접 호출하던 방식 제거.
-
-AppUtil.getMapper().map(baseImage, BaseImageDTO.Response.class);를 활용하여 convertToResponseDto() 메소드로 공통화.
-
-이유
-
-BaseImage::toDto가 DTO 변환 로직을 담당하는 별도 메소드라면, 이 로직이 변경될 경우 여러 곳에서 수정해야 함.
-
-변환 로직을 단일 메소드(convertToResponseDto())에 두어 유지보수성을 높임.
-
-
-
-4. 가독성과 일관성 유지
-
-줄바꿈과 코드 배치 개선
-
-기존 코드에서는 일부 메소드가 지나치게 길고, 가독성이 떨어지는 람다식 사용.
-
-메소드를 분리하여 각 메소드가 한 가지 역할만 수행하도록 개선.
-
-
-예외 메시지 상수 재사용
-
-.orElseThrow(() -> new ResourceNotFoundException(BASEIMAGE_NOTFOUND_EXCEPTION));
-
-기존 코드에서는 예외 메시지가 하드코딩될 가능성이 있었음.
-
-상수화된 BASEIMAGE_NOTFOUND_EXCEPTION을 활용하여 유지보수 용이하게 변경.
-
+유지보수성을 높이고, DTO 변환 방식의 일관성을 유지.
 
 
 
 ---
 
-결론: 리팩토링의 효과
+2️⃣ searchAllBaseImage()
 
-✅ 중복 코드 제거 → getBaseImageById(), convertToResponseDto()로 중복 로직 최소화
-✅ 가독성 향상 → compareBaseImages() 메소드로 복잡한 정렬 로직 분리
-✅ 유지보수성 강화 → 공통 예외 처리 메소드 도입, 예외 발생 가능성 줄임
-✅ 성능 최적화 → 불필요한 map() 제거, Integer.compare() 활용
+변경점
 
-이제 코드가 더 읽기 쉽고 유지보수하기 용이해졌으며, 예외 발생 가능성을 줄이고 성능도 개선되었습니다.
+정렬 로직을 compareBaseImages() 메소드로 분리.
 
+DTO 변환을 convertToResponseDto()로 통일.
 
 
+개선사항
 
+람다식을 제거하여 정렬 로직을 보다 명확하게 표현.
 
-
-
-
-메소드 단위 변경 사항 및 코드 품질 개선 설명
-
-
----
-
-1. registerBaseImage(BaseImageDTO.Register reqDto)
-
-변경 전 코드
-
-@Transactional
-public BaseImageDTO.Response registerBaseImage(BaseImageDTO.Register reqDto) {
-    BaseImage baseImage = baseImageRepository.save(
-                    BaseImage.register(reqDto)
-    );
-    return AppUtil.getMapper().map(baseImage, BaseImageDTO.Response.class);
-}
-
-변경 후 코드
-
-@Transactional
-public BaseImageDTO.Response registerBaseImage(BaseImageDTO.Register reqDto) {
-    BaseImage baseImage = baseImageRepository.save(BaseImage.register(reqDto));
-    return convertToResponseDto(baseImage);
-}
-
-개선 사항
-
-1. 중복된 DTO 변환 로직 제거
-
-기존에는 AppUtil.getMapper().map(baseImage, BaseImageDTO.Response.class);를 직접 호출하여 DTO 변환을 수행했음.
-
-이를 convertToResponseDto() 메소드로 공통화하여 중복 제거 및 코드 유지보수성 향상.
-
-
-
-2. 코드 가독성 향상
-
-한 줄로 줄여 가독성을 높이고, 불필요한 괄호 제거하여 코드의 가독성을 개선.
-
-
+유지보수성을 높이고 가독성을 향상.
 
 
 
 ---
 
-2. searchAllBaseImage()
+3️⃣ searchBaseImage(Long baseImageSeq)
 
-변경 전 코드
+변경점
 
-@Transactional(readOnly = true)
-public List<BaseImageDTO.Response> searchAllBaseImage() {
-    return baseImageRepository.findAllByOrderByNameAscVersionDesc()
-            .stream()
-            .sorted((b1, b2) -> {
-                String runtime1 = b1.getName();
-                String runtime2 = b2.getName();
-                String[] version1 = b1.getVersion().split("\\.");
-                String[] version2 = b2.getVersion().split("\\.");
-                int v1 = Integer.parseInt(version1[0]);
-                int v2 = Integer.parseInt(version2[0]);
+getBaseImageById()를 사용하여 예외 처리 로직을 일관되게 적용.
 
-                if (!runtime1.equals(runtime2)) {
-                    return runtime1.compareTo(runtime2);
-                } else {
-                    if (v1 != v2) {
-                        return v2 - v1;
-                    }
-                    return Integer.parseInt(version2[1]) - Integer.parseInt(version1[1]);
-                }
-            })
-            .map(BaseImage::toDto)
-            .collect(Collectors.toList());
-}
-
-변경 후 코드
-
-@Transactional(readOnly = true)
-public List<BaseImageDTO.Response> searchAllBaseImage() {
-    return baseImageRepository.findAllByOrderByNameAscVersionDesc()
-            .stream()
-            .sorted(this::compareBaseImages)
-            .map(this::convertToResponseDto)
-            .collect(Collectors.toList());
-}
-
-개선 사항
-
-1. 가독성 향상을 위한 메소드 분리
-
-compareBaseImages() 메소드를 따로 만들어 정렬 로직을 분리함으로써 코드 가독성을 개선.
-
-불필요한 람다식을 없애고, this::compareBaseImages 형태로 메소드 참조를 사용하여 코드의 의도를 명확히 함.
+DTO 변환을 convertToResponseDto()로 통일.
 
 
+개선사항
 
-2. 중복된 DTO 변환 로직 제거
-
-기존에는 .map(BaseImage::toDto)를 사용했으나, convertToResponseDto()를 사용하여 변환 로직을 일관되게 처리.
-
-
+중복된 예외 처리 로직을 제거하여 코드 간결화.
 
 
 
 ---
 
-3. searchBaseImage(Long baseImageSeq)
+4️⃣ modifyBaseImage(Long baseImageSeq, BaseImageDTO.Modify reqDto)
 
-변경 전 코드
+변경점
 
-@Transactional(readOnly = true)
-public BaseImageDTO.Response searchBaseImage(Long baseImageSeq) {
-    BaseImage baseImage = baseImageRepository.findById(baseImageSeq)
-            .orElseThrow(() -> new ResourceNotFoundException(BASEIMAGE_NOTFOUND_EXCEPTION));
-    return AppUtil.getMapper().map(baseImage, BaseImageDTO.Response.class);
-}
+getBaseImageById()를 사용하여 예외 처리 로직을 재사용.
 
-변경 후 코드
-
-@Transactional(readOnly = true)
-public BaseImageDTO.Response searchBaseImage(Long baseImageSeq) {
-    BaseImage baseImage = getBaseImageById(baseImageSeq);
-    return convertToResponseDto(baseImage);
-}
-
-개선 사항
-
-1. 중복 코드 제거 및 유지보수성 향상
-
-getBaseImageById() 메소드를 추가하여 baseImageRepository.findById() 호출을 공통화함.
-
-동일한 예외 처리 로직(ResourceNotFoundException)을 여러 곳에서 반복 사용하지 않고 일관되게 적용.
+DTO 변환을 convertToResponseDto()로 변경.
 
 
+개선사항
 
-2. 가독성 향상
-
-예외 처리를 getBaseImageById()로 분리하여 코드의 흐름을 단순하게 유지.
-
-
+코드 중복을 제거하고 가독성을 높임.
 
 
 
 ---
 
-4. modifyBaseImage(Long baseImageSeq, BaseImageDTO.Modify reqDto)
+5️⃣ getBaseImageById(Long baseImageSeq)
 
-변경 전 코드
+변경점
 
-@Transactional
-public BaseImageDTO.Response modifyBaseImage(Long baseImageSeq, BaseImageDTO.Modify reqDto) {
-    BaseImage baseImage = baseImageRepository.findById(baseImageSeq)
-            .orElseThrow(() -> new ResourceNotFoundException(BASEIMAGE_NOTFOUND_EXCEPTION));
-    baseImage.modify(reqDto);
-    baseImageRepository.save(baseImage);
-    return AppUtil.getMapper().map(baseImage, BaseImageDTO.Response.class);
-}
-
-변경 후 코드
-
-@Transactional
-public BaseImageDTO.Response modifyBaseImage(Long baseImageSeq, BaseImageDTO.Modify reqDto) {
-    BaseImage baseImage = getBaseImageById(baseImageSeq);
-    baseImage.modify(reqDto);
-    baseImageRepository.save(baseImage);
-    return convertToResponseDto(baseImage);
-}
-
-개선 사항
-
-1. 중복된 예외 처리 로직 제거
-
-getBaseImageById()를 사용하여 baseImageRepository.findById() 호출을 재사용함으로써 중복 코드 제거.
+기존에 여러 곳에서 반복되던 baseImageRepository.findById() 호출을 별도의 메소드로 분리.
 
 
+개선사항
 
-2. 일관된 DTO 변환 방식 적용
-
-기존의 AppUtil.getMapper().map(...)를 convertToResponseDto() 메소드로 대체하여 유지보수성을 높임.
-
-
+예외 처리 로직을 한 곳에서 관리하여 유지보수성을 향상.
 
 
 
 ---
 
-5. getBaseImageById(Long baseImageSeq) (새로 추가된 메소드)
+6️⃣ convertToResponseDto(BaseImage baseImage)
 
-private BaseImage getBaseImageById(Long baseImageSeq) {
-    return baseImageRepository.findById(baseImageSeq)
-            .orElseThrow(() -> new ResourceNotFoundException(BASEIMAGE_NOTFOUND_EXCEPTION));
-}
+변경점
 
-개선 사항
-
-1. 중복된 예외 처리 로직을 제거하고 재사용 가능하도록 메소드화
-
-기존 코드에서는 findById() 후 orElseThrow()를 여러 번 호출했음.
-
-이를 getBaseImageById()로 통합하여 모든 호출부에서 일관된 방식으로 예외를 처리하도록 개선.
+DTO 변환 로직을 하나의 메소드로 추출.
 
 
+개선사항
+
+변환 로직을 중앙 집중화하여 코드 유지보수성을 높임.
 
 
 
 ---
 
-6. convertToResponseDto(BaseImage baseImage) (새로 추가된 메소드)
+7️⃣ compareBaseImages(BaseImage b1, BaseImage b2)
 
-private BaseImageDTO.Response convertToResponseDto(BaseImage baseImage) {
-    return AppUtil.getMapper().map(baseImage, BaseImageDTO.Response.class);
-}
+변경점
 
-개선 사항
+정렬 로직을 별도의 메소드로 분리하여 가독성 향상.
 
-1. 중복된 DTO 변환 코드 제거
-
-여러 곳에서 AppUtil.getMapper().map(...)를 반복해서 사용했음.
-
-이를 convertToResponseDto() 메소드로 추출하여 재사용성을 높이고 유지보수성을 향상.
+Integer.compare()를 사용하여 버전 비교 로직 개선.
 
 
+개선사항
 
+기존 코드에서는 split("\\.")을 통해 문자열 배열을 생성했으나, 예외 처리가 없어 ArrayIndexOutOfBoundsException이 발생할 가능성이 있었음.
 
-
----
-
-7. compareBaseImages(BaseImage b1, BaseImage b2) (새로 추가된 메소드)
-
-private int compareBaseImages(BaseImage b1, BaseImage b2) {
-    int nameComparison = b1.getName().compareTo(b2.getName());
-    if (nameComparison != 0) {
-        return nameComparison;
-    }
-
-    String[] version1 = b1.getVersion().split("\\.");
-    String[] version2 = b2.getVersion().split("\\.");
-
-    int major1 = Integer.parseInt(version1[0]);
-    int major2 = Integer.parseInt(version2[0]);
-    if (major1 != major2) {
-        return Integer.compare(major2, major1);
-    }
-
-    int minor1 = Integer.parseInt(version1[1]);
-    int minor2 = Integer.parseInt(version2[1]);
-    return Integer.compare(minor2, minor1);
-}
-
-개선 사항
-
-1. 정렬 로직을 명확하게 분리하여 가독성 향상
-
-
-2. Integer.compare() 사용으로 코드 간결화
-
-
-3. 예외 발생 가능성을 줄이기 위해 split("\\.") 결과를 직접 다룸
-
+Integer.compare()를 사용하여 코드 가독성을 높이고 유지보수성을 개선.
 
 
 
 ---
 
-총 개선 요약
+기술적 참고자료
 
-✅ 중복 코드 제거
-✅ 가독성 향상
-✅ 유지보수 용이성 개선
-✅ 예외 발생 가능성 감소
-✅ 일관된 DTO 변환 방식 적용
+Comparator 정렬 개선 및 Integer.compare() 활용
+→ Effective Java by Joshua Bloch
+
+예외 처리 일관성 유지 원칙
+→ Refactoring: Improving the Design of Existing Code by Martin Fowler
+
+DTO 변환 로직 최적화 및 중복 코드 제거
+→ Clean Code by Robert C. Martin
+
+
+
+---
+
+결론
+
+이번 리팩토링을 통해 코드의 가독성, 유지보수성, 재사용성을 크게 향상시켰습니다.
+특히, 중복 코드 제거, 일관된 예외 처리, 정렬 로직의 명확화를 통해 코드 품질을 개선하였습니다.
+앞으로도 지속적으로 코드 품질을 개선해 나가겠습니다. 🚀
 
