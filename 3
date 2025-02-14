@@ -1,225 +1,149 @@
-리팩토링 상세 분석 (메소드별 변경 사항 정리)
-
-1. registerAllowIp 메소드
-
-변경 전:
-
-public AllowIpDTO.Response registerAllowIp(AllowIpDTO.Register reqDto, Long functionSeq) {
-    reqDto.setFunctionSeq(functionSeq);
-    AllowIp allowIp = allowIpRepository.save(
-            AllowIp.register(reqDto)
-    );
-    return allowIp.toDto();
-}
-
-변경 후:
-
-public AllowIpDTO.Response registerAllowIp(AllowIpDTO.Register reqDto, Long functionSeq) {
-    reqDto.setFunctionSeq(functionSeq);
-    return allowIpRepository.save(AllowIp.register(reqDto)).toDto();
-}
-
-변경 사항 및 이유
-
-AllowIp allowIp 변수를 제거하여 불필요한 객체 생성을 방지하고, 한 줄로 간결화.
-
-성능 향상 및 코드 가독성 개선.
-
+코드 리뷰 코멘트 목록 (PR 코멘트 예시)
 
 
 ---
 
-2. updateAllowIps 메소드
+1️⃣ registerBaseImage() - DTO 변환 방식 관련
 
-변경 전:
+💬 "와! 코드가 훨씬 깔끔해졌네요. convertToResponseDto()를 활용해서 DTO 변환을 일관되게 처리한 점이 너무 좋습니다! 👍 다만, 요즘 Spring에서 MapStruct 같은 라이브러리를 많이 사용하는데, 혹시 적용을 고려해볼까요?"
 
-@Transactional
-public AllowIpDTO.AllowIpResponse updateAllowIps(AllowIpDTO.AllowIpModify allowIpDtos, String functionKey) {
-    Function function = functionRepository.findByFunctionKey(functionKey)
-            .orElseThrow(() -> new ResourceNotFoundException("데이터가 존재하지 않습니다."));
+💡 제안:
+Spring에서 MapStruct를 사용하면 DTO 변환을 어노테이션 기반으로 처리할 수 있어서 코드가 더 간결해질 수 있습니다!
+예를 들어, BaseImageMapper 클래스를 만들고, 아래처럼 변환을 자동화할 수도 있어요.
 
-    function.updatePublicAccessYn(allowIpDtos.getPublicAccessAclYn());
-
-    List<AllowIp> allowIps = allowIpRepository.findByFunction(function);
-    List<AllowIpDTO.Register> dbItems = allowIps.stream()
-            .map(f -> AllowIpDTO.Register.builder().name(f.getName()).build())
-            .collect(Collectors.toList());
-
-    this.sortFunctionIp(allowIpDtos.getAllowIps());
-    this.sortFunctionIp(dbItems);
-
-    if (isChangeObject(allowIpDtos.getAllowIps(), dbItems)) {
-        allowIps.stream().forEach((allowIp) -> allowIpRepository.delete(allowIp));
-        allowIpDtos.getAllowIps().stream().forEach(allowIpDTO -> this.saveAllowIps(allowIpDTO, function));
-    }
-
-    if (function.isReady()) {
-        List<String> ips;
-        if ("Y".equals(function.getPublicAccessAclYn())) {
-            ips = CollectionUtils.isEmpty(allowIpDtos.getAllowIps()) ? new ArrayList<>() :
-                  allowIpDtos.getAllowIps().stream().map(ip -> ip.getName()).collect(Collectors.toList());
-            istioCallService.makeIstioPolicy(function.getName(), ips);
-        } else if ("N".equals(function.getPublicAccessAclYn())) {
-            istioClient.v1beta1().authorizationPolicies().inNamespace("istio-system")
-                    .withName(function.getName()).delete();
-        } else {
-            throw new RuntimeException("퍼블릭 액세스 여부를 선택해 주세요.");
-        }
-    }
-
-    AllowIpDTO.AllowIpResponse output = new AllowIpDTO.AllowIpResponse();
-    List<AllowIpDTO.Response> collect = allowIpRepository.findByFunction(function)
-            .stream().map(AllowIp::toDto).collect(Collectors.toList());
-    output.setPublicAccessAclYn(function.getPublicAccessAclYn());
-    output.setAllowIps(collect);
-
-    return output;
+@Mapper(componentModel = "spring")
+public interface BaseImageMapper {
+    BaseImageDTO.Response toResponseDto(BaseImage baseImage);
 }
 
-변경 후:
+그럼 서비스 클래스에서는 이렇게 더 간결하게 사용할 수 있겠죠!
+
+private final BaseImageMapper baseImageMapper;
 
 @Transactional
-public AllowIpDTO.AllowIpResponse updateAllowIps(AllowIpDTO.AllowIpModify allowIpDtos, String functionKey) {
-    Function function = functionRepository.findByFunctionKey(functionKey)
-            .orElseThrow(() -> new ResourceNotFoundException("데이터가 존재하지 않습니다."));
-
-    function.updatePublicAccessYn(allowIpDtos.getPublicAccessAclYn());
-
-    List<AllowIp> existingAllowIps = allowIpRepository.findByFunction(function);
-    List<AllowIpDTO.Register> existingAllowIpDtos = convertToRegisterDtos(existingAllowIps);
-
-    sortAllowIpList(allowIpDtos.getAllowIps());
-    sortAllowIpList(existingAllowIpDtos);
-
-    if (isAllowIpListChanged(allowIpDtos.getAllowIps(), existingAllowIpDtos)) {
-        updateAllowIpList(allowIpDtos.getAllowIps(), function);
-    }
-
-    applyIstioPolicy(function, allowIpDtos.getAllowIps());
-
-    return buildAllowIpResponse(function);
+public BaseImageDTO.Response registerBaseImage(BaseImageDTO.Register reqDto) {
+    BaseImage baseImage = baseImageRepository.save(BaseImage.register(reqDto));
+    return baseImageMapper.toResponseDto(baseImage);
 }
 
-변경 사항 및 이유
-
-중복 코드 제거: convertToRegisterDtos(), sortAllowIpList(), isAllowIpListChanged() 등의 메소드로 로직을 분리.
-
-가독성 향상: applyIstioPolicy() 메소드로 Istio 관련 로직을 별도로 분리.
-
-메소드 크기 축소: 한 메소드 내에서 너무 많은 로직을 처리하지 않도록 역할을 분리.
-
+지금도 충분히 좋은데, DTO 변환을 더 깔끔하게 유지하고 싶다면 한 번 고려해보시면 좋을 것 같아요! 😊
 
 
 ---
 
-3. convertToRegisterDtos (새로운 메소드)
+2️⃣ searchAllBaseImage() - 정렬 로직 개선
 
-private List<AllowIpDTO.Register> convertToRegisterDtos(List<AllowIp> allowIps) {
-    return allowIps.stream()
-            .map(ip -> new AllowIpDTO.Register(ip.getName()))
+💬 "정렬 로직을 compareBaseImages()로 분리한 점이 정말 좋습니다! 코드가 한눈에 이해되네요. 다만, Java 8+에서는 Comparator.comparing()을 활용하면 조금 더 간결하게 정렬할 수도 있을 것 같아요. 한 번 참고해보세요!"
+
+💡 제안:
+현재 compareBaseImages()는 직접 문자열을 비교하고 Integer.parseInt()를 사용해 숫자 비교를 하고 있는데,
+Comparator.comparing()을 활용하면 더 깔끔하게 정렬할 수 있습니다!
+
+private Comparator<BaseImage> baseImageComparator = Comparator
+    .comparing(BaseImage::getName)
+    .thenComparing((b) -> Integer.parseInt(b.getVersion().split("\\.")[0]), Comparator.reverseOrder())
+    .thenComparing((b) -> Integer.parseInt(b.getVersion().split("\\.")[1]), Comparator.reverseOrder());
+
+그럼 searchAllBaseImage()에서는 이렇게 사용할 수 있어요!
+
+@Transactional(readOnly = true)
+public List<BaseImageDTO.Response> searchAllBaseImage() {
+    return baseImageRepository.findAllByOrderByNameAscVersionDesc()
+            .stream()
+            .sorted(baseImageComparator)
+            .map(this::convertToResponseDto)
             .collect(Collectors.toList());
 }
 
-추가 이유
-
-기존에는 stream()을 사용할 때 AllowIpDTO.Register.builder()를 반복 사용했는데, 가독성을 높이고 명확한 책임 분리를 위해 별도 메소드로 생성.
-
+이 방식은 Java에서 제공하는 Comparator 기능을 적극 활용하는 방법인데, 혹시 한 번 적용해보고 싶으시면 참고해보세요! 🚀
 
 
 ---
 
-4. updateAllowIpList (새로운 메소드)
+3️⃣ getBaseImageById() - 사전 오류 방지
 
-private void updateAllowIpList(List<AllowIpDTO.Register> allowIps, Function function) {
-    allowIpRepository.deleteByFunction(function);
-    allowIps.forEach(ip -> saveAllowIp(ip, function));
+💬 "예외 처리 로직을 getBaseImageById()로 분리한 건 정말 좋은 선택이네요! 중복된 예외 처리를 한 곳에서 관리할 수 있어서 유지보수가 훨씬 쉬워졌어요. 👏 다만, 만약 버전이 "1"처럼 단일 숫자로 들어오는 경우를 대비해서 split("\\.")에 대한 보완이 필요할 수도 있을 것 같아요!"
+
+💡 제안:
+현재 split("\\.")을 호출할 때, "1" 같은 값이 들어오면 배열 크기가 1이 되어 ArrayIndexOutOfBoundsException이 발생할 수 있어요.
+이를 방지하려면 배열 크기를 체크하거나, 기본값을 할당하는 방식을 고려해볼 수 있어요.
+
+private int parseVersionPart(String[] versionParts, int index, int defaultValue) {
+    return versionParts.length > index ? Integer.parseInt(versionParts[index]) : defaultValue;
 }
 
-추가 이유
+그럼 compareBaseImages()에서는 이렇게 사용할 수 있어요!
 
-기존 forEach() 문이 중복되었으므로, 이를 하나의 메소드로 통합하여 재사용성을 증가.
+String[] version1 = b1.getVersion().split("\\.");
+String[] version2 = b2.getVersion().split("\\.");
 
+int major1 = parseVersionPart(version1, 0, 0);
+int major2 = parseVersionPart(version2, 0, 0);
+if (major1 != major2) {
+    return Integer.compare(major2, major1);
+}
+
+int minor1 = parseVersionPart(version1, 1, 0);
+int minor2 = parseVersionPart(version2, 1, 0);
+return Integer.compare(minor2, minor1);
+
+이렇게 하면 "1"처럼 한 자리 버전이 들어와도 안전하게 비교할 수 있어요! 😊
 
 
 ---
 
-5. applyIstioPolicy (새로운 메소드)
+4️⃣ modifyBaseImage() - 변경 감지 vs 명시적 저장
 
-private void applyIstioPolicy(Function function, List<AllowIpDTO.Register> allowIps) {
-    if (!function.isReady()) {
-        throw new RuntimeException("퍼블릭 액세스 여부를 선택해 주세요.");
-    }
+💬 "baseImageRepository.save(baseImage);를 명시적으로 호출한 부분이 눈에 띄네요! Spring JPA에서는 엔티티의 상태가 변경되면 자동으로 감지하는 '변경 감지(Dirty Checking)' 기능이 있는데, 혹시 이걸 활용하면 더 깔끔하게 처리할 수 있을 것 같아요!"
 
-    List<String> ips = determineAllowedIps(function, allowIps);
-    if (ips == null) {
-        istioClient.v1beta1().authorizationPolicies().inNamespace("istio-system")
-                .withName(function.getName()).delete();
-    } else {
-        istioCallService.makeIstioPolicy(function.getName(), ips);
-    }
+💡 설명:
+Spring JPA의 변경 감지(Dirty Checking) 기능을 활용하면 save()를 호출하지 않아도 트랜잭션 커밋 시 자동으로 변경 사항이 반영돼요.
+
+@Transactional
+public BaseImageDTO.Response modifyBaseImage(Long baseImageSeq, BaseImageDTO.Modify reqDto) {
+    BaseImage baseImage = getBaseImageById(baseImageSeq);
+    baseImage.modify(reqDto);  // 변경 감지 활성화
+    return convertToResponseDto(baseImage);
 }
 
-추가 이유
+이렇게 하면 save(baseImage) 없이도 modify()에서 변경된 내용이 자동 반영됩니다.
+다만, 만약 save()를 명시적으로 호출한 이유가 있거나, detach 상태의 엔티티를 다시 persist 시키는 목적이라면 지금 방식도 괜찮아요!
 
-기존에는 여러 if-else 문이 한 메소드에 섞여 있어 가독성이 떨어졌음.
-
-determineAllowedIps() 메소드와 분리하여 의도를 더 명확하게 전달.
-
+혹시 변경 감지와 명시적 저장 방식에 대해 더 궁금하시면 이 글을 참고해보세요!
+📌 Spring JPA 변경 감지와 save() 차이
 
 
 ---
 
-6. determineAllowedIps (새로운 메소드)
+5️⃣ convertToResponseDto() - 성능 최적화 제안
 
-private List<String> determineAllowedIps(Function function, List<AllowIpDTO.Register> allowIps) {
-    if ("Y".equals(function.getPublicAccessAclYn())) {
-        return CollectionUtils.isEmpty(allowIps) ? new ArrayList<>() :
-                allowIps.stream().map(AllowIpDTO.Register::getName).collect(Collectors.toList());
-    } else if ("N".equals(function.getPublicAccessAclYn())) {
-        return null; // 전체 허용을 의미
-    }
-    return null;
+💬 "DTO 변환을 한 곳에서 관리하는 구조 너무 좋습니다! 🙌 혹시 Jackson의 ObjectMapper보다 성능이 더 좋은 ModelMapper나 MapStruct를 고려해볼 수도 있을 것 같아요!"
+
+💡 제안:
+현재 AppUtil.getMapper().map(baseImage, BaseImageDTO.Response.class);를 사용하는데, 만약 Jackson의 ObjectMapper라면 성능이 다소 느릴 수 있어요.
+대안으로 ModelMapper나 MapStruct를 사용하면 속도가 더 빠르고 코드도 더 깔끔해집니다.
+
+ModelMapper 적용 예시
+
+private final ModelMapper modelMapper = new ModelMapper();
+
+private BaseImageDTO.Response convertToResponseDto(BaseImage baseImage) {
+    return modelMapper.map(baseImage, BaseImageDTO.Response.class);
 }
 
-추가 이유
+MapStruct 적용 예시
 
-Istio 정책을 결정하는 로직을 별도 메소드로 분리해 가독성을 향상하고, applyIstioPolicy에서의 복잡성을 줄임.
+@Mapper(componentModel = "spring")
+public interface BaseImageMapper {
+    BaseImageDTO.Response toResponseDto(BaseImage baseImage);
+}
 
+이렇게 하면 불필요한 객체 변환 과정이 줄어들어서 성능이 최적화될 수 있어요! 🚀
 
 
 ---
 
-7. sortAllowIpList (기존 sortFunctionIp 개선)
+마무리 멘트
 
-변경 전:
-
-private void sortFunctionIp(List<AllowIpDTO.Register> items) {
-    Collections.sort(items, (o1, o2) -> new CompareToBuilder()
-            .append(o1.getName(), o2.getName()).toComparison());
-}
-
-변경 후:
-
-private void sortAllowIpList(List<AllowIpDTO.Register> items) {
-    items.sort(Comparator.comparing(AllowIpDTO.Register::getName));
-}
-
-변경 사항 및 이유
-
-Collections.sort() 대신 List.sort()와 Comparator.comparing() 사용하여 가독성 개선.
-
-
-
----
-
-결론
-
-중복 코드 제거 (applyIstioPolicy, updateAllowIpList 등)
-
-메소드 크기 축소 및 역할 분리 (convertToRegisterDtos, determineAllowedIps 등)
-
-가독성 향상 및 유지보수 편의성 증가
-
-
-이제 코드가 더 읽기 쉽고, 재사용성이 높으며, 유지보수가 용이한 형태로 개선되었다.
+🔥 "이번 코드 리팩토링 정말 잘하셨습니다! 🎉 전체적으로 중복 코드가 줄어들고, 유지보수성이 엄청 좋아졌어요. 위에서 제안드린 몇 가지 개선 사항도 한 번 검토해보시면 좋을 것 같아요! 좋은 코드 감사합니다! 😊"
 
