@@ -1,37 +1,146 @@
-AllowIpRepository에서 deleteByFunction 메소드를 호출할 수 없는 이유는 해당 메소드가 AllowIpRepository에 정의되어 있지 않기 때문입니다. JPA의 JpaRepository는 기본적인 CRUD 메소드들을 제공하지만, 커스텀 쿼리 메소드(예: deleteByFunction)는 직접 정의해야 합니다.
+📌 Go 언어에서 Mocking을 활용한 테스트 기법 - Full 정리
+🔥 개요
+Go 언어에서 파일 IO 및 외부 모듈을 테스트하는 방법을 알아봅니다.
+이 과정에서 Mocking과 Stubbing을 이용한 유닛 테스트 방법을 다루고,
+레거시 코드 리팩토링 시 안전한 수정 방법도 설명합니다.
 
-따라서 AllowIpRepository에 deleteByFunction 메소드를 추가하여 이 문제를 해결할 수 있습니다. 아래와 같이 deleteByFunction 메소드를 추가해 주세요.
+🎯 1. Go에서 외부 모듈을 테스트하는 문제점
+Go에서 os 패키지를 사용하면, 파일을 생성(Create), 쓰기(Write), 닫기(Close) 등의 작업을 수행할 수 있습니다.
+그러나 유닛 테스트를 작성할 때 다음과 같은 문제가 발생합니다.
 
-수정된 AllowIpRepository 코드
+❌ 직접적인 시스템 호출이 테스트를 어렵게 함
+os.Create() → 파일이 실제로 생성됨
+file.Write() → 시스템의 파일에 데이터가 기록됨
+file.Close() → 파일 핸들이 닫힘
+✅ 테스트 중에는 실제 파일 시스템을 변경하지 않아야 합니다!
+🛑 테스트에서 시스템을 직접 조작하면 안 되는 이유
+테스트 실행 시마다 파일이 생성되고 변경됨 → 환경이 불안정해짐
+파일이 존재하는지 여부에 따라 테스트가 실패할 수도 있음
+테스트 속도가 느려짐
+➡ 해결책: Mocking과 Stubbing을 이용한 테스트!
 
-package com.scf.manager.mvc.repository;
+🚀 2. Mocking과 Stubbing을 이용한 테스트 방법
+✅ Mocking과 Stubbing의 차이
+개념	설명
+Mocking	특정 함수가 "정상적으로 호출되었는지" 확인하는 테스트 방법
+Stubbing	특정 함수가 "어떤 값(리턴값)을 반환하는지" 확인하는 테스트 방법
+Go에서는 gomock 패키지를 사용하여 Mock 객체를 생성할 수 있습니다.
+이를 통해 파일 생성, 쓰기 함수가 실제로 호출되었는지 테스트할 수 있습니다.
 
-import com.scf.manager.mvc.domain.AllowIp;
-import com.scf.manager.mvc.domain.Function;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.transaction.annotation.Transactional;
+⚙️ 3. 인터페이스를 활용한 테스트 전략
+💡 핵심 아이디어: "직접적인 os 패키지 호출을 피하라"
+🔹 기존 코드 문제점
 
-import java.util.List;
+go
+복사
+편집
+func SaveFile(filename string, data string) error {
+    file, err := os.Create(filename)
+    if err != nil {
+        return err
+    }
+    defer file.Close()
+    
+    _, err = file.Write([]byte(data))
+    if err != nil {
+        return err
+    }
+    
+    return nil
+}
+❌ 이 코드에서는 os.Create()와 file.Write()를 직접 호출하므로,
+테스트 중 실제 파일이 생성되고 데이터가 저장되는 문제가 발생합니다.
 
-public interface AllowIpRepository extends JpaRepository<AllowIp, Long> {
-    List<AllowIp> findByFunction(Function function);
+➡ 해결 방법: 인터페이스를 활용하여 Mocking 가능하도록 수정
 
-    // Function에 해당하는 AllowIp 엔티티를 삭제하는 메소드 추가
-    @Transactional
-    void deleteByFunction(Function function);
+✔️ 개선된 코드 (인터페이스 적용)
+go
+복사
+편집
+type FileSystem interface {
+    Create(name string) (File, error)
 }
 
-변경된 부분 설명
+type File interface {
+    Write(data []byte) (int, error)
+    Close() error
+}
+이제 os 패키지를 직접 호출하지 않고, FileSystem 인터페이스를 사용합니다.
+이렇게 하면 gomock을 이용해 MockFileSystem을 만들고, 가짜 객체를 주입할 수 있습니다.
 
-deleteByFunction 메소드 추가: JPA의 메소드 네이밍 규칙을 따르며, Function을 기준으로 관련된 AllowIp 엔티티들을 삭제할 수 있도록 deleteByFunction 메소드를 추가했습니다.
+🔬 4. Mocking을 이용한 테스트 코드 작성
+1️⃣ Mock 인터페이스 생성 (gomock 사용)
+Go의 gomock을 활용하면 인터페이스 기반의 Mock 객체를 쉽게 만들 수 있습니다.
+아래와 같이 FileSystem과 File을 Mock 객체로 변환합니다.
 
-@Transactional 어노테이션 추가: deleteByFunction 메소드에 @Transactional 어노테이션을 추가하여 데이터베이스에서 삭제 작업이 트랜잭션 범위 내에서 수행되도록 했습니다.
+bash
+복사
+편집
+mockgen -source=file.go -destination=mocks/mock_file.go -package=mocks
+🔹 이 명령어를 실행하면 mocks/mock_file.go 파일이 자동 생성됩니다.
 
+2️⃣ Mock 객체를 활용한 유닛 테스트 코드
+Mock을 활용하면 Create()와 Write() 함수가 호출되었는지 검증할 수 있습니다.
 
-기타 주의사항
+go
+복사
+편집
+func TestSaveFile(t *testing.T) {
+    ctrl := gomock.NewController(t)
+    defer ctrl.Finish()
+    
+    mockFS := mocks.NewMockFileSystem(ctrl)
+    mockFile := mocks.NewMockFile(ctrl)
 
-@Transactional은 deleteByFunction 메소드가 실행될 때 데이터베이스 트랜잭션을 관리합니다. 이 어노테이션을 추가하지 않으면, 삭제 작업이 제대로 처리되지 않을 수 있습니다.
+    mockFS.EXPECT().Create("test.txt").Return(mockFile, nil)
+    mockFile.EXPECT().Write([]byte("hello")).Return(len("hello"), nil)
+    mockFile.EXPECT().Close().Return(nil)
 
+    err := SaveFile("test.txt", "hello")
+    if err != nil {
+        t.Errorf("Unexpected error: %v", err)
+    }
+}
+✅ Mock 객체가 정상적으로 호출되었는지 검증
+✅ 실제 파일을 생성하지 않고도 동작을 테스트 가능
 
-이제 AllowIpRepository에서 deleteByFunction 메소드를 사용하여 Function과 관련된 AllowIp 엔티티들을 삭제할 수 있게 됩니다.
+🛠️ 5. 다양한 테스트 시나리오 적용
+1️⃣ 파일 생성이 실패하는 경우
+os.Create()가 실패할 경우를 가정
+Create() 호출 시 에러를 반환하도록 설정
+go
+복사
+편집
+mockFS.EXPECT().Create("test.txt").Return(nil, errors.New("failed to create file"))
+✅ 예상 결과: 함수가 return err를 실행해야 함
 
+2️⃣ 파일 쓰기가 실패하는 경우
+파일을 생성한 후, Write() 호출 시 에러 발생
+go
+복사
+편집
+mockFile.EXPECT().Write([]byte("hello")).Return(0, errors.New("write error"))
+✅ 예상 결과: 함수가 return err를 실행해야 함
+
+3️⃣ 파일이 정상적으로 생성되었지만 닫기가 실패하는 경우
+Close() 호출 시 에러 발생
+go
+복사
+편집
+mockFile.EXPECT().Close().Return(errors.New("close error"))
+✅ 예상 결과: 함수가 return err를 실행해야 함
+
+🎯 6. 레거시 코드 리팩토링과 테스트의 중요성
+✅ 레거시 코드 수정 시 테스트가 중요한 이유
+기존 코드에 대한 테스트 케이스가 없으면, 수정 후 버그 발생 가능성이 높음
+Mocking을 이용하면 기존 코드를 변경하지 않고도 테스트 가능
+코드 변경 전에 테스트 커버리지를 확보하면 안전한 리팩토링이 가능
+✅ 테스트 케이스 작성 후 코드 리팩토링을 진행하면 안전하게 수정 가능!
+
+🔥 7. 결론 - Mocking을 활용한 안전한 코드 테스트
+1️⃣ Go에서 파일 IO를 직접 테스트하는 것은 환경을 오염시킬 가능성이 있음
+2️⃣ gomock을 활용해 파일 시스템과 os 패키지를 Mocking하여 테스트 가능
+3️⃣ Mocking을 활용하면 레거시 코드 리팩토링도 안전하게 수행할 수 있음
+4️⃣ 다양한 에러 시나리오 테스트가 가능하여 안정적인 코드 유지보수 가능
+
+이제 Go 언어에서 Mocking과 Stubbing을 활용한 테스트 전략을 확실히 이해했을 것입니다.
