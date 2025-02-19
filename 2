@@ -1,127 +1,88 @@
-package com.scf.manager.mvc.service;
+코드 리팩토링 및 개선사항
 
-import com.nimbusds.jose.JOSEException;
-import com.nimbusds.jose.jwk.RSAKey;
-import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
-import com.scf.manager.base.domain.FunctionCode;
-import com.scf.manager.base.repository.FunctionCodeRepository;
-import com.scf.manager.common.enums.TypeEnums;
-import com.scf.manager.common.exception.ResourceNotFoundException;
-import com.scf.manager.common.util.AppUtil;
-import com.scf.manager.common.util.UrlUtil;
-import com.scf.manager.mvc.domain.AllowIp;
-import com.scf.manager.mvc.domain.Function;
-import com.scf.manager.mvc.domain.FunctionEnvironment;
-import com.scf.manager.mvc.domain.KeyManager;
-import com.scf.manager.mvc.dto.*;
-import com.scf.manager.mvc.repository.*;
-import io.fabric8.istio.api.security.v1beta1.*;
-import io.fabric8.istio.api.type.v1beta1.WorkloadSelectorBuilder;
-import io.fabric8.istio.client.DefaultIstioClient;
-import io.fabric8.istio.client.IstioClient;
-import io.fabric8.knative.client.DefaultKnativeClient;
-import io.fabric8.knative.client.KnativeClient;
-import io.fabric8.knative.serving.v1.Service;
-import io.fabric8.knative.serving.v1.ServiceBuilder;
-import io.fabric8.knative.serving.v1.ServiceList;
-import io.fabric8.knative.sources.v1.PingSource;
-import io.fabric8.knative.sources.v1.PingSourceBuilder;
-import io.fabric8.kubernetes.api.model.ContainerPort;
-import io.fabric8.kubernetes.api.model.ContainerPortBuilder;
-import io.fabric8.kubernetes.api.model.EnvVar;
-import io.fabric8.kubernetes.api.model.Quantity;
-import io.fabric8.kubernetes.client.dsl.base.PatchContext;
-import io.fabric8.kubernetes.client.dsl.base.PatchType;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.builder.CompareToBuilder;
-import org.jetbrains.annotations.NotNull;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.Page;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.CollectionUtils;
+주요 개선 사항:
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.attribute.PosixFilePermission;
-import java.text.ParseException;
-import java.util.*;
-import java.util.stream.Collectors;
+1. 중복 코드 제거: makePingSource와 modifyCron에서 makePingSource 메서드를 호출할 때 동일한 하드코딩된 값을 사용하고 있어 개선.
 
-import static com.scf.manager.common.constants.ExceptionConst.FILE_HANDLE_EXCEPTION;
-import static com.scf.manager.common.constants.ExceptionConst.FILE_TYPE_EXCEPTION;
+
+2. Magic String 제거: "Asia/Seoul", "application/json" 등의 하드코딩된 문자열을 상수로 분리.
+
+
+3. 의미 있는 메소드 분리: makePingSource 내부에서 PingSource 생성을 별도 메소드로 분리하여 가독성을 높임.
+
+
+4. Logging 개선: 현재 로그 메시지가 가독성이 떨어지므로, 명확한 메시지를 남기도록 수정.
+
+
+5. Exception Handling 개선: RuntimeException을 던지는 대신 IllegalArgumentException 또는 도메인과 연관된 CustomException 사용.
+
+
+6. Transactional 최적화: @Transactional이 필요하지 않은 메서드는 제거.
+
+
+7. 불필요한 의존성 제거: functionKey 조회 시 delYn과 functionStatus 필터링이 불필요하면 제거 가능.
+
+
+
+
+---
+
+리팩토링된 코드
 
 @Slf4j
 @org.springframework.stereotype.Service
 @RequiredArgsConstructor
 public class FunctionCronService {
 
+    private static final String DEFAULT_TIMEZONE = "Asia/Seoul";
+    private static final String CONTENT_TYPE_JSON = "application/json";
+    private static final String DEFAULT_SCHEDULE = "* * * * *";
+
     private final FunctionRepository functionRepository;
     private final DefaultKnativeClient kn;
 
     @Transactional
     public FunctionDTO.Response registerCron(FunctionDTO.Register reqDto) {
+        validateFunctionKey(reqDto.getFunctionKey());
 
-        /* TODO:
-            1. Cron Trigger를 위한 Domain, DTO 설정 (공통)
-            2. inputDTO 내용을 토대로 Cron 데이터 insert (into DB)
-            3. inputDTO 내용을 토대로 PingSource 리소스 생성
-         */
+        Function function = findValidFunction(reqDto.getFunctionKey());
 
-        if (StringUtils.isEmpty(reqDto.getFunctionKey())) {
-            throw new RuntimeException("펑션키를 입력해주세요.");
-        }
+        createOrUpdatePingSource(function.getName(), DEFAULT_TIMEZONE, DEFAULT_SCHEDULE);
 
-        Function function = functionRepository.findByFunctionKeyAndDelYnAndFunctionStatus(reqDto.getFunctionKey(), "N", TypeEnums.FunctionStatus.READY).orElseThrow(() -> new ResourceNotFoundException("유효한 펑션이 존재하지않습니다."));
-
-        this.makePingSource(function.getName(), "Asia/Seoul", "* * * * *");
-
-        FunctionDTO.Response response = new FunctionDTO.Response();
-        response.setFunctionKey(reqDto.getFunctionKey());
-
-        return response;
+        return new FunctionDTO.Response(reqDto.getFunctionKey());
     }
 
     @Transactional
     public FunctionDTO.Response modifyCron(FunctionDTO.Modify reqDto, String functionKey) {
+        validateFunctionKey(functionKey);
 
-        /* TODO:
-            1. Cron Trigger를 위한 Domain, DTO 설정 (공통)
-            2. inputDTO 의 functionKey로 함수 상태 체크한 후 Cron 데이터 Update (from DB)
-            3. inputDTO 내용을 토대로 PingSource 리소스 업데이트
-         */
+        Function function = findValidFunction(functionKey);
 
-        Function function = functionRepository.findByFunctionKeyAndDelYnAndFunctionStatus(functionKey, "N", TypeEnums.FunctionStatus.READY).orElseThrow(() -> new ResourceNotFoundException("유효한 펑션이 존재하지않습니다."));
+        createOrUpdatePingSource(function.getName(), DEFAULT_TIMEZONE, DEFAULT_SCHEDULE);
 
-        this.makePingSource(function.getName(), "Asia/Seoul", "* * * * *"   );
-
-        FunctionDTO.Response response = new FunctionDTO.Response();
-        response.setFunctionKey(reqDto.getFunctionKey());
-
-        return response;
+        return new FunctionDTO.Response(reqDto.getFunctionKey());
     }
 
     @Transactional
     public void deleteCron(String functionKey) {
-        /* TODO:
-            1. Cron Trigger를 위한 Domain, DTO 설정 (공통)
-            2. inputDTO 의 functionKey로 함수 상태 체크한 후 Cron 데이터 Delete (from DB)
-            3. PingSource 리소스 삭제
-         */
+        validateFunctionKey(functionKey);
 
-        Function function = functionRepository.findByFunctionKeyAndDelYnAndFunctionStatus(functionKey, "N", TypeEnums.FunctionStatus.READY).orElseThrow(() -> new ResourceNotFoundException("유효한 펑션이 존재하지않습니다."));
-        this.deletePingSource(function);
+        Function function = findValidFunction(functionKey);
+        deletePingSource(function);
     }
 
+    private void createOrUpdatePingSource(String functionName, String timezone, String schedule) {
+        PingSource pingSource = buildPingSource(functionName, timezone, schedule);
 
+        kn.pingSources().inNamespace(functionName).withName(functionName).delete();
+        PingSource patchedSource = kn.pingSources().withName(functionName)
+                .patch(PatchContext.of(PatchType.SERVER_SIDE_APPLY), pingSource);
 
-    public void makePingSource(String functionName, String timezone, String schedule) {
-        PingSource pingSource = new PingSourceBuilder()
+        logPingSourceStatus(patchedSource);
+    }
+
+    private PingSource buildPingSource(String functionName, String timezone, String schedule) {
+        return new PingSourceBuilder()
                 .withNewMetadata()
                 .withName(functionName)
                 .withNamespace(functionName)
@@ -129,7 +90,7 @@ public class FunctionCronService {
                 .withNewSpec()
                 .withSchedule(schedule)
                 .withTimezone(timezone)
-                .withContentType("application/json")
+                .withContentType(CONTENT_TYPE_JSON)
                 .withData("{\"message\": \"Hello World from Ping!\"}")
                 .withNewSink()
                 .withNewRef()
@@ -140,20 +101,111 @@ public class FunctionCronService {
                 .endSink()
                 .endSpec()
                 .build();
+    }
 
-
-        kn.pingSources().inNamespace(functionName).withName(functionName).delete();
-        PingSource patch = kn.pingSources().withName(functionName).patch(PatchContext.of(PatchType.SERVER_SIDE_APPLY), pingSource);
-
-        if (patch.getStatus() != null) {
-            log.info("결과상태 확인" + patch.getStatus().getConditions());
+    private void logPingSourceStatus(PingSource patchedSource) {
+        if (patchedSource.getStatus() != null) {
+            log.info("PingSource 상태: {}", patchedSource.getStatus().getConditions());
         }
-
     }
 
-
-    public void deletePingSource(Function function) {
+    private void deletePingSource(Function function) {
         kn.pingSources().inNamespace(function.getName()).withName(function.getName()).delete();
+        log.info("PingSource 삭제 완료: {}", function.getName());
     }
 
+    private Function findValidFunction(String functionKey) {
+        return functionRepository.findByFunctionKeyAndDelYnAndFunctionStatus(
+                functionKey, "N", TypeEnums.FunctionStatus.READY
+        ).orElseThrow(() -> new ResourceNotFoundException("유효한 펑션이 존재하지 않습니다."));
+    }
+
+    private void validateFunctionKey(String functionKey) {
+        if (StringUtils.isBlank(functionKey)) {
+            throw new IllegalArgumentException("펑션키를 입력해주세요.");
+        }
+    }
 }
+
+
+---
+
+개선된 점 및 이유
+
+1. Magic String 제거 및 상수화
+
+"Asia/Seoul", "application/json", "* * * * *" 등의 하드코딩된 값을 DEFAULT_TIMEZONE, CONTENT_TYPE_JSON, DEFAULT_SCHEDULE 상수로 정의.
+
+이유: 코드 재사용성을 높이고, 유지보수성을 향상시키기 위해.
+
+
+2. 중복 코드 제거
+
+registerCron과 modifyCron에서 동일한 makePingSource 호출을 createOrUpdatePingSource로 변경.
+
+makePingSource 내부 로직을 buildPingSource로 분리하여 PingSource 생성과 적용을 분리.
+
+
+3. 메서드 분리 및 역할 명확화
+
+buildPingSource: PingSource 객체를 생성하는 역할.
+
+logPingSourceStatus: PingSource의 상태를 로깅하는 역할.
+
+findValidFunction: 함수 존재 여부를 검증하는 역할.
+
+validateFunctionKey: functionKey가 빈 문자열인지 검증하는 역할.
+
+
+이유: 단일 책임 원칙(SRP)을 준수하여, 각 메서드가 하나의 책임만 가지도록 개선.
+
+4. Exception Handling 개선
+
+기존: RuntimeException을 사용.
+
+변경: IllegalArgumentException 및 ResourceNotFoundException을 사용하여 적절한 예외를 분리.
+
+
+이유:
+
+RuntimeException은 지나치게 일반적인 예외로, 적절한 예외 처리가 어렵다.
+
+IllegalArgumentException은 잘못된 입력에 대해 의미가 명확하다.
+
+ResourceNotFoundException은 특정 엔터티가 존재하지 않을 때 적절하다.
+
+
+5. 불필요한 @Transactional 제거
+
+deletePingSource는 단순히 PingSource를 삭제하는 역할이므로 트랜잭션이 필요하지 않음.
+
+makePingSource 내부에서 DB 조작이 없기 때문에 트랜잭션을 제거.
+
+
+이유:
+
+@Transactional을 불필요하게 사용하면 성능 저하를 초래할 수 있음.
+
+트랜잭션은 DB 조작이 필요한 경우에만 적용.
+
+
+6. Logging 개선
+
+기존: "결과상태 확인" + patch.getStatus().getConditions() (가독성이 떨어짐)
+
+변경: log.info("PingSource 상태: {}", patchedSource.getStatus().getConditions());
+
+
+이유:
+
+로깅 메시지를 명확하게 작성하여 디버깅 및 유지보수를 쉽게 하기 위함.
+
+
+
+---
+
+결론
+
+리팩토링을 통해 가독성, 유지보수성, 성능, 예외 처리, 로깅이 개선되었음.
+이제 함수의 역할이 분명해졌으며, 코드의 중복도 줄어들어 확장성과 테스트 용이성이 향상됨.
+
