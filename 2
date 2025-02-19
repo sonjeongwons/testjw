@@ -1,119 +1,159 @@
-🔥 Github PR 코드 리뷰 코멘트 🔥
-팀원이 올려준 코드에 대해 클린 코드 및 리팩토링 관점에서 다양한 리뷰 코멘트를 남겨볼게!
-각 코멘트는 칭찬 + 개선 제안 + 기술적 배경 및 예시 코드를 포함하고 있어. 😃
+package com.scf.manager.mvc.service;
 
-1️⃣ makeIstioPolicy() - try-with-resources 사용 칭찬 & 개선 가능성
-💬 "이 부분에서 try-with-resources를 사용한 점이 너무 좋아요! 🎉 IstioClient 같은 네트워크 리소스는 누수를 방지해야 하는데, 적절하게 잘 적용하셨네요. 👏👏"
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
+import com.scf.manager.base.domain.FunctionCode;
+import com.scf.manager.base.repository.FunctionCodeRepository;
+import com.scf.manager.common.enums.TypeEnums;
+import com.scf.manager.common.exception.ResourceNotFoundException;
+import com.scf.manager.common.util.AppUtil;
+import com.scf.manager.common.util.UrlUtil;
+import com.scf.manager.mvc.domain.AllowIp;
+import com.scf.manager.mvc.domain.Function;
+import com.scf.manager.mvc.domain.FunctionEnvironment;
+import com.scf.manager.mvc.domain.KeyManager;
+import com.scf.manager.mvc.dto.*;
+import com.scf.manager.mvc.repository.*;
+import io.fabric8.istio.api.security.v1beta1.*;
+import io.fabric8.istio.api.type.v1beta1.WorkloadSelectorBuilder;
+import io.fabric8.istio.client.DefaultIstioClient;
+import io.fabric8.istio.client.IstioClient;
+import io.fabric8.knative.client.DefaultKnativeClient;
+import io.fabric8.knative.client.KnativeClient;
+import io.fabric8.knative.serving.v1.Service;
+import io.fabric8.knative.serving.v1.ServiceBuilder;
+import io.fabric8.knative.serving.v1.ServiceList;
+import io.fabric8.knative.sources.v1.PingSource;
+import io.fabric8.knative.sources.v1.PingSourceBuilder;
+import io.fabric8.kubernetes.api.model.ContainerPort;
+import io.fabric8.kubernetes.api.model.ContainerPortBuilder;
+import io.fabric8.kubernetes.api.model.EnvVar;
+import io.fabric8.kubernetes.api.model.Quantity;
+import io.fabric8.kubernetes.client.dsl.base.PatchContext;
+import io.fabric8.kubernetes.client.dsl.base.PatchType;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.builder.CompareToBuilder;
+import org.jetbrains.annotations.NotNull;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
 
-💡 그런데 혹시 IstioClient를 매번 생성하는 대신, 빈으로 관리하는 방법도 고려해보셨나요?
-Spring에서 @Bean으로 등록하면 애플리케이션이 살아있는 동안 공유할 수 있어서 불필요한 객체 생성을 줄일 수 있어요.
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFilePermission;
+import java.text.ParseException;
+import java.util.*;
+import java.util.stream.Collectors;
 
-java
-복사
-편집
-@Configuration
-public class IstioConfig {
-    @Bean
-    public IstioClient istioClient() {
-        return new DefaultIstioClient();
+import static com.scf.manager.common.constants.ExceptionConst.FILE_HANDLE_EXCEPTION;
+import static com.scf.manager.common.constants.ExceptionConst.FILE_TYPE_EXCEPTION;
+
+@Slf4j
+@org.springframework.stereotype.Service
+@RequiredArgsConstructor
+public class FunctionCronService {
+
+    private final FunctionRepository functionRepository;
+    private final DefaultKnativeClient kn;
+
+    @Transactional
+    public FunctionDTO.Response registerCron(FunctionDTO.Register reqDto) {
+
+        /* TODO:
+            1. Cron Trigger를 위한 Domain, DTO 설정 (공통)
+            2. inputDTO 내용을 토대로 Cron 데이터 insert (into DB)
+            3. inputDTO 내용을 토대로 PingSource 리소스 생성
+         */
+
+        if (StringUtils.isEmpty(reqDto.getFunctionKey())) {
+            throw new RuntimeException("펑션키를 입력해주세요.");
+        }
+
+        Function function = functionRepository.findByFunctionKeyAndDelYnAndFunctionStatus(reqDto.getFunctionKey(), "N", TypeEnums.FunctionStatus.READY).orElseThrow(() -> new ResourceNotFoundException("유효한 펑션이 존재하지않습니다."));
+
+        this.makePingSource(function.getName(), "Asia/Seoul", "* * * * *");
+
+        FunctionDTO.Response response = new FunctionDTO.Response();
+        response.setFunctionKey(reqDto.getFunctionKey());
+
+        return response;
     }
+
+    @Transactional
+    public FunctionDTO.Response modifyCron(FunctionDTO.Modify reqDto, String functionKey) {
+
+        /* TODO:
+            1. Cron Trigger를 위한 Domain, DTO 설정 (공통)
+            2. inputDTO 의 functionKey로 함수 상태 체크한 후 Cron 데이터 Update (from DB)
+            3. inputDTO 내용을 토대로 PingSource 리소스 업데이트
+         */
+
+        Function function = functionRepository.findByFunctionKeyAndDelYnAndFunctionStatus(functionKey, "N", TypeEnums.FunctionStatus.READY).orElseThrow(() -> new ResourceNotFoundException("유효한 펑션이 존재하지않습니다."));
+
+        this.makePingSource(function.getName(), "Asia/Seoul", "* * * * *"   );
+
+        FunctionDTO.Response response = new FunctionDTO.Response();
+        response.setFunctionKey(reqDto.getFunctionKey());
+
+        return response;
+    }
+
+    @Transactional
+    public void deleteCron(String functionKey) {
+        /* TODO:
+            1. Cron Trigger를 위한 Domain, DTO 설정 (공통)
+            2. inputDTO 의 functionKey로 함수 상태 체크한 후 Cron 데이터 Delete (from DB)
+            3. PingSource 리소스 삭제
+         */
+
+        Function function = functionRepository.findByFunctionKeyAndDelYnAndFunctionStatus(functionKey, "N", TypeEnums.FunctionStatus.READY).orElseThrow(() -> new ResourceNotFoundException("유효한 펑션이 존재하지않습니다."));
+        this.deletePingSource(function);
+    }
+
+
+
+    public void makePingSource(String functionName, String timezone, String schedule) {
+        PingSource pingSource = new PingSourceBuilder()
+                .withNewMetadata()
+                .withName(functionName)
+                .withNamespace(functionName)
+                .endMetadata()
+                .withNewSpec()
+                .withSchedule(schedule)
+                .withTimezone(timezone)
+                .withContentType("application/json")
+                .withData("{\"message\": \"Hello World from Ping!\"}")
+                .withNewSink()
+                .withNewRef()
+                .withApiVersion("serving.knative.dev/v1")
+                .withKind("Service")
+                .withName(functionName)
+                .endRef()
+                .endSink()
+                .endSpec()
+                .build();
+
+
+        kn.pingSources().inNamespace(functionName).withName(functionName).delete();
+        PingSource patch = kn.pingSources().withName(functionName).patch(PatchContext.of(PatchType.SERVER_SIDE_APPLY), pingSource);
+
+        if (patch.getStatus() != null) {
+            log.info("결과상태 확인" + patch.getStatus().getConditions());
+        }
+
+    }
+
+
+    public void deletePingSource(Function function) {
+        kn.pingSources().inNamespace(function.getName()).withName(function.getName()).delete();
+    }
+
 }
-이렇게 등록하면, @Autowired로 주입해서 사용할 수도 있어요! 물론 요청별로 try-with-resources를 적용하는 것도 좋지만, 빈으로 관리하면 성능적으로 더 나을 수도 있을 것 같아요. 🚀
-
-2️⃣ applyAuthorizationPolicy() - 중복 제거 칭찬 & 정책 적용 방식 제안
-💬 "중복 코드를 깔끔하게 제거해서 applyAuthorizationPolicy()라는 메서드로 따로 빼신 점이 정말 멋져요! 🎉 읽기 쉽고 유지보수하기도 훨씬 좋아졌네요. 💪"
-
-💡 다만, PatchContext.of(PatchType.SERVER_SIDE_APPLY)를 사용할 때 기존 설정을 유지할 필요가 있는 경우, merge 전략을 고려해보셨나요?
-현재 방식은 새 설정을 덮어씌우는 방식인데, 기존 설정이 유지되어야 한다면 다음처럼 patch 대신 edit()을 활용하는 것도 방법이에요.
-
-java
-복사
-편집
-istioClient.v1beta1().authorizationPolicies()
-    .inNamespace(namespace)
-    .withName(policy.getMetadata().getName())
-    .edit(existing -> {
-        existing.getSpec().getRules().addAll(policy.getSpec().getRules());
-        return existing;
-    });
-이렇게 하면 기존 정책도 보존하면서 새로운 규칙을 추가할 수 있어요! 기존 정책을 유지해야 하는 경우라면 고려해보셔도 좋을 것 같습니다. 🚀
-
-3️⃣ createRemoteIpConditions() - 예외 처리 및 방어 코드
-💬 "리스트를 따로 생성하는 방식이 직관적이고 깔끔하네요! 특히 CollectionUtils.isEmpty(ipAddress)를 활용해서 Null 체크를 하신 점이 좋습니다. 👏"
-
-💡 그런데 혹시 ipAddress가 [""] (빈 문자열 리스트)처럼 잘못된 값이 들어올 가능성도 있을까요?
-보통 프론트엔드에서 값이 넘어올 때, null이 아닌 ""나 " " 같은 빈 값이 포함될 수도 있어서 이를 미리 필터링하는 것도 좋을 것 같아요!
-
-java
-복사
-편집
-List<String> validIps = ipAddress.stream()
-    .filter(ip -> ip != null && !ip.trim().isEmpty())
-    .collect(Collectors.toList());
-이렇게 하면 "불필요한 조건 추가 방지 + 예외 방지" 효과를 얻을 수 있습니다. 🚀
-
-4️⃣ deleteIstioPolicy() - 삭제 후 검증하는 방법 제안
-💬 "정책을 삭제하는 부분을 메서드로 잘 분리하셨네요! 🎉 코드가 한눈에 들어와서 이해하기 쉬워졌어요. 👍"
-
-💡 혹시 delete() 호출 후 성공 여부를 확인하는 방법도 고려해보셨나요?
-기본 delete()는 예외가 발생하지 않으면 성공한 것으로 간주하지만, 삭제된 리소스가 존재했는지 확인하려면 get()을 활용할 수도 있어요.
-
-java
-복사
-편집
-boolean isDeleted = istioClient.v1beta1().authorizationPolicies()
-    .inNamespace(namespace)
-    .withName(functionName)
-    .delete();
-
-if (isDeleted) {
-    log.info("AuthorizationPolicy [{}] successfully deleted in namespace [{}]", functionName, namespace);
-} else {
-    log.warn("AuthorizationPolicy [{}] not found or already deleted.", functionName);
-}
-이렇게 하면 삭제가 실제로 이루어졌는지 명확히 알 수 있어서 디버깅 및 운영 환경에서 유용할 것 같아요! 🛠
-
-5️⃣ createHealthCheckPolicy() - 헬스 체크 경로 확장성 고려
-💬 "헬스 체크를 위한 정책을 따로 분리한 점이 너무 좋아요! 코드가 확실히 직관적으로 바뀌었네요. 👏👏"
-
-💡 근데 /healthz, /metrics 같은 경로가 추가될 가능성도 고려하면 좋을 것 같아요!
-만약 헬스 체크 경로가 여러 개라면 하드코딩 대신 리스트로 관리하면 확장성이 좋아질 것 같습니다.
-
-java
-복사
-편집
-List<String> healthCheckPaths = List.of("/healthz", "/metrics", "/live", "/ready");
-
-List<RuleTo> healthRules = healthCheckPaths.stream()
-    .map(path -> new RuleToBuilder()
-        .withOperation(new OperationBuilder().withPaths(path).build())
-        .build())
-    .collect(Collectors.toList());
-
-AuthorizationPolicy healthPolicy = new AuthorizationPolicyBuilder()
-    .withNewMetadata()
-    .withName(functionName)
-    .withNamespace(functionName)
-    .endMetadata()
-    .withNewSpec()
-    .withSelector(new WorkloadSelectorBuilder()
-        .withMatchLabels(Collections.singletonMap(KNATIVE_SERVICE_LABEL, functionName))
-        .build())
-    .withRules(new RuleBuilder().withTo(healthRules).build())
-    .endSpec()
-    .build();
-이렇게 하면 새로운 헬스 체크 경로가 추가될 때 수정이 간단해지고 유지보수하기 쉬워집니다! 😃
-
-✨ 마무리
-이번 PR에서 많은 부분이 더 클린한 코드로 변한 게 정말 인상적이었어요! 🎉
-각 메서드의 역할이 명확해졌고, 중복 코드도 줄어들면서 가독성과 유지보수성이 크게 향상되었어요.
-
-몇 가지 더 개선하면 좋을 부분들을 제안드렸는데,
-✅ IstioClient를 빈으로 관리할지 고민해보기
-✅ Patch 방식 개선을 고려해보기 (edit() 활용)
-✅ delete() 후 성공 여부 확인하기
-✅ 입력값 필터링 추가하여 예외 방지
-✅ 헬스 체크 경로를 리스트로 관리하여 확장성 높이기
-
-이런 부분을 반영하면 더 견고하고 유지보수하기 좋은 코드가 될 것 같아요!
-진짜 코드 많이 개선된 거 보면서 감탄했습니다. 💯 좋은 코드 감사합니다! 🚀🔥
