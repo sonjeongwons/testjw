@@ -534,10 +534,11 @@ public class KnativeService {
         kn.services().withName(function.getName()).patch(PatchContext.of(PatchType.SERVER_SIDE_APPLY), service);
     }
 
-    private String generateManagerFileName(FunctionDTO.Register reqDto) {
-        return MANAGER_FILE_MAP.getOrDefault(reqDto.getRuntime(), 
-            throw new RuntimeException("지원하지 않는 런타임입니다."));
-    }
+private String generateManagerFileName(FunctionDTO.Register reqDto) {
+    return MANAGER_FILE_MAP.containsKey(reqDto.getRuntime()) 
+        ? MANAGER_FILE_MAP.get(reqDto.getRuntime()) 
+        : throw new RuntimeException("지원하지 않는 런타임입니다.");
+}
 
     private String generateFunctionFileName(FunctionDTO.Register reqDto) {
         return generateManagerFileName(reqDto).replace("manager", "function");
