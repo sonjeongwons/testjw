@@ -574,16 +574,10 @@ if-else 구조 개선 (Map 사용)
 
 
 
-
-
-
-
-
-
-
 package com.scf.manager.mvc.service;
 
 import com.scf.manager.common.exception.ResourceNotFoundException;
+import com.scf.manager.common.util.AppUtil;
 import com.scf.manager.mvc.domain.*;
 import com.scf.manager.mvc.dto.FunctionDTO;
 import com.scf.manager.mvc.repository.*;
@@ -604,6 +598,7 @@ import java.nio.file.*;
 import java.text.ParseException;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.Base64;
 
 @Slf4j
 @org.springframework.stereotype.Service
@@ -627,32 +622,23 @@ public class KnativeService {
     private final FunctionRepository functionRepository;
     private final SourceFileRepository sourceFileRepository;
 
-    private static final Map<String, String> MANAGER_FILE_MAP = Map.of(
-        "Node.js", "manager.js",
-        "Python", "manager.py",
-        "PHP", "index.php",
-        "Java", "manager.jar",
-        "Go", "manager.go"
-    );
-
     public void makeIstioResource(Function function) {
-        FunctionEnvironment functionEnvironment = functionEnvironmentRepository.findByFunction(function)
-                .stream()
-                .filter(env -> TOKEN_TYPE.equals(env.getType()))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("토큰정보를 확인해주십시오."));
+        FunctionEnvironment functionEnvironment = getFunctionEnvironment(function);
         configureIstioPolicy(function, functionEnvironment);
     }
 
     public void callIstioAndKnative(Function function) throws IOException, ParseException {
-        FunctionEnvironment functionEnvironment = functionEnvironmentRepository.findByFunction(function)
+        FunctionEnvironment functionEnvironment = getFunctionEnvironment(function);
+        configureIstioPolicy(function, functionEnvironment);
+        callFunction(function.getFunctionKey());
+    }
+
+    private FunctionEnvironment getFunctionEnvironment(Function function) {
+        return functionEnvironmentRepository.findByFunction(function)
                 .stream()
                 .filter(env -> TOKEN_TYPE.equals(env.getType()))
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("토큰정보를 확인해주십시오."));
-
-        configureIstioPolicy(function, functionEnvironment);
-        callFunction(function.getFunctionKey());
     }
 
     private void configureIstioPolicy(Function function, FunctionEnvironment functionEnvironment) {
@@ -760,30 +746,12 @@ public class KnativeService {
                 .withRunAsUser(61000L)
                 .withRunAsNonRoot(true)
                 .endSecurityContext()
-                .withNewVolumeMount().withName("serverless-storage-user").withMountPath("/usr/src/serverless").endVolumeMount()
+                .addNewVolumeMount().withName("serverless-storage-user").withMountPath("/usr/src/serverless").endVolumeMount()
                 .endContainer()
                 .endSpec()
                 .endTemplate()
                 .endSpec();
 
         return serviceBuilder.build();
-    }
-
-    private void setFunctionEnvironment(FunctionEnvironment env, FunctionDTO.Register reqDto) {
-        switch (env.getType()) {
-            case "coldStartYn":
-                reqDto.setColdStartYn(env.getValue());
-                break;
-            case "memory":
-                reqDto.setMemory(env.getValue() + "Mi");
-                break;
-            case "limit":
-                if ("minute".equals(env.getKey())) {
-                    reqDto.setLimitTimeMinute(env.getValue());
-                } else if ("second".equals(env.getKey())) {
-                    reqDto.setLimitTimeSecond(env.getValue());
-                }
-                break;
-        }
     }
 }
