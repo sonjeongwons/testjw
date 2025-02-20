@@ -581,12 +581,6 @@ if-else 구조 개선 (Map 사용)
 
 
 
-
-
-
-
-
-
 package com.scf.manager.mvc.service;
 
 import com.scf.manager.common.exception.ResourceNotFoundException;
@@ -606,13 +600,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.util.CollectionUtils;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.nio.file.attribute.PosixFilePermission;
 import java.text.ParseException;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.Base64;
 
 @Slf4j
 @org.springframework.stereotype.Service
@@ -625,7 +616,7 @@ public class KnativeService {
     private static final String TOKEN_TYPE = "token";
     private static final String YES = "Y";
     private static final String NO = "N";
-    private static final String JAVA_RUNTIME = "Java";
+    private static final String GO_RUNTIME = "Go";
 
     private final DefaultKnativeClient kn;
     private final FunctionEnvironmentRepository functionEnvironmentRepository;
@@ -727,30 +718,55 @@ public class KnativeService {
             annotations.put("autoscaling.knative.dev/minScale", "1");
         }
 
-        String managerFileName = generateManagerFileName(reqDto);
-        String functionFileName = generateFunctionFileName(reqDto);
-
-        Service service = new ServiceBuilder()
-                .withNewMetadata()
-                .withName(function.getName())
-                .withNamespace(function.getName())
-                .endMetadata()
-                .withNewSpec()
-                .withTimeoutSeconds(timeout)
-                .endSpec()
-                .build();
+        Service service = createKnativeService(function, reqDto, timeout, annotations);
 
         kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
         kn.services().withName(function.getName()).patch(PatchContext.of(PatchType.SERVER_SIDE_APPLY), service);
     }
 
-    private String generateManagerFileName(FunctionDTO.Register reqDto) {
-        return MANAGER_FILE_MAP.getOrDefault(reqDto.getRuntime(), 
-            throw new RuntimeException("지원하지 않는 런타임입니다."));
-    }
+    private Service createKnativeService(Function function, FunctionDTO.Register reqDto, long timeout, Map<String, String> annotations) {
+        String runtime = reqDto.getRuntime().split(":")[0];
 
-    private String generateFunctionFileName(FunctionDTO.Register reqDto) {
-        return generateManagerFileName(reqDto).replace("manager", "function");
+        ServiceBuilder serviceBuilder = new ServiceBuilder()
+                .withNewMetadata()
+                .withName(function.getName())
+                .withNamespace(function.getName())
+                .endMetadata()
+                .withNewSpec()
+                .withNewTemplate()
+                .withNewMetadata()
+                .withAnnotations(annotations)
+                .endMetadata()
+                .withNewSpec()
+                .withTimeoutSeconds(timeout);
+
+        if (GO_RUNTIME.equals(runtime)) {
+            serviceBuilder.addNewInitContainer()
+                    .withImage(repository.concat("/scf-go:").concat(reqDto.getRuntime().split(":")[1]))
+                    .withNewSecurityContext()
+                    .withRunAsUser(0L)
+                    .endSecurityContext()
+                    .addNewVolumeMount().withName("shared-vol").withMountPath("/usr/src/serverless").endVolumeMount()
+                    .endInitContainer();
+        }
+
+        serviceBuilder.addNewContainer()
+                .withImage(repository.concat("/scf-").concat(runtime.toLowerCase()).concat(":").concat(reqDto.getRuntime().split(":")[1]))
+                .withNewResources()
+                .addToLimits("memory", new Quantity(reqDto.getMemory()))
+                .addToRequests("memory", new Quantity(reqDto.getMemory()))
+                .endResources()
+                .withNewSecurityContext()
+                .withRunAsUser(61000L)
+                .withRunAsNonRoot(true)
+                .endSecurityContext()
+                .withNewVolumeMount().withName("serverless-storage-user").withMountPath("/usr/src/serverless").endVolumeMount()
+                .endContainer()
+                .endSpec()
+                .endTemplate()
+                .endSpec();
+
+        return serviceBuilder.build();
     }
 
     private void setFunctionEnvironment(FunctionEnvironment env, FunctionDTO.Register reqDto) {
@@ -771,4 +787,3 @@ public class KnativeService {
         }
     }
 }
-
