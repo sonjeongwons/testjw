@@ -1,148 +1,539 @@
-Github PR 코드리뷰 코멘트
+package com.scf.manager.mvc.service;
+
+import com.scf.manager.common.exception.ResourceNotFoundException;
+import com.scf.manager.common.util.AppUtil;
+import com.scf.manager.mvc.domain.*;
+import com.scf.manager.mvc.dto.FunctionDTO;
+import com.scf.manager.mvc.repository.*;
+import io.fabric8.istio.client.DefaultIstioClient;
+import io.fabric8.knative.client.DefaultKnativeClient;
+import io.fabric8.knative.serving.v1.Service;
+import io.fabric8.knative.serving.v1.ServiceBuilder;
+import io.fabric8.kubernetes.api.model.*;
+import io.fabric8.kubernetes.client.dsl.base.PatchContext;
+import io.fabric8.kubernetes.client.dsl.base.PatchType;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.util.CollectionUtils;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.text.ParseException;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.Base64;
+
+import static com.scf.manager.common.constants.ExceptionConst.FILE_TYPE_EXCEPTION;
+import static com.scf.manager.common.util.AppUtil.getSourceCodeFromFile;
+
+@Slf4j
+@org.springframework.stereotype.Service
+@RequiredArgsConstructor
+public class KnativeService {
+
+    @Value("${config.repository}")
+    private String repository;
+    private final String BASE_URL = "samsungsdscloud.com";
+
+    // NFS 접근을 위한 사용자 함수 볼륨
+    private final String volumeName = "serverless-storage-user";
+
+    // Init Container <-> User Container 간 파일 공유를 위한 임시 스토리지 볼륨 (EmptyDir)
+    private final String sharedVolumeName = "share-vol";
 
 
----
+    private final DefaultKnativeClient kn;
+    private final FunctionEnvironmentRepository functionEnvironmentRepository;
+    private final AllowIpRepository allowIpRepository;
+    private final IstioCallService istioCallService;
+    private final DefaultIstioClient istioClient;
+    private final KeyManagerRepository keyManagerRepository;
+    private final FunctionRepository functionRepository;
 
-1. registerCron() 메소드
+    private final SourceFileRepository sourceFileRepository;
 
-💬 [칭찬 & 개선 제안]
-"registerCron()이 훨씬 깔끔해졌네요! 🎉 validateFunctionKey()랑 findValidFunction()로 중복을 제거해서 코드가 읽기 쉬워졌어요. 하지만 createOrUpdatePingSource()에 전달하는 값이 항상 DEFAULT_TIMEZONE, DEFAULT_SCHEDULE인데, 이 값들을 매개변수로 받을 수도 있을 것 같아요! 이렇게 하면 유연성이 높아질 것 같아요."
+    private final static String nodejsManagerCode = Base64.getEncoder().encodeToString(getSourceCodeFromFile("codetemplates/handler/nodejs/manager.js").getBytes());
+    private final static String pythonManagerCode = Base64.getEncoder().encodeToString(getSourceCodeFromFile("codetemplates/handler/python/manager.py").getBytes());
+    private final static String phpManagerCode = Base64.getEncoder().encodeToString(getSourceCodeFromFile("codetemplates/handler/php/index.php").getBytes());
+    private final static String golangManagerCode = Base64.getEncoder().encodeToString(getSourceCodeFromFile("codetemplates/handler/golang/manager.go").getBytes());
 
-public FunctionDTO.Response registerCron(FunctionDTO.Register reqDto, String timezone, String schedule) {
-    validateFunctionKey(reqDto.getFunctionKey());
-    Function function = findValidFunction(reqDto.getFunctionKey());
-    
-    createOrUpdatePingSource(function.getName(), timezone, schedule);
-    
-    return new FunctionDTO.Response(reqDto.getFunctionKey());
-}
+    public void makeIstioResource(Function function) throws IOException, ParseException {
 
-"이렇게 하면 modifyCron()에서도 유연하게 사용할 수 있을 것 같은데 어떻게 생각하세요?" 😊
+        //펑션 토큰 확인
+        FunctionEnvironment functionEnvironment = functionEnvironmentRepository.findByFunction(function).stream().filter(h -> h.getType().equals("token")).findFirst().orElseThrow(()->new RuntimeException("토큰정보를 확인해주십시오."));
+        log.info("functionEnvironment = " + functionEnvironment);
+        //istio ip등록
+        List<AllowIp> allowIps = allowIpRepository.findByFunction(function);
 
+        if ("Y".equals(function.getPublicAccessAclYn())) {
+            List<String> ips = new ArrayList<>();
+            if(CollectionUtils.isEmpty(allowIps)){
+                //전체차단
+                ips = new ArrayList<>();
+            }else{
+                ips = allowIps.stream().map(ip -> ip.getName()).collect(Collectors.toList());
+            }
+            istioCallService.makeIstioPolicy(function.getName(), ips);
+        } else  if ("N".equals(function.getPublicAccessAclYn())) {
+            istioClient.v1beta1().authorizationPolicies().inNamespace("istio-system").withName(function.getName()).delete();
+        }
+        //istio jwk등록
+        if("Y".equals(functionEnvironment.getValue())){
+            log.info("functionEnvironment = " + functionEnvironment);
+            KeyManager keyManagerOptional = keyManagerRepository.findByFunctionAndDelYn(function,"N").orElseThrow(() -> new ResourceNotFoundException("키매니저 정보를 확인해주십시오."));
 
----
+            String token = function.getToken();
 
-2. modifyCron() 메소드
-
-💬 [사전 오류 방지 & 개선 제안]
-"멋지게 정리된 modifyCron()이네요! 👏 그런데 functionKey를 검증하는 validateFunctionKey()를 호출하고 있는데, 혹시 findValidFunction()에서도 내부적으로 key 검증을 한 번 더 하고 있지는 않나요? 만약 그렇다면 중복 체크가 되는 거라 validateFunctionKey()를 여기서 호출할 필요가 없을 수도 있어요! 🚀"
-
-"그리고 만약 future 확장성을 고려해서 validateFunctionKey()를 유지하고 싶다면, findValidFunction()이 key가 null이거나 비어있을 때 예외를 던지지 않도록 하는 것도 방법일 것 같아요."
-
-
----
-
-3. deleteCron() 메소드
-
-💬 [칭찬 & 개선 제안]
-"deletePingSource(function)로 로직이 한눈에 들어오게 정리된 게 너무 좋네요! 🔥 그런데 혹시 삭제할 PingSource가 존재하지 않는 경우에 대한 처리도 고민해볼 수 있을까요? 예를 들면 _exists() 같은 메서드를 먼저 호출해서 삭제 전에 확인할 수도 있어요."
-
-if (kn.pingSources().inNamespace(function.getName()).withName(function.getName()).get() != null) {
-    kn.pingSources().inNamespace(function.getName()).withName(function.getName()).delete();
-    log.info("PingSource 삭제 완료: {}", function.getName());
-} else {
-    log.warn("삭제하려는 PingSource가 존재하지 않습니다: {}", function.getName());
-}
-
-"이렇게 하면 없는 PingSource를 삭제하려 할 때도 로그를 통해 디버깅하기 쉬울 것 같아요! 🧐"
-
-
----
-
-4. createOrUpdatePingSource() 메소드
-
-💬 [로깅 개선 & 예외 처리]
-"PingSource 생성과 업데이트 로직이 명확하게 나뉘어 있어서 너무 좋아요! 👏 그런데 patch() 후에 logPingSourceStatus()를 호출하는 부분에서, 만약 patch()가 실패하면 상태 정보를 가져오기 어려울 수도 있을 것 같아요. 예외 처리를 추가하면 더 안전할 것 같은데 어떻게 생각하세요?"
-
-try {
-    PingSource patchedSource = kn.pingSources()
-            .withName(functionName)
-            .patch(PatchContext.of(PatchType.SERVER_SIDE_APPLY), pingSource);
-    logPingSourceStatus(patchedSource);
-} catch (Exception e) {
-    log.error("PingSource 업데이트 실패 - Function: {}, 에러: {}", functionName, e.getMessage());
-}
-
-"이렇게 하면 PingSource 패치 중 예외가 발생했을 때도 에러 로그를 확인할 수 있을 것 같아요! 🎯"
+            istioCallService.enrollIstioToken(function.getName(),"{'keys':["+keyManagerOptional.getJwk()+"]}", token);
+        }else if("N".equals(functionEnvironment.getValue())) {
+            istioClient.v1beta1()
+                    .requestAuthentications()
+                    .inNamespace(function.getName())
+                    .withName(function.getName()).delete();
+            istioClient.v1beta1()
+                    .authorizationPolicies()
+                    .inNamespace(function.getName())
+                    .withName(function.getName()).delete();
+        }
+    }
 
 
----
 
-5. buildPingSource() 메소드
+    public void callIstioAndKnative(Function function) throws IOException, ParseException {
 
-💬 [구현 방법 비교 & 최적화]
-"PingSource를 Builder 패턴으로 깔끔하게 생성한 점이 인상적이에요! 🎉 그런데, withNamespace(functionName)을 사용하고 있는데, 혹시 네임스페이스를 따로 관리하는 구조로 가는 건 어떨까요? 함수명과 네임스페이스를 동일하게 설정하는 게 의도된 거라면 괜찮지만, 향후 다른 네임스페이스에서 실행할 가능성이 있다면 개선할 수도 있을 것 같아요."
+        //펑션 토큰 확인
+        FunctionEnvironment functionEnvironment = functionEnvironmentRepository.findByFunction(function).stream().filter(h -> h.getType().equals("token")).findFirst().orElseThrow(()->new RuntimeException("토큰정보를 확인해주십시오."));
+        log.info("functionEnvironment = " + functionEnvironment);
+        //istio ip등록
+        List<AllowIp> allowIps = allowIpRepository.findByFunction(function);
 
-public PingSource buildPingSource(String functionName, String namespace, String timezone, String schedule) {
-    return new PingSourceBuilder()
-            .withNewMetadata()
-                .withName(functionName)
-                .withNamespace(namespace)
-            .endMetadata()
-            .withNewSpec()
-                .withSchedule(schedule)
-                .withTimezone(timezone)
-                .withContentType(CONTENT_TYPE_JSON)
-                .withData("{\"message\": \"Hello World from Ping!\"}")
-                .withNewSink()
-                    .withNewRef()
-                        .withApiVersion("serving.knative.dev/v1")
-                        .withKind("Service")
-                        .withName(functionName)
-                    .endRef()
-                .endSink()
-            .endSpec()
-            .build();
-}
+        if ("Y".equals(function.getPublicAccessAclYn())) {
+            List<String> ips = new ArrayList<>();
+            if(CollectionUtils.isEmpty(allowIps)){
+                //전체차단
+                ips = new ArrayList<>();
+            }else{
+                ips = allowIps.stream().map(ip -> ip.getName()).collect(Collectors.toList());
+            }
+            istioCallService.makeIstioPolicy(function.getName(), ips);
+        } else  if ("N".equals(function.getPublicAccessAclYn())) {
+            istioClient.v1beta1().authorizationPolicies().inNamespace("istio-system").withName(function.getName()).delete();
+        }
+        //istio jwk등록
+        if("Y".equals(functionEnvironment.getValue())){
+            log.info("functionEnvironment = " + functionEnvironment);
+            KeyManager keyManagerOptional = keyManagerRepository.findByFunctionAndDelYn(function,"N").orElseThrow(() -> new ResourceNotFoundException("키매니저 정보를 확인해주십시오."));
 
-"이렇게 하면 함수 이름과 네임스페이스를 분리해서 관리할 수 있을 것 같아요. 어떻게 생각하시나요? 🤔"
+            String token = function.getToken();
 
+            istioCallService.enrollIstioToken(function.getName(),"{'keys':["+keyManagerOptional.getJwk()+"]}", token);
+        }else if("N".equals(functionEnvironment.getValue())) {
+            istioClient.v1beta1()
+                    .requestAuthentications()
+                    .inNamespace(function.getName())
+                    .withName(function.getName()).delete();
+            istioClient.v1beta1()
+                    .authorizationPolicies()
+                    .inNamespace(function.getName())
+                    .withName(function.getName()).delete();
+        }
+        //함수호출
+        this.callFunction(function.getFunctionKey());
+    }
 
----
+    private String generateManagerFileName(FunctionDTO.Register reqDto) {
+        if (reqDto.getRuntime().startsWith("Node.js")) {
+            return "manager.js";
+        } else if (reqDto.getRuntime().startsWith("Python")) {
+            return "manager.py";
+        } else if (reqDto.getRuntime().startsWith("PHP")) {
+            return "index.php";
+        } else if (reqDto.getRuntime().startsWith("Java")) {
+            return "manager.jar";
+        } else if (reqDto.getRuntime().startsWith("Go")) {
+            return "manager.go";
+        } else {
+            throw new RuntimeException(FILE_TYPE_EXCEPTION);
+        }
+    }
 
-6. logPingSourceStatus() 메소드
+    private String generateFunctionFileName(FunctionDTO.Register reqDto) {
+        if (reqDto.getRuntime().startsWith("Node.js")) {
+            return "nodefunction.js";
+        } else if (reqDto.getRuntime().startsWith("Python")) {
+            return "pythonfunction.py";
+        } else if (reqDto.getRuntime().startsWith("PHP")) {
+            return "phpfunction.php";
+        } else if (reqDto.getRuntime().startsWith("Java")) {
+            return "javafunction.jar";
+        } else if (reqDto.getRuntime().startsWith("Go")) {
+            return "gofunction.go";
+        } else {
+            throw new RuntimeException(FILE_TYPE_EXCEPTION);
+        }
+    }
 
-💬 [칭찬 & 가독성 개선]
-"PingSource 상태를 한눈에 확인할 수 있도록 별도 메서드로 분리한 점이 아주 좋아요! 🎯 그런데 patchedSource.getStatus().getConditions()을 그대로 log.info()에서 사용하면 조건이 여러 개일 때 가독성이 떨어질 수도 있을 것 같아요."
+    private void setFunctionEnvironment(FunctionEnvironment functionEnvironment, List<EnvVar> envVars, FunctionDTO.Register reqDto) {
+        if ("coldStartYn".equals(functionEnvironment.getType())) {
+            reqDto.setColdStartYn(functionEnvironment.getValue());
+        }
+        else if ("env".equals(functionEnvironment.getType())) {
+            envVars.add(new EnvVar(functionEnvironment.getKey(), functionEnvironment.getValue(), null));
+        }
+        else if ("memory".equals(functionEnvironment.getType())) {
+            reqDto.setMemory(functionEnvironment.getValue() + "Mi");
+        }
+        else if ("limit".equals(functionEnvironment.getType())) {
+            if ("minute".equals(functionEnvironment.getKey())) {
+                reqDto.setLimitTimeMinute(functionEnvironment.getValue());
+            }
+            else if ("second".equals(functionEnvironment.getKey())) {
+                reqDto.setLimitTimeSecond(functionEnvironment.getValue());
+            }
+        }
+    }
 
-"조금 더 명확하게 표현하려면 이렇게 바꿀 수도 있을 것 같아요."
+    private void generateFileInfo(String fileName, String subPath, String functionContent, String runtime) throws IOException {
+        //사용자 경로
+        String path = "/mb_scf/serverless" + "/"
+                + subPath;
 
-if (patchedSource.getStatus() != null && patchedSource.getStatus().getConditions() != null) {
-    patchedSource.getStatus().getConditions().forEach(condition -> 
-        log.info("PingSource [{}] 상태 - Type: {}, Status: {}, Reason: {}",
-                 patchedSource.getMetadata().getName(),
-                 condition.getType(),
-                 condition.getStatus(),
-                 condition.getReason()));
-} else {
-    log.warn("PingSource [{}] 상태 정보를 가져올 수 없습니다.", patchedSource.getMetadata().getName());
-}
+        log.info("path = " + path);
+        AppUtil.createDirectory(path);
 
-"이렇게 하면 여러 개의 Condition이 있을 때도 각 상태가 명확하게 로그로 남을 것 같아요! 어떻게 생각하시나요? 😊"
+        if (runtime.equals("Java")) { // Runtime: Java
+            // 해당 파일이 없을 경우 함수명의 파일 생성
+            Path functionFile = Paths.get(path.concat("/").concat(fileName));
 
+            Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
 
----
+            defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
+            defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
+            defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
+            defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
 
-7. validateFunctionKey() 메소드
+            Path downloadFile = Paths.get(path.concat("/").concat("download.jar"));
+            if (Files.exists(downloadFile)) {
+                Files.move(downloadFile, functionFile, StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                log.info("download.jar가 존재하지 않습니다.");
+            }
+            Files.setPosixFilePermissions(functionFile, defaultPosixPermissions);  //Assure the permissions again after the file is created
+        } else { // Runtime: Node.js, Python, PHP, Go
+            // 해당 파일이 없을 경우 함수명의 파일 생성
+            Path functionFile = Paths.get(path.concat("/").concat(fileName));
 
-💬 [사전 오류 방지 & 성능 최적화]
-"validateFunctionKey()를 따로 분리해서 재사용할 수 있도록 만든 점이 정말 좋아요! 💡 그런데 StringUtils.isBlank(functionKey)를 사용해서 검증하는데, 만약 null이거나 빈 문자열만 확인하면 된다면 String#isEmpty()를 써도 될 것 같아요."
+            // Go 런타임 모듈 구성을 위한 하위 디렉토리 구성
+            if (runtime.equals("Go") && fileName.equals("gofunction.go")) {
+                String goPath = path + "/gofunction";
+                AppUtil.createDirectory(goPath);
+                functionFile = Paths.get(goPath.concat("/").concat(fileName));
+            }
 
-private void validateFunctionKey(String functionKey) {
-    if (functionKey == null || functionKey.isEmpty()) {
-        throw new IllegalArgumentException("펑션키를 입력해주세요.");
+            if(Files.exists(functionFile)){
+                Files.delete(functionFile);
+            }
+            if (!Files.exists(functionFile)) {
+                Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
+
+                defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
+                defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
+                defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
+                defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
+
+                Files.createFile(functionFile);
+                Files.setPosixFilePermissions(functionFile, defaultPosixPermissions);  //Assure the permissions again after the file is created
+                // 사용자 인풋 값 추가
+                ArrayList<String> messageList = new ArrayList<>();
+                byte[] decodedBytes = java.util.Base64.getDecoder().decode(functionContent.getBytes());
+                messageList.add(new String(decodedBytes, StandardCharsets.UTF_8));
+
+                Files.write(functionFile, messageList, StandardCharsets.UTF_8);
+            }
+        }
+    }
+
+    public void callFunction(String functionKey) throws IOException {
+        List<EnvVar> envVars = new ArrayList<>();
+        HashMap<String, String> annoMap = new HashMap<>();
+
+        Long timeout = 0L;
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("펑션키를 확인해주세요"));
+
+        List<FunctionEnvironment> environments = functionEnvironmentRepository.findByFunction(function);
+        //해당 환경을 기준으로 옵션을 셋팅함.
+        FunctionDTO.Register reqDto = new FunctionDTO.Register();
+        if (CollectionUtils.isEmpty(environments)) {
+            //디폴트값으로 세팅
+            throw new RuntimeException("환경구성 새로 저장해주세요.");
+        } else {
+            reqDto.setRuntime(function.getRuntime());
+            environments.stream().forEach(functionEnvironment -> setFunctionEnvironment(functionEnvironment, envVars, reqDto));
+        }
+        log.info(reqDto.toString());
+        timeout=Long.parseLong(reqDto.getLimitTimeMinute())*60L+Long.parseLong(reqDto.getLimitTimeSecond());
+        log.info("timeout print : "+timeout);
+
+        /* 클라우드 로깅용 어노테이션 추가 */
+        if ("Y".equals(function.getLogEnableYn())) {
+            annoMap.put(BASE_URL + "/functionKey", functionKey);
+        }
+
+        if ("Y".equals(reqDto.getColdStartYn())) {
+            annoMap.put("autoscaling.knative.dev/minScale", "1");
+        }
+        String managerFileName = generateManagerFileName(reqDto);
+        String functionFileName = generateFunctionFileName(reqDto);
+        String image = "";
+        String mountPath = "";
+        String execPath = "";
+        String subPath = "";
+        ContainerPort containerPorts = null;
+
+        String[] runtimeSlice;
+        String strRuntimeName = reqDto.getRuntime();
+        if (strRuntimeName.contains(":") == false) {
+            throw new RuntimeException("유효하지 않은 런타임 형식입니다.");
+        } else {
+            runtimeSlice = reqDto.getRuntime().split(":");
+
+            if(runtimeSlice.length != 2) {
+                throw new RuntimeException("유효하지 않은 런타임 형식입니다.");
+            }
+            else if(runtimeSlice[0].isEmpty() || runtimeSlice[1].isEmpty()){
+                throw new RuntimeException("런타임 이름 혹은 버전이 지정되지 않았습니다.");
+            }
+        }
+
+        Collection<String> commands = new ArrayList<>();
+        Collection<String> initCommands = new ArrayList<>();
+
+        switch (runtimeSlice[0]) {
+            case "Node.js":
+                image = "scf-nodejs:" + runtimeSlice[1];
+                commands.add("node");
+                commands.add("/usr/src/serverless/function/" + managerFileName);
+                mountPath = "/usr/src/serverless/function";
+                break;
+            case "Python":
+                image = "scf-python:" + runtimeSlice[1];
+                commands.add("python");
+                commands.add("/usr/src/serverless/" + managerFileName);
+                mountPath = "/usr/src/serverless";
+                break;
+            case "PHP":
+                image = "scf-php:" + runtimeSlice[1];
+                mountPath = "/var/www/html";
+                break;
+            case "Java":
+                image = "scf-java:" + runtimeSlice[1];
+                commands.add("java");
+                commands.add("-jar");
+                commands.add("/usr/lib/" + managerFileName); // API Controller <-> Handler 분리
+                mountPath = "/usr/src/serverless";
+
+                // CLASS_NAME, METHOD_NAME 환경변수에 추가
+                SourceFile sourceFile = sourceFileRepository.findByFunction(function).orElseThrow(() -> new ResourceNotFoundException("유효한 소스파일 데이터가 존재하지 않습니다."));
+                envVars.add(new EnvVar("CLASS_NAME", sourceFile.getClassName(), null));
+                envVars.add(new EnvVar("METHOD_NAME", sourceFile.getMethodName(), null));
+                break;
+            case "Go":
+                image = "scf-go:" + runtimeSlice[1];
+                initCommands.add("/bin/bash");
+                initCommands.add("-c");
+                initCommands.add("/usr/src/test.sh");
+                commands.add("/bin/bash");
+                commands.add("-c");
+                commands.add("/usr/src/serverless/manager");
+                mountPath = "/usr/src/functioncode";
+                execPath = "/usr/src/serverless";
+                break;
+            default:
+                throw new RuntimeException("지원하지 않는 런타임입니다.");
+        }
+        
+        subPath = function.getName();
+        containerPorts = new ContainerPortBuilder()
+                .withContainerPort(8080)
+                .build();
+
+        Collection<String> dropCap = new ArrayList<>();
+        dropCap.add("all");
+
+        log.info("image = " + image);
+        log.info("repository = " + repository);
+        log.info("commands = " + repository.concat("/").concat(image));
+        log.info("commands = " + reqDto);
+        log.info("envVars = " + envVars);
+        log.info("timeout = " +timeout);
+
+        Service service = new Service();
+
+        if (runtimeSlice[0].equals("Go")) { // Go 런타임 (Init Container 기반)
+            service = new ServiceBuilder()
+                    .withNewMetadata()
+                    .withName(function.getName())
+                    .withNamespace(function.getName())
+                    .endMetadata()
+                    .withNewSpec()
+                    .withNewTemplate()
+                    .withNewMetadata()
+                    .withAnnotations(annoMap)
+                    .endMetadata()
+                    .withNewSpec()
+                    .withTimeoutSeconds(timeout)
+                    .addNewInitContainer() // Start InitContainer
+                    .withImage(repository.concat("/").concat(image))
+                    .withNewSecurityContext()
+                    .withRunAsUser(0L)
+                    .endSecurityContext()
+                    .addAllToCommand(initCommands)
+                    .addNewVolumeMount().withName(volumeName)
+                    .withMountPath(mountPath)
+                    .withSubPath(subPath)
+                    .endVolumeMount()
+                    .addNewVolumeMount().withName(sharedVolumeName)
+                    .withMountPath(execPath)
+                    .endVolumeMount()
+                    .endInitContainer() // End InitContainer
+                    .addNewContainer()
+                    .withImage(repository.concat("/").concat(image))
+                    .withEnv(envVars)
+                    .withNewResources()
+                    .addToLimits("memory", new Quantity(reqDto.getMemory()))
+                    .addToRequests("memory", new Quantity(reqDto.getMemory()))
+                    .endResources()
+                    .withNewSecurityContext()
+                    .withNewCapabilities()
+                    .addAllToDrop(dropCap)
+                    .endCapabilities()
+                    .withRunAsUser(61000L) // functionUser (UID)
+                    .withRunAsNonRoot(true)
+                    .endSecurityContext()
+                    .addAllToCommand(commands)
+                    .addNewVolumeMount().withName(sharedVolumeName)
+                    .withMountPath(execPath)
+                    .endVolumeMount()
+                    .withPorts(containerPorts)
+                    .endContainer()
+                    .addNewVolume().withName(volumeName)
+                    .withNewPersistentVolumeClaim()
+                    .withClaimName(volumeName)
+                    .withReadOnly(false)
+                    .endPersistentVolumeClaim()
+                    .and()
+                    .addNewVolume().withName(sharedVolumeName)
+                    .withNewEmptyDir()
+                    .endEmptyDir()
+                    .and()
+                    .endSpec()
+                    .endTemplate()
+                    .endSpec()
+                    .build();
+        } else { // Node.js, Python, PHP, Java 런타임
+            service = new ServiceBuilder()
+                    .withNewMetadata()
+                    .withName(function.getName())
+                    .withNamespace(function.getName())
+                    .endMetadata()
+                    .withNewSpec()
+                    .withNewTemplate()
+                    .withNewMetadata()
+                    .withAnnotations(annoMap)
+                    .endMetadata()
+                    .withNewSpec()
+                    .withTimeoutSeconds(timeout)
+                    .addNewContainer()
+                    .withImage(repository.concat("/").concat(image))
+                    .withEnv(envVars)
+                    .withNewResources()
+                    .addToLimits("memory", new Quantity(reqDto.getMemory()))
+                    .addToRequests("memory", new Quantity(reqDto.getMemory()))
+                    .endResources()
+                    .withNewSecurityContext()
+                    .withNewCapabilities()
+                    .addAllToDrop(dropCap)
+                    .endCapabilities()
+                    .withRunAsUser(61000L) // functionUser (UID)
+                    .withRunAsNonRoot(true)
+                    .endSecurityContext()
+                    .addAllToCommand(commands)
+                    .addNewVolumeMount().withName(volumeName)
+                    .withMountPath(mountPath)
+                    .withReadOnly(true)
+                    .withSubPath(subPath)
+                    .endVolumeMount()
+                    .withPorts(containerPorts)
+                    .endContainer()
+                    .addNewVolume().withName(volumeName)
+                    .withNewPersistentVolumeClaim()
+                    .withClaimName(volumeName)
+                    .withReadOnly(true)
+                    .endPersistentVolumeClaim()
+                    .and()
+                    .endSpec()
+                    .endTemplate()
+                    .endSpec()
+                    .build();
+        }
+
+        log.debug("Working Directory = " + System.getProperty("user.home"));
+
+        // 2023.11.28 gyeongyeol
+        // 함수 코드가 없는 Java Runtime인 경우에 대해서 코드 조회를 skip하도록 분기 로직 추가
+        if (StringUtils.isEmpty(function.getContent()) && !function.getRuntime().startsWith("Java")) {
+            throw new RuntimeException("코드 입력후 펑션호출이 필요합니다.");
+        }
+
+        // 2024.03.05 gyeongyeol
+        // 런타임 핸들러 메소드 분리 - Manager Code File 생성
+        String managerFileContent = generateManagerFileContent(runtimeSlice[0]);
+        generateFileInfo(managerFileName, subPath, managerFileContent, runtimeSlice[0]);
+        // Handler Function Code File 생성
+        generateFileInfo(functionFileName, subPath, function.getContent(), runtimeSlice[0]);
+
+        // Go 런타임 - 함수 실행 파일 초기화
+        if (runtimeSlice[0].equals("Go")) {
+            //사용자 경로
+            String path = "/mb_scf/serverless" + "/"
+                    + subPath + "/"
+                    + "manager";
+
+            log.info("path = " + path);
+
+            AppUtil.deleteFile(path);
+        }
+
+        log.info("함수실행");
+        log.info(service + "");
+        kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
+        Service patch = kn.services().withName(function.getName()).patch(PatchContext.of(PatchType.SERVER_SIDE_APPLY), service);
+        if(patch.getStatus()!=null){
+            log.info("결과상태 확인" + patch.getStatus().getConditions());
+        }
+    }
+
+    private String generateManagerFileContent(String runtime) {
+        if (runtime.equals("Node.js")) {
+            return nodejsManagerCode;
+        } else if (runtime.equals("Python")) {
+            return pythonManagerCode;
+        } else if (runtime.equals("PHP")) {
+            return phpManagerCode;
+        } else if (runtime.equals("Java")) {
+            return ""; // DO NOT ANYTHING...
+        } else if (runtime.equals("Go")) {
+            return golangManagerCode;
+        } else {
+            throw new RuntimeException(FILE_TYPE_EXCEPTION);
+        }
     }
 }
-
-"이렇게 하면 StringUtils 의존성을 줄이고 JDK 기본 메서드로 성능을 약간 향상시킬 수도 있어요! (물론 StringUtils.isBlank()는 공백 문자열까지 고려하는 장점이 있어서 사용 용도에 따라 선택할 수 있겠네요! 😉)"
-
-
----
-
-마무리
-
-💬 [전반적인 리뷰]
-"전체적으로 코드가 정말 깔끔해지고 유지보수성이 높아졌어요! 특히 중복 제거와 명확한 예외 처리 부분이 아주 좋았어요. 🚀 몇 가지 사소한 개선점이 있지만, 이미 잘 정리된 코드라 리뷰하면서도 배울 점이 많았습니다. 정말 멋진 작업이에요! 💯"
-
-"PR 반영된 후에도 추가적인 개선이 필요하면 언제든지 이야기해봐요! 🙌"
-
