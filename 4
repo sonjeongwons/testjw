@@ -1,148 +1,108 @@
-Pull Request (PR) 개요
+GitHub PR 코드 리뷰 코멘트
 
-PR 제목
-
-🔧 Refactor TriggerService for Better Maintainability, Readability, and Performance
-
-
----
-
-PR 개요
-
-이번 PR에서는 TriggerService 클래스의 코드 품질을 향상하기 위해 클린 코드 원칙과 SOLID 원칙을 적용하여 리팩토링을 수행하였습니다.
-이 과정에서 중복 코드 제거, Magic String 제거, 예외 메시지 상수화, Guard Clause 적용, Enum 활용, 메서드 역할 분리 등을 통해 가독성과 유지보수성을 개선하였습니다.
+팀원의 멋진 리팩토링 PR을 보면서 몇 가지 개선점과 추가 논의해볼 부분을 남겨볼게요! 😊
+이번 PR에서 많은 코드 품질 향상이 있었고, 몇 가지 작은 개선이 더해지면 더욱 깔끔한 코드가 될 것 같아! 🚀
+코멘트 몇 개 남길게! 🙌
 
 
 ---
 
-개발 내용
+1. getTriggerByType() - 중복 제거 & 더 나은 데이터 구조 활용 제안
 
-1. 중복 코드 제거 및 메서드 추출
+🔹 리뷰 내용:
+현재 getTriggerByType()에서 switch-case를 사용해서 TriggerHTTP, TriggerCron, TriggerAPIGW를 조회하고 있어!
+이 방식도 좋지만, Map을 활용하면 더 깔끔하게 리팩토링할 수도 있어!
 
-트리거 타입에 따른 조회 로직 중복 제거
-→ getTriggerByType(Trigger trigger, TriggerHTTP triggerHTTP, TriggerCron triggerCron, TriggerAPIGW triggerAPIGW)
+예제 코드 제안:
 
-트리거 연결 여부 검증 로직 중복 제거
-→ validateTriggerConnection(Trigger trigger)
+private static final Map<TriggerTypeEnum, Function<Trigger, Optional<?>>> triggerRepositoryMap = Map.of(
+    TriggerTypeEnum.HTTP, triggerHTTPRepository::findByTrigger,
+    TriggerTypeEnum.CRON, triggerCronRepository::findByTrigger,
+    TriggerTypeEnum.APIGATEWAY, triggerAPIGWRepository::findByTrigger
+);
 
-트리거 타입 검증 로직 중복 제거
-→ validateTriggerType(String triggerType)
+private void getTriggerByType(Trigger trigger, TriggerHTTP triggerHTTP, TriggerCron triggerCron, TriggerAPIGW triggerAPIGW) {
+    Optional<?> result = triggerRepositoryMap.getOrDefault(
+        TriggerTypeEnum.valueOf(trigger.getTriggerType().toUpperCase()),
+        t -> Optional.empty()
+    ).apply(trigger);
 
-함수 및 트리거 조회 중복 제거
-→ getFunctionOrThrow(String functionKey), getTriggerOrThrow(Function function)
-
-
-2. Magic String 제거 및 Enum 활용
-
-기존 if-else 문에서 트리거 타입을 비교할 때 문자열을 직접 사용
-→ TriggerTypeEnum 생성하여 타입 안전성을 보장
-→ TriggerTypeEnum.valueOf(trigger.getTriggerType().toUpperCase()) 형태로 변경하여 가독성과 유지보수성 향상
-
-
-3. 예외 메시지 상수화 (ExceptionMessages 추가)
-
-하드코딩된 문자열 기반 예외 메시지 제거
-→ ExceptionMessages 클래스를 생성하여 예외 메시지를 한 곳에서 관리
-→ 예외 발생 시 일관된 메시지를 제공하며, 유지보수 시 수정이 용이
-
-
-4. Guard Clause 적용 (불필요한 if-else 제거)
-
-조기 반환(Early Return) 적용하여 코드 중첩 최소화
-
-modifyTrigger(), connectTrigger() 등에서 if-else 중첩을 줄이고 명확한 흐름을 유지
-
-
-
-5. 불필요한 객체 생성 제거
-
-searchTrigger(), connectTrigger() 등에서 필요하지 않은 객체 초기화(new TriggerHTTP(), new TriggerCron(), new TriggerAPIGW())
-→ 실제 조회 시 객체를 생성하도록 변경하여 불필요한 객체 생성 방지
-
-
-
----
-
-메서드별 변경점 및 개선 사항
-
-1. searchTrigger(String functionKey)
-
-변경 사항
-
-getTriggerByType() 메서드를 분리하여 트리거 조회 로직 중복 제거
-
-Magic String 제거 (Trigger 타입을 문자열이 아닌 TriggerTypeEnum으로 관리)
-
-예외 메시지를 상수화 (ExceptionMessages 활용)
-
-
-public TriggerDTO.Response searchTrigger(String functionKey) {
-    Function function = getFunctionOrThrow(functionKey);
-    Trigger trigger = getTriggerOrThrow(function);
-
-    TriggerHTTP triggerHTTP = new TriggerHTTP();
-    TriggerCron triggerCron = new TriggerCron();
-    TriggerAPIGW triggerAPIGW = new TriggerAPIGW();
-
-    getTriggerByType(trigger, triggerHTTP, triggerCron, triggerAPIGW);
-
-    return trigger.toDto(function, triggerHTTP, triggerCron, triggerAPIGW, false);
+    if (result.isEmpty()) {
+        throw new ResourceNotFoundException("유효한 트리거가 존재하지 않습니다.");
+    }
 }
 
-개선된 점
-
-코드 가독성 향상: getTriggerByType() 메서드를 분리하여 한 눈에 보기 쉽도록 개선
-
-중복 제거: 트리거 조회 로직을 메서드로 추출하여 코드 재사용성 증가
-
+✅ 이렇게 하면 switch-case 없이 Map을 통해 조회할 수 있어서 코드의 가독성이 더 좋아지고, 새로운 트리거 타입이 추가될 때 OCP(Open-Closed Principle) 를 지킬 수 있어! 😃
+💡 물론 지금 방식도 충분히 좋지만, 한 번 고려해보면 좋을 것 같아!
 
 
 ---
 
-2. modifyTrigger(TriggerDTO.Modify reqDto, String functionKey)
+2. validateTriggerType() - 예외 처리 더 명확하게 하기
 
-변경 사항
+🔹 리뷰 내용:
+현재 validateTriggerType()에서 StringUtils.isEmpty(triggerType)로 유효성 검사를 하고 있어!
+여기서 한 가지 개선 포인트가 있어!
 
-중복된 트리거 타입 검증 로직을 validateTriggerType()으로 추출
+1️⃣ 현재 TriggerTypeEnum을 사용하고 있으니, 유효한 타입인지도 Enum으로 검증하면 좋을 것 같아.
+2️⃣ IllegalArgumentException을 사용하면 더 적절한 예외 처리가 가능할 것 같아.
 
-불필요한 객체 초기화 제거
+💡 예제 코드 제안:
 
-조기 반환 적용 (Guard Clause)
+private void validateTriggerType(String triggerType) {
+    if (StringUtils.isEmpty(triggerType)) {
+        throw new IllegalArgumentException(ExceptionMessages.TRIGGER_TYPE_REQUIRED);
+    }
 
+    try {
+        TriggerTypeEnum.valueOf(triggerType.toUpperCase());
+    } catch (IllegalArgumentException e) {
+        throw new IllegalArgumentException("잘못된 트리거 타입입니다: " + triggerType);
+    }
+}
+
+✅ 이렇게 하면 잘못된 트리거 타입을 Enum에서 한 번 더 검증해줘서 사전에 오류를 방지할 수 있어!
+🔹 지금 코드도 괜찮지만, 예외를 더 구체적으로 다루면 디버깅할 때도 훨씬 좋을 것 같아!
+
+
+---
+
+3. modifyTrigger() - 불필요한 deleteTrigger() 호출 방지
+
+🔹 리뷰 내용:
+현재 modifyTrigger()에서는 기존 트리거를 삭제한 후 새로운 트리거를 등록하는 방식을 사용하고 있어.
+하지만 트리거가 변경되지 않은 경우에도 기존 트리거를 삭제하는 로직이 실행될 가능성이 있어!
+
+✅ 한 번 이런 로직으로 개선해보는 건 어떨까?
 
 public TriggerDTO.Response modifyTrigger(TriggerDTO.Modify reqDto, String functionKey) throws IOException, ParseException {
     validateTriggerType(reqDto.getTriggerType());
 
     Function function = getFunctionOrThrow(functionKey);
-    deleteTrigger(function, false);
+    Trigger existingTrigger = getTriggerOrThrow(function);
 
-    return updateTrigger(reqDto, function);
-}
-
-private void validateTriggerType(String triggerType) {
-    if (StringUtils.isEmpty(triggerType)) {
-        throw new RuntimeException(ExceptionMessages.TRIGGER_TYPE_REQUIRED);
+    // 🚀 변경된 경우만 삭제 & 재등록!
+    if (!existingTrigger.getTriggerType().equals(reqDto.getTriggerType())) {
+        deleteTrigger(function, false);
+        return updateTrigger(reqDto, function);
     }
+    
+    return existingTrigger.toDto(function, new TriggerHTTP(), new TriggerCron(), new TriggerAPIGW(), false);
 }
 
-개선된 점
-
-유지보수성 향상: 트리거 타입 검증 로직이 여러 곳에서 사용되므로 별도 메서드로 분리
-
-Guard Clause 적용: 불필요한 if-else 제거하여 코드 흐름이 단순해짐
-
+✅ 이렇게 하면 불필요한 삭제 연산이 줄어들고, 성능 최적화에도 도움이 될 수 있어! 🚀
+💡 지금 방식도 잘 동작하지만, 트리거가 변경되지 않은 경우에는 불필요한 연산을 방지하는 게 좋을 것 같아!
 
 
 ---
 
-3. connectTrigger(TriggerDTO.Modify reqDto, String functionKey)
+4. connectTrigger() - 중복 로직 제거 & validateTriggerConnection() 활용 개선
 
-변경 사항
+🔹 리뷰 내용:
+현재 connectTrigger()에서 validateTriggerConnection()을 호출한 후에도 별도로 triggerAPIGW를 저장하는 로직이 추가되어 있어!
+🚀 validateTriggerConnection()을 통해 "apigateway"가 아니라면 예외가 발생하도록 하고, 이후의 분기문을 줄이면 가독성이 더 좋아질 것 같아!
 
-트리거 연결 여부 검증 로직을 validateTriggerConnection()으로 분리
-
-Enum 활용 (Magic String 제거)
-
+개선된 코드 예시:
 
 public TriggerDTO.Response connectTrigger(TriggerDTO.Modify reqDto, String functionKey) throws IOException, ParseException {
     Function function = getFunctionOrThrow(functionKey);
@@ -160,73 +120,39 @@ public TriggerDTO.Response connectTrigger(TriggerDTO.Modify reqDto, String funct
 
 private void validateTriggerConnection(Trigger trigger) {
     if ("Y".equals(trigger.getTriggerConnectedYn())) {
-        throw new RuntimeException(ExceptionMessages.TRIGGER_ALREADY_CONNECTED);
+        throw new IllegalStateException(ExceptionMessages.TRIGGER_ALREADY_CONNECTED);
     }
+
     if (!TriggerTypeEnum.APIGATEWAY.name().equals(trigger.getTriggerType())) {
-        throw new RuntimeException(ExceptionMessages.TRIGGER_TYPE_MISMATCH);
+        throw new IllegalArgumentException(ExceptionMessages.TRIGGER_TYPE_MISMATCH);
     }
 }
 
-개선된 점
+✅ 이렇게 하면
 
-중복 제거: 트리거 연결 검증 로직을 메서드로 분리하여 재사용 가능
+validateTriggerConnection()을 활용하여 잘못된 트리거 연결을 사전에 방지
 
-Magic String 제거: TriggerTypeEnum.APIGATEWAY.name()을 사용하여 타입 비교
+IllegalStateException과 IllegalArgumentException을 적절히 사용하여 예외의 의미를 명확히 함
 
-
-
----
-
-기술적 근거 및 출처
-
-1. Magic String 제거 및 Enum 사용
-
-Enum을 사용하면 컴파일 타임 안전성을 확보하고 유지보수를 용이하게 함 (Joshua Bloch, Effective Java)
+connectTrigger() 내 불필요한 if-else 분기문 제거로 가독성 향상
 
 
-
-2. Guard Clause 적용
-
-Guard Clause를 사용하면 코드의 가독성이 향상되며, 불필요한 중첩을 방지할 수 있음 (Martin Fowler, Refactoring)
-
-
-
-3. 예외 메시지 상수화
-
-예외 메시지를 중앙에서 관리하면 일관성을 유지하고 유지보수가 쉬워짐 (Robert C. Martin, Clean Code)
-
-
-
+💡 지금 방식도 좋지만, 분기를 줄이면 더 명확한 로직이 될 것 같아!
 
 
 ---
 
-PR 승인 후 기대 효과
+마무리 🎉
 
-코드 가독성 및 유지보수성 향상: 중복 제거, Guard Clause 적용, Enum 사용
+👏 이번 리팩토링 PR 정말 잘했어!
+특히 Magic String 제거, 예외 메시지 통합, Guard Clause 적용, Enum 활용 부분이 너무 좋았어!
+몇 가지 더 개선하면 더 깔끔하고 유지보수하기 좋은 코드가 될 것 같아서 코멘트 남겼어! 😃
 
-버그 발생 가능성 감소: Magic String 제거로 인해 오타로 인한 오류 방지
+✅ 요약 1️⃣ getTriggerByType() → Map 활용하여 더 유연하게 리팩토링 가능
+2️⃣ validateTriggerType() → Enum 활용하여 잘못된 트리거 타입 검증
+3️⃣ modifyTrigger() → 트리거 변경되지 않으면 삭제 로직 생략 가능
+4️⃣ connectTrigger() → 중복 제거하고 예외를 명확하게 처리
 
-개발 생산성 증가: validateTriggerType(), validateTriggerConnection() 등 재사용 가능한 메서드 도입
-
-
-
----
-
-리뷰 요청 사항
-
-Enum을 활용한 Magic String 제거가 적절한지 검토 필요
-
-ExceptionMessages를 활용한 예외 메시지 통합이 적절한 방식인지 확인 필요
-
-Guard Clause 적용으로 코드 흐름이 명확해졌는지 검토 요청
-
-
-
----
-
-마무리
-
-이번 리팩토링을 통해 코드의 유지보수성과 가독성을 향상시켰습니다.
-리뷰 부탁드립니다! 🚀
+🚀 팀원들이랑도 논의해보고, 적용해볼 수 있으면 같이 개선해보면 좋을 것 같아!
+💡 코드 너무 좋고, 몇 가지 디테일만 다듬으면 완벽할 것 같아! 정말 수고했어! 👍
 
