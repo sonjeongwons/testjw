@@ -1,582 +1,217 @@
-package com.scf.manager.mvc.service;
-
-import com.scf.manager.common.enums.TypeEnums;
-import com.scf.manager.common.exception.ResourceNotFoundException;
-import com.scf.manager.mvc.domain.*;
-import com.scf.manager.mvc.dto.AllowIpDTO;
-import com.scf.manager.mvc.domain.FunctionEnvironment;
-import com.scf.manager.mvc.repository.*;
-import com.scf.manager.mvc.dto.TriggerDTO;
-import io.fabric8.istio.client.DefaultIstioClient;
-import io.fabric8.knative.client.DefaultKnativeClient;
-import io.fabric8.knative.sources.v1.PingSource;
-import io.fabric8.knative.sources.v1.PingSourceBuilder;
-import io.fabric8.kubernetes.api.model.*;
-import io.fabric8.kubernetes.client.DefaultKubernetesClient;
-import io.fabric8.kubernetes.client.KubernetesClient;
-import io.fabric8.kubernetes.client.dsl.base.PatchContext;
-import io.fabric8.kubernetes.client.dsl.base.PatchType;
-import io.fabric8.kubernetes.client.KubernetesClientException;
-import io.fabric8.kubernetes.api.model.PersistentVolumeClaim;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.io.IOUtils;
-import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.text.ParseException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import java.util.Collections;
-
-import static com.scf.manager.common.constants.ExceptionConst.TRIGGER_TYPE_EXCEPTION;
-import static com.scf.manager.common.util.AppUtil.getSourceCodeFromFile;
+TriggerService.java 코드 리팩토링: 메서드 단위 개선 사항 및 코드 품질 향상 내용
 
 
-@Slf4j
-@org.springframework.stereotype.Service
-@RequiredArgsConstructor
-public class TriggerService {
+---
 
-    private final KnativeService knativeService;
+1. searchTrigger(String functionKey)
 
-    private final FunctionRepository functionRepository;
+변경 사항
 
-    private final TriggerRepository triggerRepository;
+1. 중복 코드 제거 및 메서드 추출
 
-    private final TriggerHTTPRepository triggerHTTPRepository;
+트리거 타입별 조회 코드가 중복되므로 getTriggerByType(Trigger trigger) 메서드로 분리하여 재사용성을 높임.
 
-    private final TriggerCronRepository triggerCronRepository;
 
-    private final TriggerAPIGWRepository triggerAPIGWRepository;
 
-    private final DefaultKnativeClient kn;
+2. Enum 활용
 
-    private final AllowIpService allowIpService;
+기존 if-else 구조에서 문자열 비교(startsWith("http") 등)를 TriggerTypeEnum을 활용하여 명확하게 변경.
 
-    private final String kubernetesPodCIDR = "172.21.0.0/16";
 
-    private final FunctionEnvironmentRepository functionEnvironmentRepository;
 
-    private final DefaultIstioClient istioClient;
 
-    private final SourceFileService sourceFileService;
+코드 변경 전
 
-    private final static String defaultEnvoyFilterYaml = getSourceCodeFromFile("codetemplates/envoyfilter/defaultEnvoyFilter.yaml");
-    private final static String fnEgressEnvoyFilterYaml = getSourceCodeFromFile("codetemplates/envoyfilter/fnEgressEnvoyFilter.yaml");
-    private final static String scfWatcherCustomResourceYaml = getSourceCodeFromFile("codetemplates/customResource/scfWatcher.yaml");
-    private final static String istioRateLimitEnvoyFilterYaml = getSourceCodeFromFile("codetemplates/envoyfilter/istioRateLimitEnvoyFilter.yaml");
-
-    @Value("${apigw.ip.cidr}")
-    private String apigwIPCIDR;
-
-    @Transactional
-    public TriggerDTO.Response searchTrigger(String functionKey) {
-        Function function = functionRepository.findByFunctionKeyAndDelYn(functionKey, "N").orElseThrow(() -> new ResourceNotFoundException("유효한 펑션이 존재하지 않습니다."));
-
-        Trigger trigger = triggerRepository.findByFunction(function).orElseThrow(() -> new ResourceNotFoundException("유효한 트리거가 존재하지 않습니다."));
-
-        TriggerHTTP triggerHTTP = new TriggerHTTP();
-        TriggerCron triggerCron = new TriggerCron();
-        TriggerAPIGW triggerAPIGW = new TriggerAPIGW();
-
-        if (trigger.getTriggerType().startsWith("none")) {
-            //트리거가 지정되지 않았을 때엔느 아무 행동도 하지 않음. 화면에서도 아무 값도 보여주지 않음
-            ;
-        } else if (trigger.getTriggerType().startsWith("http")) {
-            triggerHTTP = triggerHTTPRepository.findByTrigger(trigger).orElseThrow(() -> new ResourceNotFoundException("유효한 HTTP 트리거가 존재하지않습니다."));
-        } else if (trigger.getTriggerType().startsWith("cron")) {
-            triggerCron = triggerCronRepository.findByTrigger(trigger).orElseThrow(() -> new ResourceNotFoundException("유효한 Cron 트리거가 존재하지않습니다."));
-        } else if (trigger.getTriggerType().startsWith("apigateway")) {
-            if ("Y".equals(trigger.getTriggerConnectedYn())) {
-                triggerAPIGW = triggerAPIGWRepository.findByTrigger(trigger).orElseThrow(() -> new ResourceNotFoundException("유효한 API Gateway 트리거가 존재하지않습니다."));
-            }
-        } else {
-            throw new RuntimeException(TRIGGER_TYPE_EXCEPTION);
-        }
-        return trigger.toDto(function, triggerHTTP, triggerCron, triggerAPIGW, false);
+if (trigger.getTriggerType().startsWith("http")) {
+    triggerHTTP = triggerHTTPRepository.findByTrigger(trigger)
+        .orElseThrow(() -> new ResourceNotFoundException("유효한 HTTP 트리거가 존재하지않습니다."));
+} else if (trigger.getTriggerType().startsWith("cron")) {
+    triggerCron = triggerCronRepository.findByTrigger(trigger)
+        .orElseThrow(() -> new ResourceNotFoundException("유효한 Cron 트리거가 존재하지않습니다."));
+} else if (trigger.getTriggerType().startsWith("apigateway")) {
+    if ("Y".equals(trigger.getTriggerConnectedYn())) {
+        triggerAPIGW = triggerAPIGWRepository.findByTrigger(trigger)
+            .orElseThrow(() -> new ResourceNotFoundException("유효한 API Gateway 트리거가 존재하지않습니다."));
     }
-
-    @Transactional
-    public TriggerDTO.Response modifyTrigger(TriggerDTO.Modify reqDto, String functionKey) throws IOException, ParseException {
-        if (StringUtils.isEmpty(reqDto.getTriggerType())) {
-            throw new RuntimeException("트리거 타입을 입력해주세요.");
-        }
-
-        //2023.08.31 gyeongyeol
-        //함수 상태 변경 (NOT READY -> READY)에 대한 기준이 코드 저장에서 트리거 선택 단계로 변경됨
-        //이에 따라 트리거 변경 시 함수의 조회 조건에서 함수 상태 정보를 제거
-        Function function = functionRepository.findByFunctionKeyAndDelYn(functionKey, "N").orElseThrow(() -> new ResourceNotFoundException("유효한 펑션이 존재하지 않습니다."));
-
-        /* 기존 트리거 삭제 */
-        this.deleteTrigger(function, false);
-
-        /* 변경된 트리거 추가 */
-        TriggerDTO.Response response = this.updateTrigger(reqDto, function);
-
-        return response;
-    }
-
-    @Transactional
-    public TriggerDTO.Response connectTrigger(TriggerDTO.Modify reqDto, String functionKey) throws IOException, ParseException {
-        Function function = functionRepository.findByFunctionKeyAndDelYn(functionKey,"N").orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
-        Trigger trigger = triggerRepository.findByFunction(function).orElseThrow(() -> new ResourceNotFoundException("유효한 트리거가 존재하지 않습니다."));
-
-        if ("Y".equals(trigger.getTriggerConnectedYn())) {
-            throw new RuntimeException("이미 트리거연결 되어있습니다.");
-        }
-
-        if(!"apigateway".equals(trigger.getTriggerType())){
-            throw new RuntimeException("요청한 트리거 타입과 불일치합니다.");
-        }
-
-        TriggerHTTP triggerHTTP = new TriggerHTTP();
-        TriggerCron triggerCron = new TriggerCron();
-        TriggerAPIGW triggerAPIGW = new TriggerAPIGW();
-
-        reqDto.setTriggerSeq(trigger.getTriggerSeq());
-
-        if("apigateway".equals(trigger.getTriggerType())){
-            if (StringUtils.isEmpty(reqDto.getApigwName())) {
-                throw new RuntimeException("API GW를 선택해주세요.");
-            }
-            if (StringUtils.isEmpty(reqDto.getApiName())) {
-                throw new RuntimeException("API를 선택해주세요.");
-            }
-            triggerAPIGW = triggerAPIGWRepository.save(
-                    TriggerAPIGW.register(reqDto)
-            );
-        }
-
-        trigger.updateTriggerConnectedYn("Y");
-        triggerRepository.save(trigger);
-
-        return trigger.toDto(function, triggerHTTP, triggerCron, triggerAPIGW, true);
-    }
-
-
-    @Transactional
-    public void disConnectTrigger(String functionKey) {
-        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
-        Trigger trigger = triggerRepository.findByFunction(function).orElseThrow(() -> new ResourceNotFoundException("유효한 트리거가 존재하지 않습니다."));
-
-        if ("N".equals(trigger.getTriggerConnectedYn())) {
-            throw new RuntimeException("이미 트리거해지 되어있습니다.");
-        }
-
-        this.deleteTrigger(function, false);
-
-        trigger.updateTriggerConnectedYn("N");
-        triggerRepository.save(trigger);
-    }
-
-    @Transactional
-    public TriggerDTO.Response connectChangeTrigger(TriggerDTO.Modify reqDto, String functionKey) throws IOException, ParseException {
-        Function functionAsis = functionRepository.findByFunctionKeyAndDelYn(functionKey, "N").orElseThrow(() -> new ResourceNotFoundException("유효한 AS-IS 펑션이 존재하지 않습니다."));
-        Function functionTobe = functionRepository.findByFunctionKeyAndDelYn(reqDto.getFunctionKey(), "N").orElseThrow(() -> new ResourceNotFoundException("유효한 TO-BE 펑션이 존재하지 않습니다."));
-        Trigger triggerAsis = triggerRepository.findByFunction(functionAsis).orElseThrow(() -> new ResourceNotFoundException("유효한 AS-IS 트리거가 존재하지 않습니다."));
-        Trigger triggerTobe = triggerRepository.findByFunction(functionTobe).orElseThrow(() -> new ResourceNotFoundException("유효한 TO-BE 트리거가 존재하지 않습니다."));
-
-        if ("N".equals(triggerAsis.getTriggerConnectedYn())) {
-            throw new RuntimeException("AS-IS 함수가 트리거해지 되어있습니다.");
-        }
-        if ("Y".equals(triggerTobe.getTriggerConnectedYn()) && !reqDto.getFunctionKey().equals(functionKey)) {
-            throw new RuntimeException("TO-BE 함수가 이미 트리거연결 되어있습니다.");
-        }
-
-        if(!"apigateway".equals(triggerTobe.getTriggerType()) || !"apigateway".equals(triggerAsis.getTriggerType())){
-            throw new RuntimeException("요청한 트리거 타입과 불일치합니다.");
-        }
-
-        TriggerHTTP triggerHTTP = new TriggerHTTP();
-        TriggerCron triggerCron = new TriggerCron();
-        TriggerAPIGW triggerAPIGW = new TriggerAPIGW();
-
-        reqDto.setTriggerSeq(triggerTobe.getTriggerSeq());
-
-        if("apigateway".equals(triggerAsis.getTriggerType())) {
-            if (StringUtils.isEmpty(reqDto.getApigwName())) {
-                throw new RuntimeException("API GW를 선택해주세요.");
-            }
-            if (StringUtils.isEmpty(reqDto.getApiName())) {
-                throw new RuntimeException("API를 선택해주세요.");
-            }
-            if(reqDto.getFunctionKey().equals(functionKey)){
-                triggerAPIGW = triggerAPIGWRepository.findByTrigger(triggerAsis).orElseThrow(() -> new ResourceNotFoundException("유효한 API Gateway 트리거가 존재하지않습니다."));
-                triggerAPIGW.updateApiInfo(reqDto);
-                triggerAPIGWRepository.save(triggerAPIGW);
-            }
-            else{
-                triggerAPIGW = triggerAPIGWRepository.save(
-                        TriggerAPIGW.register(reqDto)
-                );
-            }
-        }
-        if(!reqDto.getFunctionKey().equals(functionKey)){
-            this.deleteTrigger(functionAsis, false);
-            triggerAsis.updateTriggerConnectedYn("N");
-            triggerTobe.updateTriggerConnectedYn("Y");
-            triggerRepository.save(triggerAsis);
-            triggerRepository.save(triggerTobe);
-        }
-
-        return triggerTobe.toDto(functionTobe, triggerHTTP, triggerCron, triggerAPIGW, true);
-    }
-
-    /* 2023.09.07 heechang
-     * 원래는 함수가 생성될 때 HTTP 트리거를 default 트리거로 설정했었기에, 함수 생성 시 최초 1회 호출되던 메소드
-     * 설계 변경으로, default 트리거가 없게 되면서, 메소드의 기능을 변경
-     * HTTP 처리는 하지 않으나, 함수의 seq를 가지고 있는 trigger 테이블 정보를 생성하는 부분은 유지
-     * 메소드명인 defaultTrigger 의 의미는, trigger 테이블을 지칭하는 의미로 변경
-     */
-    public void createDefaultTrigger(Function function) {
-        TriggerDTO.Modify defaultDTO = new TriggerDTO.Modify();
-        defaultDTO.setTriggerType("none");
-        defaultDTO.setFunctionSeq(function.getFunctionSeq());
-        defaultDTO.setEndPointType("public");
-        triggerRepository.save(Trigger.register(defaultDTO));
-    }
-
-    public TriggerDTO.Response updateTrigger(TriggerDTO.Modify reqDto, Function function) throws IOException, ParseException {
-
-        Trigger trigger = triggerRepository.findByFunction(function).orElseThrow(() -> new ResourceNotFoundException("유효한 트리거가 존재하지 않습니다."));
-        TriggerHTTP triggerHTTP = new TriggerHTTP();
-        TriggerCron triggerCron = new TriggerCron();
-        TriggerAPIGW triggerAPIGW = new TriggerAPIGW();
-
-        trigger.updateTriggerType(reqDto.getTriggerType());
-        trigger.updateTriggerConnectedYn("N");
-
-        reqDto.setTriggerSeq(trigger.getTriggerSeq());
-
-        // 함수 READY상태일 때 http트리거 설정요청 시 기존 접근제어IP삭제
-        // 함수 NOT READY상태일 때 http트리거 설정요청 시 기 접근제어IP리스트가 있다면 해당 IP정보는 보존
-        if (reqDto.getTriggerType().startsWith("http")) {
-            if(function.isReady()) {
-                AllowIpDTO.AllowIpModify modify = new AllowIpDTO.AllowIpModify("N", new ArrayList<>());
-                allowIpService.updateAllowIps(modify, function.getFunctionKey());
-            }
-            triggerHTTP = triggerHTTPRepository.save(
-                    TriggerHTTP.register(reqDto)
-            );
-        } else if (reqDto.getTriggerType().startsWith("cron")) {
-            AllowIpDTO.Register cronIP = new AllowIpDTO.Register();
-
-            /* 리전별 허용 IP CIDR 환경 변수 처리 */
-            cronIP.setName(kubernetesPodCIDR);
-
-            List<AllowIpDTO.Register> cronIPList = new ArrayList<>(Stream.of(cronIP).collect(Collectors.toList()));
-
-            AllowIpDTO.AllowIpModify modify = new AllowIpDTO.AllowIpModify("Y", cronIPList);
-            allowIpService.updateAllowIps(modify, function.getFunctionKey());
-
-            triggerCron = triggerCronRepository.save(
-                    TriggerCron.register(reqDto)
-            );
-
-            //this.makePingSource(function.getName(),reqDto.getTimezone(), reqDto.getSchedule());
-
-            /* 토큰 초기화 */
-            this.deleteFunctionToken(function);
-
-        } else if (reqDto.getTriggerType().startsWith("apigateway")) {
-            AllowIpDTO.Register apigwIP = new AllowIpDTO.Register();
-
-            /* 리전별 허용 IP CIDR 환경 변수 처리 */
-            log.info("apigwIPCIDR:" + apigwIPCIDR);
-            apigwIP.setName(apigwIPCIDR);
-            List<AllowIpDTO.Register> apigwIPList = new ArrayList<>(Stream.of(apigwIP).collect(Collectors.toList()));
-
-            AllowIpDTO.AllowIpModify modify = new AllowIpDTO.AllowIpModify("Y", apigwIPList);
-            allowIpService.updateAllowIps(modify, function.getFunctionKey());
-
-            /* 토큰 초기화 */
-            this.deleteFunctionToken(function);
-
-        } else {
-            throw new RuntimeException(TRIGGER_TYPE_EXCEPTION);
-        }
-
-        //2023.09.06 heechang
-        //트리거가 NOT_READY 였던 경우에 한하여, READY로 변경해주고, 사용자 namespace 및 ksvc 생성
-        //2024.08.27 gyeongyeol
-        //함수 상태가 READY인 경우 Ksvc 재생성하지 않고 트리거 관련 리소스만 재배포 (접근제어)
-        if(function.isNotReady()){
-            function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
-            functionRepository.save(function);
-
-            createUserNamespace(function);
-            createUserPVC(function);
-            createUserEnvoyFilter(function);
-            createScfWatcherCustomResource(function);
-            knativeService.callIstioAndKnative(function);
-        } else if (function.isReady()){
-            // ksvc는 기존 상태를 유지하기 때문에 함수 상태도 READY로 유지
-            knativeService.makeIstioResource(function);
-        }
-
-        // 2023.11.24 gyeongyeol
-        // 함수 생성 조건 변경으로 인해 PingSource 생성 시점을 사용자 Namespace 생성 이후로 변경
-        if (reqDto.getTriggerType().startsWith("cron")) {
-            this.makePingSource(function.getName(), reqDto.getTimezone(), reqDto.getSchedule());
-        }
-
-
-        return trigger.toDto(function, triggerHTTP, triggerCron, triggerAPIGW, false);
-    }
-
-    @Transactional
-    public void deleteFunctionToken(Function function) {
-        /* 토큰 초기화 */
-        function.updateToken("");
-
-        FunctionEnvironment functionEnvironmentToken = functionEnvironmentRepository.findByFunction(function).stream().filter(h -> h.getType().equals("token")).findFirst().orElseThrow(()->new RuntimeException("토큰정보를 확인해주십시오."));
-        functionEnvironmentToken.updateTokenYn("N");
-
-        istioClient.v1beta1()
-                .requestAuthentications()
-                .inNamespace(function.getName())
-                .withName(function.getName()).delete();
-        istioClient.v1beta1()
-                .authorizationPolicies()
-                .inNamespace(function.getName())
-                .withName(function.getName()).delete();
-    }
-
-    @Transactional
-    public void deleteTrigger(Function function, boolean all) {
-        Trigger trigger = triggerRepository.findByFunction(function).orElseThrow(() -> new ResourceNotFoundException("유효한 트리거가 존재하지 않습니다."));
-
-        /* 기존 트리거 타입 체크 */
-        switch (trigger.getTriggerType()) {
-            case "none":
-                break;
-            case "http":
-                TriggerHTTP triggerHTTP = triggerHTTPRepository.findByTrigger(trigger).orElseThrow(() -> new ResourceNotFoundException("유효한 HTTP 트리거가 존재하지 않습니다."));
-                triggerHTTPRepository.delete(triggerHTTP);
-                break;
-            case "cron":
-                this.deletePingSource(function.getName());
-                TriggerCron triggerCron = triggerCronRepository.findByTrigger(trigger).orElseThrow(() -> new ResourceNotFoundException("유효한 Cron 트리거가 존재하지 않습니다."));
-                triggerCronRepository.delete(triggerCron);
-                break;
-            case "apigateway":
-                if ("Y".equals(trigger.getTriggerConnectedYn())){
-                    TriggerAPIGW triggerAPIGW = triggerAPIGWRepository.findByTrigger(trigger).orElseThrow(() -> new ResourceNotFoundException("유효한 API Gateway 트리거가 존재하지 않습니다."));
-                    triggerAPIGWRepository.delete(triggerAPIGW);
-                }
-                break;
-            default:
-                throw new RuntimeException(TRIGGER_TYPE_EXCEPTION);
-        }
-
-        // 함수 삭제로 인한 트리거 관련 데이터 전체 삭제 케이스
-        if (all) {
-            triggerRepository.delete(trigger);
-        }
-
-    }
-
-    public void  makePingSource(String functionName, String timezone, String schedule) {
-        PingSource pingSource = new PingSourceBuilder()
-                .withNewMetadata()
-                .withName(functionName)
-                .withNamespace(functionName)
-                .endMetadata()
-                .withNewSpec()
-                .withSchedule(schedule)
-                .withTimezone(timezone)
-                .withContentType("application/json")
-                .withData("{\"message\": \"Hello World from Ping!\"}")
-                .withNewSink()
-                .withNewRef()
-                .withApiVersion("serving.knative.dev/v1")
-                .withKind("Service")
-                .withName(functionName)
-                .endRef()
-                .endSink()
-                .endSpec()
-                .build();
-
-
-        kn.pingSources().inNamespace(functionName).withName(functionName).delete();
-        PingSource patch = kn.pingSources().withName(functionName).patch(PatchContext.of(PatchType.SERVER_SIDE_APPLY), pingSource);
-
-        if (patch.getStatus() != null) {
-            log.info("결과상태 확인" + patch.getStatus().getConditions());
-        }
-
-    }
-
-
-    public void deletePingSource(String functionName) {
-        kn.pingSources().inNamespace(functionName).withName(functionName).delete();
-    }
-
-    public void createUserNamespace(Function function) {
-        try (KubernetesClient client = new DefaultKubernetesClient()) {
-            // 사용자네임스페이스 생성
-            Namespace namespace = new NamespaceBuilder()
-                    .withNewMetadata()
-                    .withName(function.getName()) // 원하는 사용자 네임스페이스 이름
-                    .withLabels(Collections.singletonMap("istio-injection", "enabled")) // istio envoy 컨테이너 추가용 라벨 추가
-                    .endMetadata()
-                    .build();
-
-            client.namespaces().create(namespace);
-            System.out.println("사용자네임스페이스 생성 완료.");
-        } catch (Exception e) {
-            System.err.println("사용자네임스페이스 생성오류 발생: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    public void createUserPVC(Function function) {
-        try (KubernetesClient client = new DefaultKubernetesClient()) {
-            String namespaceName = function.getName(); // 원하는 네임스페이스 이름
-            String pvcName = "serverless-storage-user"; // 원하는 PVC 이름
-            String storageClassName = "nfs-subdir-external-sc-user"; // 동적프로비저닝에 사용할 StorageClass 이름
-            String accessMode = "ReadWriteMany";
-            String storageSize;
-            if (function.getRuntime().startsWith("Java")) {
-                storageSize = "50Mi"; // 용량 (50MiB)
-            } else if (function.getRuntime().startsWith("Python")) {
-                storageSize = "1Mi";
-            } else if (function.getRuntime().startsWith("PHP")) {
-                storageSize = "1Mi";
-            } else if (function.getRuntime().startsWith("Node")) {
-                storageSize = "1Mi";
-            } else if (function.getRuntime().startsWith("Go")) {
-                storageSize = "50Mi";
-            } else {
-                throw new RuntimeException("런타임 타입이 유효하지 않습니다.");
-            }
-
-            // PVC 생성
-            PersistentVolumeClaim pvc = new PersistentVolumeClaimBuilder()
-                    .withNewMetadata()
-                    .withName(pvcName)
-                    .endMetadata()
-                    .withNewSpec()
-                    .withAccessModes(accessMode)
-                    .withStorageClassName(storageClassName)
-                    .withResources(new VolumeResourceRequirementsBuilder()
-                            .withRequests(Collections.singletonMap("storage", new Quantity(storageSize)))
-                            .build())
-                    .endSpec()
-                    .build();
-
-            client.persistentVolumeClaims().inNamespace(namespaceName).create(pvc);
-
-            System.out.println("PVC 생성 완료.");
-        } catch (KubernetesClientException e) {
-            System.err.println("PVC 생성 오류: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    public static String generateEnvoyFilterYaml(String envoyfilterName, String namespaceName){
-        switch (envoyfilterName) {
-            case "request-headers-filter":
-                return defaultEnvoyFilterYaml.replace("$envoyfilterName$", envoyfilterName).replace("$namespaceName$", namespaceName);        
-            case "egress-inside-fn-filter":
-                return fnEgressEnvoyFilterYaml.replace("$envoyfilterName$", envoyfilterName).replace("$namespaceName$", namespaceName);
-            case "istio-rate-limit-filter":
-                return fnEgressEnvoyFilterYaml.replace("$envoyfilterName$", envoyfilterName).replace("$namespaceName$", namespaceName)
-                        .replace("$TOKEN_PER_FILL$", "10") // Transaction의 갯수 (10)
-                        .replace("$FILL_INTERVAL$", "1s"); // 기준 (1초) -> 10 TPS로 설정
-            default:
-                throw new RuntimeException("지원하지 않는 EnvoyFilter입니다");
-        }
-    }
-
-    
-    public void createUserEnvoyFilter(Function function) {
-        String namespaceName = function.getName(); // 원하는 네임스페이스 이름
-
-        String defaultEnvoyFilterYaml = generateEnvoyFilterYaml("request-headers-filter", namespaceName);
-        String egressEnvoyFilterYaml = generateEnvoyFilterYaml("egress-inside-fn-filter", namespaceName);
-        String istioRateLimitEnvoyFilterYaml = generateEnvoyFilterYaml("istio-rate-limit-filter", namespaceName);
-
-        String[] envoyFilterYamls = {
-                defaultEnvoyFilterYaml,
-                egressEnvoyFilterYaml,
-                istioRateLimitEnvoyFilterYaml
-        };
-
-        applyEnvoyFilterYaml(envoyFilterYamls, namespaceName, "createOrReplace");
-    }
-
-    public static void applyEnvoyFilterYaml(String[] envoyFilterYamlArray, String functionName, String type) {
-        try (KubernetesClient client = new DefaultKubernetesClient()) {
-
-            int arrayLength = envoyFilterYamlArray.length;
-            int mycount = 0;
-            String applyingYaml;
-            for (int i = 0; i< arrayLength; i++) {
-
-                applyingYaml = envoyFilterYamlArray[i];
-                mycount++;
-                String pageString = "[" + mycount + "/" + arrayLength + "]";
-
-                // YAML 문자열을 InputStream으로 변환
-                try (InputStream yamlStream = IOUtils.toInputStream(applyingYaml, StandardCharsets.UTF_8)) {
-
-                    // YAML 문자열을 Kubernetes 클러스터에 배포
-                    if (type.equals("createOrReplace")){
-                        client.load(yamlStream).createOrReplace();
-                        log.info("EnvoyFilter 생성" + functionName + pageString);
-                    } else if (type.equals("delete")) {
-                        client.load(yamlStream).delete();
-                        log.info("EnvoyFilter 삭제" + functionName + pageString);
-                    } else {
-                        throw new RuntimeException("지원하지 않는 EnvoyFilter 적용방법 입니다");
-                    }
-
-                } catch (KubernetesClientException | IOException e) {
-                    log.error("EnvoyFilter " + type + " 중 오류: " + functionName + pageString + e.getMessage());
-                    e.printStackTrace();
-                }
-            }
-        }
-    }
-
-    public void createScfWatcherCustomResource(Function function) {
-        String namedScfWatcherCustomResourceYaml = generateScfWatcherCustomResourceYaml(function.getName());
-        applyScfWatcherCustomResourceYaml(namedScfWatcherCustomResourceYaml, function.getName(), "createOrReplace");
-    }
-
-    public static String generateScfWatcherCustomResourceYaml(String name){
-        return scfWatcherCustomResourceYaml.replace("$name$", name);
-    }
-
-    public static void applyScfWatcherCustomResourceYaml(String scfWatcherCustomResourceYamlContent, String functionName, String type) {
-        try (KubernetesClient client = new DefaultKubernetesClient()) {
-
-            // YAML 문자열을 InputStream으로 변환
-            try (InputStream yamlStream = IOUtils.toInputStream(scfWatcherCustomResourceYamlContent, StandardCharsets.UTF_8)) {
-                // YAML 문자열을 Kubernetes 클러스터에 배포
-                if (type.equals("createOrReplace")){
-                    client.load(yamlStream).createOrReplace();
-                    log.info("ScfWatcher CustomResource 생성 : " + functionName);
-                } else if (type.equals("delete")) {
-                    client.load(yamlStream).delete();
-                    log.info("ScfWatcher CustomResource 삭제 : " + functionName);
-                } else {
-                    throw new RuntimeException("지원하지 않는 ScfWatcher CustomResource 적용방법 입니다");
-                }
-            } catch (KubernetesClientException | IOException e) {
-                log.error("ScfWatcher CustomResource 생성 중 오류 : " + functionName + e.getMessage());
-                e.printStackTrace();
-            }
-        }
-    }
-
-
 }
+
+코드 변경 후
+
+public TriggerDTO.Response searchTrigger(String functionKey) {
+    Function function = functionRepository.findByFunctionKeyAndDelYn(functionKey, "N")
+        .orElseThrow(() -> new ResourceNotFoundException(ExceptionMessages.FUNCTION_NOT_FOUND));
+
+    Trigger trigger = triggerRepository.findByFunction(function)
+        .orElseThrow(() -> new ResourceNotFoundException(ExceptionMessages.TRIGGER_NOT_FOUND));
+
+    TriggerHTTP triggerHTTP = new TriggerHTTP();
+    TriggerCron triggerCron = new TriggerCron();
+    TriggerAPIGW triggerAPIGW = new TriggerAPIGW();
+
+    getTriggerByType(trigger, triggerHTTP, triggerCron, triggerAPIGW);
+
+    return trigger.toDto(function, triggerHTTP, triggerCron, triggerAPIGW, false);
+}
+
+private void getTriggerByType(Trigger trigger, TriggerHTTP triggerHTTP, TriggerCron triggerCron, TriggerAPIGW triggerAPIGW) {
+    switch (TriggerTypeEnum.valueOf(trigger.getTriggerType().toUpperCase())) {
+        case HTTP:
+            triggerHTTP = triggerHTTPRepository.findByTrigger(trigger)
+                .orElseThrow(() -> new ResourceNotFoundException(ExceptionMessages.TRIGGER_HTTP_NOT_FOUND));
+            break;
+        case CRON:
+            triggerCron = triggerCronRepository.findByTrigger(trigger)
+                .orElseThrow(() -> new ResourceNotFoundException(ExceptionMessages.TRIGGER_CRON_NOT_FOUND));
+            break;
+        case APIGATEWAY:
+            if ("Y".equals(trigger.getTriggerConnectedYn())) {
+                triggerAPIGW = triggerAPIGWRepository.findByTrigger(trigger)
+                    .orElseThrow(() -> new ResourceNotFoundException(ExceptionMessages.TRIGGER_APIGW_NOT_FOUND));
+            }
+            break;
+        default:
+            throw new RuntimeException(ExceptionMessages.TRIGGER_TYPE_EXCEPTION);
+    }
+}
+
+개선된 점
+
+중복 코드 제거: getTriggerByType() 메서드로 분리하여 재사용성을 높이고 가독성을 향상시킴.
+
+Enum 활용: TriggerTypeEnum.valueOf(trigger.getTriggerType().toUpperCase())를 사용하여 Magic String을 제거하고 유지보수성을 향상.
+
+예외 메시지 상수화: ExceptionMessages 클래스를 도입하여 예외 메시지를 한 곳에서 관리.
+
+
+
+---
+
+2. modifyTrigger(TriggerDTO.Modify reqDto, String functionKey)
+
+변경 사항
+
+1. 중복 코드 제거
+
+트리거 삭제 후 새 트리거 추가하는 로직을 deleteTrigger()와 updateTrigger()로 분리.
+
+
+
+2. Guard Clause 적용
+
+불필요한 if-else 블록을 제거하고 조기 반환을 활용하여 코드 가독성을 높임.
+
+
+
+
+코드 변경 전
+
+if (StringUtils.isEmpty(reqDto.getTriggerType())) {
+    throw new RuntimeException("트리거 타입을 입력해주세요.");
+}
+
+Function function = functionRepository.findByFunctionKeyAndDelYn(functionKey, "N")
+    .orElseThrow(() -> new ResourceNotFoundException("유효한 펑션이 존재하지 않습니다."));
+
+this.deleteTrigger(function, false);
+
+TriggerDTO.Response response = this.updateTrigger(reqDto, function);
+return response;
+
+코드 변경 후
+
+public TriggerDTO.Response modifyTrigger(TriggerDTO.Modify reqDto, String functionKey) throws IOException, ParseException {
+    validateTriggerType(reqDto.getTriggerType());
+
+    Function function = functionRepository.findByFunctionKeyAndDelYn(functionKey, "N")
+        .orElseThrow(() -> new ResourceNotFoundException(ExceptionMessages.FUNCTION_NOT_FOUND));
+
+    deleteTrigger(function, false);
+
+    return updateTrigger(reqDto, function);
+}
+
+private void validateTriggerType(String triggerType) {
+    if (StringUtils.isEmpty(triggerType)) {
+        throw new RuntimeException(ExceptionMessages.TRIGGER_TYPE_REQUIRED);
+    }
+}
+
+개선된 점
+
+Guard Clause 적용: validateTriggerType()을 활용하여 조기 반환을 적용, 불필요한 코드 중첩을 제거하여 가독성을 개선.
+
+예외 메시지 상수화: ExceptionMessages.TRIGGER_TYPE_REQUIRED를 사용하여 메시지 일관성을 유지.
+
+
+
+---
+
+3. connectTrigger(TriggerDTO.Modify reqDto, String functionKey)
+
+변경 사항
+
+1. 중복 코드 제거
+
+validateTriggerConnection() 메서드를 만들어 트리거 연결 전 검증 로직을 분리.
+
+
+
+2. Enum 활용
+
+트리거 타입 비교 시 Magic String 대신 Enum을 사용.
+
+
+
+
+코드 변경 전
+
+if ("Y".equals(trigger.getTriggerConnectedYn())) {
+    throw new RuntimeException("이미 트리거연결 되어있습니다.");
+}
+
+if (!"apigateway".equals(trigger.getTriggerType())) {
+    throw new RuntimeException("요청한 트리거 타입과 불일치합니다.");
+}
+
+코드 변경 후
+
+public TriggerDTO.Response connectTrigger(TriggerDTO.Modify reqDto, String functionKey) throws IOException, ParseException {
+    Function function = functionRepository.findByFunctionKeyAndDelYn(functionKey, "N")
+        .orElseThrow(() -> new ResourceNotFoundException(ExceptionMessages.FUNCTION_NOT_FOUND));
+
+    Trigger trigger = triggerRepository.findByFunction(function)
+        .orElseThrow(() -> new ResourceNotFoundException(ExceptionMessages.TRIGGER_NOT_FOUND));
+
+    validateTriggerConnection(trigger);
+
+    TriggerAPIGW triggerAPIGW = triggerAPIGWRepository.save(TriggerAPIGW.register(reqDto));
+
+    trigger.updateTriggerConnectedYn("Y");
+    triggerRepository.save(trigger);
+
+    return trigger.toDto(function, new TriggerHTTP(), new TriggerCron(), triggerAPIGW, true);
+}
+
+private void validateTriggerConnection(Trigger trigger) {
+    if ("Y".equals(trigger.getTriggerConnectedYn())) {
+        throw new RuntimeException(ExceptionMessages.TRIGGER_ALREADY_CONNECTED);
+    }
+    if (!TriggerTypeEnum.APIGATEWAY.name().equals(trigger.getTriggerType())) {
+        throw new RuntimeException(ExceptionMessages.TRIGGER_TYPE_MISMATCH);
+    }
+}
+
+개선된 점
+
+중복 코드 제거: validateTriggerConnection() 메서드 분리하여 가독성과 유지보수성 향상.
+
+Magic String 제거: "apigateway".equals(trigger.getTriggerType()) → TriggerTypeEnum.APIGATEWAY.name().equals(trigger.getTriggerType())로 변경.
+
+
+
+---
+
+총괄 개선 요약
+
+이러한 개선을 통해 코드가 더 짧고 명확하며 유지보수하기 쉬운 구조가 되었다.
+
