@@ -1,7 +1,119 @@
-[Nginx 캐싱]
-클라이언트 → Nginx (캐시 있음) → 바로 응답
-                            → (캐시 없음) → API 서버 호출 후 응답 캐싱
+아래는 팀원이 작성한 코드에 대해 리팩토링 및 클린코드 관점에서 작성한 다양한 코드 리뷰 코멘트입니다. 각 코멘트는 따뜻한 격려와 칭찬을 기반으로 하여, 개선점, 대안, 사전 오류 방지, 지식 공유 등을 포함하고 있어요.
 
-[Redis 캐싱]
-클라이언트 → API 서버 → Redis (캐시 있음) → 바로 응답
-                              → (캐시 없음) → DB 호출 후 Redis에 저장
+
+---
+
+1. makeIstioResource 메소드 관련
+
+> "코드를 읽으면서 처음부터 함수의 의도가 명확하게 드러나서 좋았습니다. 다만, makeIstioResource 내에서 Istio 설정과 토큰 처리를 분리하면 가독성이 더 높아질 것 같아요. 예를 들어, 아래와 같이 분리하면 나중에 유지보수할 때 도움이 될 것 같아요:
+
+private FunctionEnvironment getTokenEnvironment(Function function) {
+    return functionEnvironmentRepository.findByFunction(function)
+            .stream()
+            .filter(env -> "token".equals(env.getType()))
+            .findFirst()
+            .orElseThrow(() -> new RuntimeException("토큰정보를 확인해주십시오."));
+}
+
+이렇게 분리하면 코드 재사용성이 높아지고, 각 메소드의 역할이 더 명확해집니다. 정말 잘 작성하셨어요!"
+
+
+
+
+---
+
+2. callIstioAndKnative 메소드 관련
+
+> "이 메소드에서는 Istio 관련 로직과 함수 호출이 함께 이루어지고 있는데, 이를 별도의 메소드로 분리하면 단일 책임 원칙을 더욱 잘 지킬 수 있을 것 같아요. 예를 들어, Istio 설정 부분은 configureIstioPolicy로 분리하고, 함수 호출은 callFunction 메소드에서 처리하면 좋을 것 같아요. 이렇게 분리하면 테스트와 디버깅이 훨씬 수월해질 거예요. 지금도 이미 많은 노력이 보이네요. 아주 좋은 시도입니다!"
+
+
+
+
+---
+
+3. deployFunction 메소드 관련
+
+> "deployFunction 메소드에서 Knative Service를 생성하는 부분에서 timeoutSeconds 설정이 RevisionSpec 내부에 있어야 한다는 점이 조금 헷갈릴 수 있어요. Fabric8 Knative API에서는 아래와 같이 설정하는 것이 일반적입니다:
+
+Service service = new ServiceBuilder()
+    .withNewMetadata()
+        .withName(function.getName())
+        .withNamespace(function.getName())
+    .endMetadata()
+    .withNewSpec()
+        .withNewTemplate()
+            .withNewMetadata()
+                .withAnnotations(annotations)
+            .endMetadata()
+            .withNewSpec()
+                .withTimeoutSeconds((int) timeout)
+                // 나머지 컨테이너 설정들...
+            .endSpec()
+        .endTemplate()
+    .endSpec()
+    .build();
+
+이렇게 RevisionSpec 내에 설정하면 API에서 요구하는 포맷에 맞춰 실행됩니다. 정말 꼼꼼하게 작성해주셨네요!"
+
+
+
+
+---
+
+4. generateManagerFileName 메소드 관련
+
+> "generateManagerFileName 메소드에서 Optional을 활용한 예외 처리는 매우 깔끔합니다. 기존 getOrDefault 대신 아래와 같이 Optional을 사용하면 예외 처리와 코드 간결성을 동시에 잡을 수 있어요:
+
+private String generateManagerFileName(FunctionDTO.Register reqDto) {
+    return Optional.ofNullable(MANAGER_FILE_MAP.get(reqDto.getRuntime()))
+            .orElseThrow(() -> new RuntimeException("지원하지 않는 런타임입니다."));
+}
+
+이 방법은 특히 Java 8 이상의 코드 스타일에 적합해서, 팀의 코드 퀄리티를 한층 더 높일 수 있다고 생각해요. 멋진 선택입니다!"
+
+
+
+
+---
+
+5. 공통 개선 사항 (Magic String 및 상수화)
+
+> "코드 전반에 걸쳐 'Y', 'N', 'token' 등 하드코딩된 문자열들을 상수화하신 점이 아주 인상적입니다. 이런 작은 변화가 유지보수성과 가독성에 큰 영향을 주거든요. 예를 들어,
+
+private static final String YES = "Y";
+private static final String NO = "N";
+private static final String TOKEN_TYPE = "token";
+
+이렇게 상수화하면 향후 값이 변경되더라도 한 곳만 수정하면 되니 정말 좋습니다. 코드 품질 향상에 큰 도움이 되었어요!"
+
+
+
+
+---
+
+6. 전반적인 코드 구조 및 책임 분리
+
+> "전체적으로 함수들의 책임이 명확하게 분리되어 있어서, 읽는 사람 입장에서 각 메소드가 어떤 역할을 하는지 쉽게 이해할 수 있었어요. 특히 Istio 관련 로직과 Knative 배포 로직이 분리된 점이 눈에 띕니다. 예를 들어, configureIstioPolicy와 handleIstioToken을 분리한 방식은 SOLID 원칙 중 단일 책임 원칙(SRP)을 잘 반영한 것 같아요. 이런 개선은 나중에 추가 기능을 확장할 때도 큰 도움이 될 거예요. 팀원 모두의 노력이 느껴집니다!"
+
+
+
+
+---
+
+7. 질문 및 지식 공유
+
+> "혹시 deployFunction 메소드에서 다른 컨테이너 설정 옵션이나, 예를 들어 환경 변수 설정 부분에 대해 추가 고려해본 적 있으신가요? 만약 미래에 필요하다면, 환경 변수 설정 부분도 별도의 메소드로 분리해두면 더욱 깔끔해질 것 같아요. 예를 들어,
+
+private List<EnvVar> createEnvVars(Function function, FunctionDTO.Register reqDto) {
+    // 환경 변수 생성 로직
+}
+
+이런 구조로 분리하면 테스트하기도 편하고, 코드의 재사용성도 높일 수 있을 것 같습니다. 아주 훌륭하게 진행되고 있어요!"
+
+
+
+
+---
+
+각 코멘트는 팀원들의 코드 작성 노력을 진심으로 칭찬하며, 개선할 수 있는 부분에 대해 구체적인 예시와 설명을 덧붙였습니다. 이런 리뷰가 서로의 코드 퀄리티를 높이고, 팀 전체의 성장에 기여할 수 있기를 바랍니다. 멋진 작업 계속 해주세요!
+
