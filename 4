@@ -215,3 +215,199 @@ Magic String 제거: "apigateway".equals(trigger.getTriggerType()) → TriggerTy
 
 이러한 개선을 통해 코드가 더 짧고 명확하며 유지보수하기 쉬운 구조가 되었다.
 
+
+
+
+
+
+
+
+
+아래는 개선된 TriggerService.java 코드입니다.
+이 코드에서는 중복 제거, Enum 활용, 예외 메시지 상수화, Guard Clause 적용 등을 통해 코드 품질을 향상시켰습니다.
+
+
+---
+
+개선된 TriggerService.java 코드
+
+package com.scf.manager.mvc.service;
+
+import com.scf.manager.common.enums.TypeEnums;
+import com.scf.manager.common.exception.ResourceNotFoundException;
+import com.scf.manager.mvc.domain.*;
+import com.scf.manager.mvc.dto.AllowIpDTO;
+import com.scf.manager.mvc.repository.*;
+import com.scf.manager.mvc.dto.TriggerDTO;
+import io.fabric8.istio.client.DefaultIstioClient;
+import io.fabric8.knative.client.DefaultKnativeClient;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.io.IOException;
+import java.text.ParseException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+@Slf4j
+@org.springframework.stereotype.Service
+@RequiredArgsConstructor
+public class TriggerService {
+
+    private final KnativeService knativeService;
+    private final FunctionRepository functionRepository;
+    private final TriggerRepository triggerRepository;
+    private final TriggerHTTPRepository triggerHTTPRepository;
+    private final TriggerCronRepository triggerCronRepository;
+    private final TriggerAPIGWRepository triggerAPIGWRepository;
+    private final DefaultKnativeClient kn;
+    private final AllowIpService allowIpService;
+    private final String kubernetesPodCIDR = "172.21.0.0/16";
+    private final FunctionEnvironmentRepository functionEnvironmentRepository;
+    private final DefaultIstioClient istioClient;
+
+    @Value("${apigw.ip.cidr}")
+    private String apigwIPCIDR;
+
+    @Transactional
+    public TriggerDTO.Response searchTrigger(String functionKey) {
+        Function function = getFunctionOrThrow(functionKey);
+        Trigger trigger = getTriggerOrThrow(function);
+
+        TriggerHTTP triggerHTTP = new TriggerHTTP();
+        TriggerCron triggerCron = new TriggerCron();
+        TriggerAPIGW triggerAPIGW = new TriggerAPIGW();
+
+        getTriggerByType(trigger, triggerHTTP, triggerCron, triggerAPIGW);
+
+        return trigger.toDto(function, triggerHTTP, triggerCron, triggerAPIGW, false);
+    }
+
+    @Transactional
+    public TriggerDTO.Response modifyTrigger(TriggerDTO.Modify reqDto, String functionKey) throws IOException, ParseException {
+        validateTriggerType(reqDto.getTriggerType());
+
+        Function function = getFunctionOrThrow(functionKey);
+        deleteTrigger(function, false);
+
+        return updateTrigger(reqDto, function);
+    }
+
+    @Transactional
+    public TriggerDTO.Response connectTrigger(TriggerDTO.Modify reqDto, String functionKey) throws IOException, ParseException {
+        Function function = getFunctionOrThrow(functionKey);
+        Trigger trigger = getTriggerOrThrow(function);
+
+        validateTriggerConnection(trigger);
+
+        TriggerAPIGW triggerAPIGW = triggerAPIGWRepository.save(TriggerAPIGW.register(reqDto));
+
+        trigger.updateTriggerConnectedYn("Y");
+        triggerRepository.save(trigger);
+
+        return trigger.toDto(function, new TriggerHTTP(), new TriggerCron(), triggerAPIGW, true);
+    }
+
+    @Transactional
+    public void disConnectTrigger(String functionKey) {
+        Function function = getFunctionOrThrow(functionKey);
+        Trigger trigger = getTriggerOrThrow(function);
+
+        if ("N".equals(trigger.getTriggerConnectedYn())) {
+            throw new RuntimeException(ExceptionMessages.TRIGGER_ALREADY_DISCONNECTED);
+        }
+
+        deleteTrigger(function, false);
+        trigger.updateTriggerConnectedYn("N");
+        triggerRepository.save(trigger);
+    }
+
+    private Function getFunctionOrThrow(String functionKey) {
+        return functionRepository.findByFunctionKeyAndDelYn(functionKey, "N")
+                .orElseThrow(() -> new ResourceNotFoundException(ExceptionMessages.FUNCTION_NOT_FOUND));
+    }
+
+    private Trigger getTriggerOrThrow(Function function) {
+        return triggerRepository.findByFunction(function)
+                .orElseThrow(() -> new ResourceNotFoundException(ExceptionMessages.TRIGGER_NOT_FOUND));
+    }
+
+    private void validateTriggerType(String triggerType) {
+        if (StringUtils.isEmpty(triggerType)) {
+            throw new RuntimeException(ExceptionMessages.TRIGGER_TYPE_REQUIRED);
+        }
+    }
+
+    private void validateTriggerConnection(Trigger trigger) {
+        if ("Y".equals(trigger.getTriggerConnectedYn())) {
+            throw new RuntimeException(ExceptionMessages.TRIGGER_ALREADY_CONNECTED);
+        }
+        if (!TriggerTypeEnum.APIGATEWAY.name().equals(trigger.getTriggerType())) {
+            throw new RuntimeException(ExceptionMessages.TRIGGER_TYPE_MISMATCH);
+        }
+    }
+
+    private void getTriggerByType(Trigger trigger, TriggerHTTP triggerHTTP, TriggerCron triggerCron, TriggerAPIGW triggerAPIGW) {
+        switch (TriggerTypeEnum.valueOf(trigger.getTriggerType().toUpperCase())) {
+            case HTTP:
+                triggerHTTP = triggerHTTPRepository.findByTrigger(trigger)
+                        .orElseThrow(() -> new ResourceNotFoundException(ExceptionMessages.TRIGGER_HTTP_NOT_FOUND));
+                break;
+            case CRON:
+                triggerCron = triggerCronRepository.findByTrigger(trigger)
+                        .orElseThrow(() -> new ResourceNotFoundException(ExceptionMessages.TRIGGER_CRON_NOT_FOUND));
+                break;
+            case APIGATEWAY:
+                if ("Y".equals(trigger.getTriggerConnectedYn())) {
+                    triggerAPIGW = triggerAPIGWRepository.findByTrigger(trigger)
+                            .orElseThrow(() -> new ResourceNotFoundException(ExceptionMessages.TRIGGER_APIGW_NOT_FOUND));
+                }
+                break;
+            default:
+                throw new RuntimeException(ExceptionMessages.TRIGGER_TYPE_EXCEPTION);
+        }
+    }
+}
+
+
+---
+
+추가된 클래스
+
+1. TriggerTypeEnum.java (Magic String 제거)
+
+public enum TriggerTypeEnum {
+    NONE, HTTP, CRON, APIGATEWAY;
+}
+
+2. ExceptionMessages.java (예외 메시지 상수화)
+
+public class ExceptionMessages {
+    public static final String FUNCTION_NOT_FOUND = "유효한 펑션이 존재하지 않습니다.";
+    public static final String TRIGGER_NOT_FOUND = "유효한 트리거가 존재하지 않습니다.";
+    public static final String TRIGGER_TYPE_REQUIRED = "트리거 타입을 입력해주세요.";
+    public static final String TRIGGER_ALREADY_CONNECTED = "이미 트리거가 연결되어 있습니다.";
+    public static final String TRIGGER_ALREADY_DISCONNECTED = "이미 트리거가 해지되었습니다.";
+    public static final String TRIGGER_TYPE_MISMATCH = "요청한 트리거 타입과 일치하지 않습니다.";
+    public static final String TRIGGER_HTTP_NOT_FOUND = "유효한 HTTP 트리거가 존재하지 않습니다.";
+    public static final String TRIGGER_CRON_NOT_FOUND = "유효한 Cron 트리거가 존재하지 않습니다.";
+    public static final String TRIGGER_APIGW_NOT_FOUND = "유효한 API Gateway 트리거가 존재하지 않습니다.";
+    public static final String TRIGGER_TYPE_EXCEPTION = "유효하지 않은 트리거 타입입니다.";
+}
+
+
+---
+
+최종 개선 요약
+
+
+---
+
+이제 코드가 더 짧고 명확하며 유지보수가 쉬운 구조로 변경되었습니다.
+특히 중복 제거, Magic String 제거, 예외 메시지 상수화, Enum 활용, Guard Clause 적용을 통해 가독성과 유지보수성을 대폭 향상시켰습니다.
+
+
