@@ -1,119 +1,810 @@
-아래는 팀원이 작성한 코드에 대해 리팩토링 및 클린코드 관점에서 작성한 다양한 코드 리뷰 코멘트입니다. 각 코멘트는 따뜻한 격려와 칭찬을 기반으로 하여, 개선점, 대안, 사전 오류 방지, 지식 공유 등을 포함하고 있어요.
+package com.scf.manager.mvc.service;
+
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
+import com.scf.manager.base.domain.FunctionCode;
+import com.scf.manager.base.repository.FunctionCodeRepository;
+import com.scf.manager.common.enums.TypeEnums;
+import com.scf.manager.common.exception.ResourceNotFoundException;
+import com.scf.manager.common.util.AppUtil;
+import com.scf.manager.common.util.UrlUtil;
+import com.scf.manager.mvc.domain.*;
+import com.scf.manager.mvc.dto.*;
+import com.scf.manager.mvc.repository.*;
+import io.fabric8.istio.client.DefaultIstioClient;
+import io.fabric8.knative.client.DefaultKnativeClient;
+import io.fabric8.knative.serving.v1.Service;
+import io.fabric8.knative.serving.v1.ServiceList;
+import io.fabric8.kubernetes.api.model.*;
+import io.fabric8.kubernetes.api.model.apiextensions.v1.CustomResourceDefinition;
+import io.fabric8.kubernetes.api.model.apiextensions.v1.JSONSchemaPropsBuilder;
+import io.fabric8.kubernetes.client.*;
+import io.fabric8.kubernetes.client.dsl.MixedOperation;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.jetbrains.annotations.NotNull;
+
+import org.json.simple.parser.JSONParser;
+import org.json.simple.JSONObject;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
 
----
+import javax.crypto.Cipher;
+import javax.crypto.Mac;
+import javax.crypto.SecretKey;
 
-1. makeIstioResource 메소드 관련
+import javax.crypto.spec.SecretKeySpec;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLSession;
+import java.io.*;
 
-> "코드를 읽으면서 처음부터 함수의 의도가 명확하게 드러나서 좋았습니다. 다만, makeIstioResource 내에서 Istio 설정과 토큰 처리를 분리하면 가독성이 더 높아질 것 같아요. 예를 들어, 아래와 같이 분리하면 나중에 유지보수할 때 도움이 될 것 같아요:
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-private FunctionEnvironment getTokenEnvironment(Function function) {
-    return functionEnvironmentRepository.findByFunction(function)
-            .stream()
-            .filter(env -> "token".equals(env.getType()))
-            .findFirst()
-            .orElseThrow(() -> new RuntimeException("토큰정보를 확인해주십시오."));
+import java.net.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.text.ParseException;
+import java.time.Duration;
+import java.util.*;
+
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+import static com.scf.manager.common.util.AppUtil.getSourceCodeFromFile;
+import static com.scf.manager.common.util.JsonUtil.convertJsonToMap;
+import static com.scf.manager.mvc.service.TriggerService.generateEnvoyFilterYaml;
+import static com.scf.manager.mvc.service.TriggerService.generateScfWatcherCustomResourceYaml;
+import static io.fabric8.kubernetes.client.dsl.base.CustomResourceDefinitionContext.v1CRDFromCustomResourceType;
+import io.fabric8.kubernetes.client.CustomResource;
+import io.fabric8.kubernetes.api.model.Namespaced;
+import io.fabric8.kubernetes.model.annotation.Group;
+import io.fabric8.kubernetes.model.annotation.Version;
+
+@Slf4j
+@org.springframework.stereotype.Service
+@RequiredArgsConstructor
+public class FunctionService {
+
+    private static final int MAX_NAME_LENGTH = 64;
+
+
+    private static final int KEY_SIZE_2048 = 2048;
+
+    private final FunctionRepository functionRepository;
+    private final KeyManagerRepository keyManagerRepository;
+    private final AllowIpRepository allowIpRepository;
+    private final FunctionEnvironmentRepository functionEnvironmentRepository;
+    private final String volumeName = "serverless-storage-user";
+    private final BaseImageRepository baseImageRepository;
+    private final String BASE_URL = "samsungsdscloud.com";
+
+    private final IstioCallService istioCallService;
+    private final DefaultIstioClient istioClient;
+    private final DefaultKnativeClient kn;
+
+    private final FunctionCodeRepository functionCodeRepository;
+    private final TriggerService triggerService;
+    private final TriggerRepository triggerRepository;
+    private final TriggerCronRepository triggerCronRepository;
+    private final AllowIpService allowIpService;
+    private final KnativeService knativeService;
+
+
+    private final SourceFileRepository sourceFileRepository;
+    private final SourceFileService sourceFileService;
+
+    @Value("${apim.http.timeout}")
+    private int timeOutValue;
+
+    @Value("${apim.endpoint}")
+    private String apimEndpoint;
+
+    @Value("${apim.token}")
+    private String apimToken;
+
+    @Transactional
+    public FunctionDTO.Response registerFunction(FunctionDTO.Register reqDto) throws IOException, ParseException {
+
+
+
+        // 함수명 Validation 체크 진행 //
+        // 1) 최대 64자 / 공백 불허 / 소문자, 숫자, 하이픈 허용
+        // 2) 영문 소문자로만 시작 가능
+        validationCheckFunctionName(reqDto.getDisplayName());
+
+        validationCheckFunctionArgs(reqDto.getFunctionKey(), reqDto.getProjectId(), reqDto.getUserId(), reqDto.getEndPointType() ,reqDto.getPublicAccessAclYn() ,reqDto.getLogEnableYn() ,reqDto.getRuntime());
+        Optional<Function> byFunctionKey = functionRepository.findByFunctionKeyAndDelYn(reqDto.getFunctionKey(), "N");
+
+        if (!byFunctionKey.isEmpty()) {
+            throw new RuntimeException("이미 존재하는 펑션키를 사용하였습니다");
+        }
+
+        boolean existFunction = functionRepository.existsByDisplayNameAndProjectIdAndDelYn(reqDto.getDisplayName(), reqDto.getProjectId(), "N");
+
+        if (existFunction) {
+            throw new RuntimeException("해당 프로젝트에 존재하는 펑션명을 사용하였습니다.");
+        }
+
+        //신규생성된 펑션
+        String name = "scf-" + UUID.randomUUID() + "-api";
+        log.info("byFunctionKey = " + byFunctionKey);
+        reqDto.setName(name);
+        reqDto.setFunctionStatus(TypeEnums.FunctionStatus.NOT_READY.getKey());
+
+        // 2023.11.24 gyeongyeol
+        // 함수 코드가 없는 Java Runtime인 경우에 대해서 샘플코드 조회를 skip하도록 분기 로직 추가
+        if (!reqDto.getRuntime().startsWith("Java")) {
+            reqDto.setContent(generateBaseCode(reqDto));
+        }
+
+        Function function = functionRepository.save(
+                Function.register(reqDto)
+        );
+
+        setEnvironment(function);
+
+        if (!CollectionUtils.isEmpty(reqDto.getAllowIps())) {
+            reqDto.getAllowIps().stream().forEach(allowIp -> allowIpService.registerAllowIp(allowIp, function.getFunctionSeq()));
+        }
+
+        /* 2023.09.07 heechang
+         * 원래는 함수가 생성될 때 HTTP 트리거를 default 트리거로 설정했었기에, 함수 생성 시 최초 1회 호출되던 메소드
+         * 설계 변경으로, default 트리거가 없게 되면서, 메소드의 기능을 변경
+         * HTTP 처리는 하지 않으나, 함수의 seq를 가지고 있는 trigger 테이블 정보를 생성하는 부분은 유지
+         * 메소드명인 defaultTrigger 의 의미는, trigger 테이블을 지칭하는 의미로 변경
+         */
+        triggerService.createDefaultTrigger(function);
+
+        // Java Runtime을 위한 SourceFile Entity 초기화
+        if (function.getRuntime().startsWith("Java")) {
+            SourceFileDTO.Register sampleDto = new SourceFileDTO.Register();
+            sampleDto.setSourceFileType("sample");
+            sourceFileService.saveSourceFile(sampleDto, function.getFunctionKey());
+        }
+        return function.toDto();
+    }
+
+    private void setEnvironment(Function function) {
+        List<FunctionEnvironment> environments = functionEnvironmentRepository.findByFunction(function);
+
+        if (CollectionUtils.isEmpty(environments)) {
+            //디폴트 펑션 저장
+            getDefaultEnvironmentDTO(
+                    function.getName(), function.getRegion(), function.getRuntime()).forEach(functionEnvironmentDTO -> this.saveEnvironment(functionEnvironmentDTO, function));
+        }
+    }
+
+
+    @NotNull
+    private FunctionEnvironment saveFunctionEnvironments(FunctionEnvironmentDTO.Register functionEnvironmentDTO) {
+        log.info("functionEnvironmentDTO = " + functionEnvironmentDTO);
+        return functionEnvironmentRepository.save(FunctionEnvironment.register(functionEnvironmentDTO));
+    }
+
+    @Transactional
+    public FunctionDTO.Response registerFunctionCode(FunctionDTO.Register reqDto, String functionKey) throws IOException, ParseException {
+
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("펑션이존재하지않습니다."));
+        function.updateContent(reqDto.getContent());
+
+        //20230906. heechang
+        //코드 수정 시에도 ksvc가 만들어져야함. 단 READY 상태가 아니라면 만들어지면 안됨.
+        //20240827. gyeongyeol
+        // 함수 재배포 시, 함수 상태를 다시 DEPLOYING으로 업데이트
+        if(function.isReady()) {
+            function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
+            functionRepository.save(function);
+            knativeService.callIstioAndKnative(function);
+        }
+
+        return function.toDto();
+    }
+
+    @Transactional
+    public RecoveryDTO.Response recoveryAllFunction(RecoveryDTO.Register reqDto) throws IOException, ParseException {
+
+        RecoveryDTO.Response resp = new RecoveryDTO.Response();
+        List<String> functionKeys = new ArrayList<>();
+
+        String functionKey = reqDto.getFunctionKey();
+        FunctionDTO.Register tmpDto = new FunctionDTO.Register();
+
+
+        log.info("functionKey: " + reqDto.getFunctionKey());
+        log.info("adminPW: " + reqDto.getAdminPW());
+
+        if (!"sdspaas".equals(reqDto.getAdminPW())) {
+            throw new RuntimeException("유효하지 않은 관리자 요청입니다");
+        }
+
+        if (!StringUtils.isEmpty(functionKey)) {
+            Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("펑션이존재하지않습니다."));
+            tmpDto.setContent(function.getContent());
+
+            registerFunctionCode(tmpDto, functionKey);
+            functionKeys.add(functionKey);
+        } else {
+            //List<FunctionMapping> functionMappings = this.functionRepository.findAllBy();
+            List<Function> function = functionRepository.findByFunctionStatus(TypeEnums.FunctionStatus.READY);
+
+            for (Function var : function) {
+                //if (TypeEnums.FunctionStatus.READY.equals(var.getFunctionStatus())){
+                tmpDto.setContent(var.getContent());
+
+                registerFunctionCode(tmpDto, var.getFunctionKey());
+                functionKeys.add(var.getFunctionKey());
+                //}
+            }
+        }
+        resp.setFunctionKeys(functionKeys);
+        return resp;
+    }
+
+
+    private String generateBaseCode(FunctionDTO.Register reqDto) {
+        String[] array = reqDto.getRuntime().split(":");
+        String codeName = reqDto.getCodeName();
+        FunctionCode functionCode;
+
+        if(StringUtils.isEmpty(codeName)){
+            functionCode = functionCodeRepository.findByRuntimeAndVersionAndDefaultYn(array[0],array[1],"Y").orElseThrow(() -> new ResourceNotFoundException("디폴트 코드가 존재하지않습니다."));
+            //codeName = "default";
+        } else {
+            functionCode = functionCodeRepository.findByRuntimeAndVersionAndCodeName(array[0], array[1], codeName).orElseThrow(() -> new ResourceNotFoundException("요청된 코드가 존재하지않습니다."));
+        }
+
+        return functionCode.getCodeContent();
+    }
+
+    @Transactional(readOnly = true)
+    public Page<FunctionDTO.Response> searchAllFunction(FunctionDTO.Search reqDto) {
+        if (reqDto.getTriggerType() == null) {
+            return this.functionRepository.searchAllFunction(reqDto);
+        }
+        return this.functionRepository.searchTriggerFunction(reqDto);
+    }
+
+    @Transactional(readOnly = true)
+    public List<FunctionDTO.Response> searchAllFunctionRegion() {
+        //List<Function> functions = this.functionRepository.findAll();
+        List<Function> functions = this.functionRepository.findByDelYn("N");
+
+        List<FunctionDTO.Response> responses = new ArrayList<>();
+        
+        for (Function function: functions) {
+            responses.add(function.toDto());
+        }
+        
+        return responses;
+
+    }
+    @Transactional
+    public String registerJWK(TokenDTO.Register reqDto) throws
+            JOSEException {
+
+        Function function = reqDto.getFunction();
+
+        RSAKey rsaJWK = new RSAKeyGenerator(KEY_SIZE_2048)
+                .keyID(reqDto.getKeyId() + "-" + UUID.randomUUID()) // JWK 발급 시, keyID를 고유 문자열 (펑션키-UUID)로 설정
+                .generate();
+
+        KeyManager keyManager = keyManagerRepository.findByFunctionAndDelYn(function, "N").orElse(null);
+
+        if (keyManager != null) {
+            keyManager.updateJwk(rsaJWK.toString());
+            keyManager.updateDelYn("N");
+            keyManager.updateFunction(function);
+        } else {
+            keyManager = keyManagerRepository.save(KeyManager.register(new KeyManagerDTO.Register(rsaJWK.toString(), "N", function)));
+        }
+
+        return keyManager.getJwk();
+    }
+
+    @Transactional
+    public void removeJWK(TokenDTO.Register reqDto) throws
+            JOSEException {
+
+        Function function = reqDto.getFunction();
+
+        keyManagerRepository.delete(keyManagerRepository.findByFunctionAndDelYn(function, "N").orElseThrow());
+    }
+
+    @Transactional(readOnly = true)
+    public FunctionDTO.Response searchFunction(String functionKey) {
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("펑션 아이디를 확인해주세요"));
+        FunctionDTO.Response output = AppUtil.getMapper().map(function, FunctionDTO.Response.class);
+        output.setEndPointUrls(UrlUtil.generateUrl(function.getName(), function.getRegion(),"none"));
+
+        /* 트리거 타입에 따른 허용 IP 필터링 */
+        Trigger trigger = triggerRepository.findByFunction(function).orElseThrow(() -> new ResourceNotFoundException("유효한 트리거가 존재하지 않습니다."));
+        if (trigger.getTriggerType().equals("cron") || trigger.getTriggerType().equals("apigateway")) {
+            output.setAllowIps(new ArrayList<>());
+        }
+
+        //접근제어 활성화/비활성화 확인을 위해 triggerType 정보 추가
+        //타 상품 연계된 함수 제거 방지를 위한 triggerConnectedYn 정보 추가
+        String triggerType = trigger.getTriggerType();
+        String triggerConnectedYn = trigger.getTriggerConnectedYn();
+
+        output.setTriggerType(triggerType);
+        output.setTriggerConnectedYn(triggerConnectedYn);
+
+        return output;
+    }
+
+    private static void validationCheckFunctionArgs(String functionKey, String projectId, String userId, String endpointType, String publicAccessAClYn, String logEnableYn, String runtime) {
+        if (StringUtils.isEmpty(functionKey)) {
+            throw new RuntimeException("펑션키를 입력해주세요.");
+        }
+        if (StringUtils.isEmpty(projectId)) {
+            throw new RuntimeException("프로젝트id 입력해주세요.");
+        }
+        if (StringUtils.isEmpty(userId)) {
+            throw new RuntimeException("유저id를 입력해주세요.");
+        }
+        if (StringUtils.isEmpty(endpointType)) {
+            throw new RuntimeException("엔드포인트 타입을 선택해주세요.");
+        }
+        if (!"Y".equals(publicAccessAClYn) && !"N".equals(publicAccessAClYn)) {
+            throw new RuntimeException("퍼블릭 access acl 여부를 입력해주세요.");
+        }
+        if (!"Y".equals(logEnableYn) && !"N".equals(logEnableYn)) {
+            throw new RuntimeException("CloudMonitoring 로그 저장 여부를 입력해주세요.");
+        }
+        if (StringUtils.isEmpty(runtime)) {
+            throw new RuntimeException("사용할 Runtime을 선택해주세요.");
+        }
+    }
+
+    public FunctionDTO.Response removeFunctionToken(FunctionDTO.Register reqDto) {
+        return null;
+    }
+
+    public FunctionDTO.Response searchTemplateFunction(Long functionSeq) {
+        return null;
+    }
+
+    @Transactional
+    public void deleteFunction(String functionKey) {
+
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
+
+        if (function.isReady() || function.isDeploying()) {
+            kn.services().inNamespace(function.getName())
+                    .withName(function.getName()).delete();
+
+            istioCallService.deleteIstioPolicy(function.getName());
+            this.deleteKnativeFunction(function.getName());
+            deleteUserPVC(function);
+            deleteUserEnvoyFilter(function);
+            deleteScfWatcherCustomResource(function);
+            deleteUserNamespace(function);
+        }
+
+        deleteRelatedResources(function);
+
+        //사용자 경로
+        String path = "/mb_scf/serverless" + "/"
+                + function.getName();
+        log.info("path = " + path);
+
+        AppUtil.deleteDirectory(path);
+
+        /* 함수 삭제 시 해당 함수의 Trigger 삭제 */
+        triggerService.deleteTrigger(function, true);
+
+        function.modifyDelYn();
+        functionRepository.save(function);
+    }
+
+    private void deleteRelatedResources(Function function) {
+        List<AllowIp> AllowIps = allowIpRepository.findByFunction(function);
+        List<FunctionEnvironment> functionEnvironments = functionEnvironmentRepository.findByFunction(function);
+        KeyManager keyManager = keyManagerRepository.findByFunctionAndDelYn(function, "N").orElse(null);
+        SourceFile sourceFile = sourceFileRepository.findByFunction(function).orElse(null);
+
+        if (!CollectionUtils.isEmpty(AllowIps)) {
+            AllowIps.stream().forEach(allowIp -> allowIpRepository.delete(allowIp));
+        }
+        if (!CollectionUtils.isEmpty(functionEnvironments)) {
+            functionEnvironments.stream().forEach(functionEnvironment -> functionEnvironmentRepository.delete(functionEnvironment));
+        }
+        if (keyManager != null) {
+            keyManagerRepository.delete(keyManager);
+        }
+        if (sourceFile != null) {
+            // Java Runtime 지원을 위한 SourceFile Entity 삭제
+            sourceFileRepository.delete(sourceFile);
+        }
+    }
+
+
+    @Transactional
+    public TokenDTO.Response updateEnvironment(List<FunctionEnvironmentDTO.Register> reqDto, String functionkey) {
+        Function function = functionRepository.findByFunctionKey(functionkey).orElseThrow(() -> new ResourceNotFoundException("펑션키를 확인해주세요"));
+
+        log.info("function = " + function);
+        reqDto.stream().forEach(dto -> this.saveEnvironment(dto, function));
+        return null;
+    }
+
+    private void saveEnvironment(FunctionEnvironmentDTO.Register dto, Function function) {
+        dto.setFunctionSeq(function.getFunctionSeq());
+        functionEnvironmentRepository.save(FunctionEnvironment.register(dto));
+    }
+
+    @Transactional
+    public CloudLoggingDTO.Response switchLogging(CloudLoggingDTO.Modify cloudLoggingDtos, String functionKey) throws IOException {
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("데이터가 존재하지않습니다."));
+
+        boolean isChanged = !cloudLoggingDtos.getLogEnableYn().equals(function.getLogEnableYn());
+        if (isChanged) {
+            function.updateLogEnableYn(cloudLoggingDtos.getLogEnableYn());
+
+            /* 함수 상태가 READY 인  경우에만 실제 함수 리소스 생성 */
+            if (function.isReady()) {
+                function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
+                functionRepository.save(function);
+                knativeService.callFunction(function.getFunctionKey());
+            }
+        }
+
+        CloudLoggingDTO.Response output = new CloudLoggingDTO.Response();
+        output.setLogEnableYn(function.getLogEnableYn());
+
+        return output;
+    }
+
+    public FunctionDTO.DuplicateResponse checkFunctionNameDuplicate(FunctionDTO.Search reqDto) {
+        boolean isExist = functionRepository.existsByDisplayNameAndProjectIdAndDelYn(reqDto.getDisplayName(), reqDto.getProjectId(), "N");
+
+        log.info("isExist = " + isExist);
+        if (isExist) {
+            return FunctionDTO.
+                    DuplicateResponse.
+                    builder().duplicateYn("Y").
+                    build();
+
+        } else {
+            return FunctionDTO.
+                    DuplicateResponse.
+                    builder().duplicateYn("N").
+                    build();
+        }
+    }
+
+    private static void validationCheckFunctionName(String functionName) {
+
+        log.info("함수명 유효성 검사타겟 : " + functionName);
+        if (StringUtils.isEmpty(functionName)) {
+            throw new RuntimeException("함수명은 공백일 수 없습니다.");
+        }
+        if(functionName.contains(" ")){
+            throw new RuntimeException("함수명은 공백을 포함할 수 없습니다.");
+        }
+        String first = functionName.substring(0,1);
+        if (!Pattern.matches("^[a-z]$", first)) {
+            throw new RuntimeException("함수명은 영문 a-z로 시작해야합니다.");
+        }
+        if(!Pattern.matches("^[a-z0-9-]*$", functionName)){
+            throw new RuntimeException("함수명은 영문 a-z, 숫자0-9, 특수문자 하이픈(-) 만 입력할 수 있습니다.");
+        }
+        if(functionName.length() > MAX_NAME_LENGTH){
+            throw new RuntimeException("함수명 길이는 64자를 넘을수 없습니다.");
+        }
+
+    }
+    public void deleteKnativeFunction(String functionName) {
+        
+
+        kn.services().inNamespace(functionName).withName(functionName).delete();
+
+    }
+    public void deleteKnativeFunctionAll() {
+        
+        ServiceList services = kn.services()
+                .inNamespace("scf-user")
+                .list();
+        for (Service svc : services.getItems()) {
+            log.info("svc.getMetadata().getName() = " + svc.getMetadata().getName());
+            kn.services().inNamespace("scf-user").withName(svc.getMetadata().getName()).delete();
+        }
+    }
+
+    private List<FunctionEnvironmentDTO.Register> getDefaultEnvironmentDTO(String functionName, String region, String runtime) {
+        List<UrlDTO> urlDTOs = UrlUtil.generateUrl(functionName, region,"none");
+
+        List<FunctionEnvironmentDTO.Register> outputs = new ArrayList<>();
+
+        outputs.add(FunctionEnvironmentDTO.Register.builder().type("memory").key("").value("128").build());
+        outputs.add(FunctionEnvironmentDTO.Register.builder().type("limit").key("minute").value("1").build());
+        outputs.add(FunctionEnvironmentDTO.Register.builder().type("limit").key("second").value("0").build());
+        outputs.add(FunctionEnvironmentDTO.Register.builder().type("coldStartYn").key("").value("N").build());
+        outputs.add(FunctionEnvironmentDTO.Register.builder().type("token").key("").value("N").build());
+
+        urlDTOs.stream().forEach(urlDTO -> outputs.add(FunctionEnvironmentDTO.Register.builder().type("url").key(urlDTO.getProtocol()).value(urlDTO.getUrl()).build()));
+
+        return outputs;
+    }
+
+    public FunctionDTO.Response getFunctionCode(String functionKey) {
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("펑션키를 확인해주세요"));
+        return function.toDto();
+    }
+
+
+    @Transactional
+    public String getPresignedUrl(DownloadDTO reqDto) throws IOException {
+        try (S3Presigner presigner = S3Presigner.builder()
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(true) // 경로 스타일 구문을 사용 강제 (https://sdk.amazonaws.com/java/api/latest/software/amazon/awssdk/services/s3/S3Configuration.html)
+                        .build())
+                .region(Region.of("ALL")) // SCP Object Storage의 리전은 Endpoint URL에서 설정
+                .endpointOverride(URI.create(reqDto.getEndpointUrl())) // 사용자 지정 S3 엔드포인트 URL로 변경
+                .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(reqDto.getAccessKey(), reqDto.getSecretKey())))
+                .build()) {
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(reqDto.getBucketName())
+                    .key(reqDto.getObjectKey())
+                    .build();
+
+            GetObjectPresignRequest getObjectPresignRequest = GetObjectPresignRequest.builder()
+                    .signatureDuration(Duration.ofMinutes(1)) // 유효시간 1분
+                    .getObjectRequest(getObjectRequest)
+                    .build();
+
+            PresignedGetObjectRequest presignedGetObjectRequest = presigner.presignGetObject(getObjectPresignRequest);
+            String theUrl = presignedGetObjectRequest.url().toString();
+            log.info("Presigned URL: " + theUrl);
+
+            return theUrl;
+        }
+    }
+
+
+    public void deleteUserNamespace(Function function) {
+        try (KubernetesClient client = new DefaultKubernetesClient()) {
+            // 사용자 네임스페이스 삭제
+            client.namespaces().withName(function.getName()).delete();
+            log.info("사용자 네임스페이스 삭제 완료.");
+        } catch (KubernetesClientException e) {
+            log.error("사용자 네임스페이스 삭제오류 발생: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    public void deleteUserPVC(Function function) {
+        try (KubernetesClient client = new DefaultKubernetesClient()) {
+            String namespaceName = function.getName(); // 네임스페이스 이름
+            String pvcName = "serverless-storage-user"; // 삭제할 PVC 이름
+
+            // PVC 삭제
+            client.persistentVolumeClaims().inNamespace(namespaceName).withName(pvcName).delete();
+            log.info("사용자 PVC 삭제 완료.");
+        } catch (KubernetesClientException e) {
+            log.error("사용자 PVC 삭제오류 발생: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+
+    public void deleteUserEnvoyFilter(Function function) {
+        String namespaceName = function.getName(); // 원하는 네임스페이스 이름
+        String defaultEnvoyFilterYaml = generateEnvoyFilterYaml("request-headers-filter", namespaceName);
+        String egressEnvoyFilterYaml = generateEnvoyFilterYaml("egress-inside-fn-filter", namespaceName);
+        String[] envoyFilterYamls = {defaultEnvoyFilterYaml, egressEnvoyFilterYaml};
+
+        TriggerService.applyEnvoyFilterYaml(envoyFilterYamls, namespaceName, "delete");
+
+    }
+
+
+    public void deleteScfWatcherCustomResource(Function function) {
+        String namedScfWatcherCustomResourceYaml = generateScfWatcherCustomResourceYaml(function.getName());
+        TriggerService.applyScfWatcherCustomResourceYaml(namedScfWatcherCustomResourceYaml, function.getName(), "delete");
+    }
+
+    public void downloadFile(DownloadDTO reqDto) {
+        // AWS S3 클라이언트 생성
+        S3Client s3Client = S3Client.builder()
+                .region(Region.of("ALL")) // SCP Object Storage의 리전은 Endpoint URL에서 설정
+                .endpointOverride(URI.create(reqDto.getEndpointUrl())) // 사용자 지정 S3 엔드포인트 URL로 변경
+                .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(reqDto.getAccessKey(), reqDto.getSecretKey())))
+                .forcePathStyle(true) // 클라이언트 빌더에서 클라이언트가 버킷에 경로 스타일 주소 지정을 사용하도록 강제 (https://docs.aws.amazon.com/ko_kr/sdk-for-java/latest/developer-guide/examples-s3.html)
+                .build();
+
+        // 다운로드할 파일 S3 객체 키 (Object Storage 내 파일 경로)
+        String s3ObjectKey = reqDto.getObjectKey();
+
+        // 로컬에 저장할 파일 경로 및 파일명
+        String localFilePath = "/mb_scf/serverless/javafunction/javafunction.jar";
+
+        // S3 객체 메타데이터 조회
+        HeadObjectRequest headObjectRequest = HeadObjectRequest.builder()
+                .bucket(reqDto.getBucketName())
+                .key(s3ObjectKey)
+                .build();
+
+        try {
+            HeadObjectResponse headObjectResponse = s3Client.headObject(headObjectRequest);
+
+            // S3 객체의 크기 (파일 크기) 가져오기
+            long fileSizeInBytes = headObjectResponse.contentLength();
+            System.out.println("파일 크기: " + fileSizeInBytes + " bytes");
+        } catch (Exception e) {
+            System.err.println("파일 크기 조회 중 오류 발생: " + e.getMessage());
+        }
+
+        // S3에서 파일 다운로드
+        try (ResponseInputStream responseInputStream = s3Client.getObject(
+                GetObjectRequest.builder().bucket(reqDto.getBucketName()).key(s3ObjectKey).build())) {
+            saveInputStreamToFile(responseInputStream, Paths.get(localFilePath));
+            System.out.println("파일이 " + reqDto.getBucketName() + "/" + s3ObjectKey + "에서 다운로드되었습니다.");
+        } catch (IOException e) {
+            System.err.println("파일 다운로드 중 오류 발생: " + e.getMessage());
+        }
+    }
+    private void saveInputStreamToFile(ResponseInputStream responseInputStream, Path destination) throws IOException {
+        try (FileOutputStream outputStream = new FileOutputStream(destination.toFile())) {
+            responseInputStream.transferTo(outputStream);
+        }
+    }
+
+
+    public void migrationFunction() {
+
+        List<Function> functions = functionRepository.findByFunctionStatusAndDelYn(TypeEnums.FunctionStatus.READY,"N");
+        for (Function function: functions) {
+            // 함수 재배포 시, 함수 상태를 다시 DEPLOYING으로 업데이트
+            if(function.isReady()) {
+                function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
+                functionRepository.save(function);
+            }
+
+            try (KubernetesClient client = new DefaultKubernetesClient()) {
+                // 네임스페이스 목록 가져오기
+                Namespace namespace = client.namespaces().withName(function.getName()).get();
+                if(namespace != null) continue;
+            }
+            catch (Exception e) {
+                e.printStackTrace();
+            }
+            try{
+                triggerService.createUserNamespace(function);
+                triggerService.createUserPVC(function);
+                triggerService.createUserEnvoyFilter(function);
+                knativeService.callIstioAndKnative(function);
+            }catch (Exception e){
+                e.printStackTrace();
+                log.info("\"\" = " + "비동기 임시 에러처리");
+            }
+
+            Trigger trigger = triggerRepository.findByFunction(function).orElse(null);
+
+            if(trigger != null && trigger.getTriggerType().equals("cron")){
+                TriggerCron triggerCron = triggerCronRepository.findByTrigger(trigger).orElseThrow(() -> new ResourceNotFoundException("유효한 Cron 트리거가 존재하지않습니다."));
+                triggerService.makePingSource(function.getName(), triggerCron.getTimezone(), triggerCron.getSchedule());
+            }
+        }
+    }
+
+    // 함수 상태 정보 알림에 대한 동작 처리를 수행하는 서비스
+    public FunctionDTO.Response updateFunctionStatus(FunctionDTO.Modify functionDtos, String name) throws IOException {
+        log.info("함수 상태 업데이트 API 호출");
+
+        // functionKey가 아닌 name (e.g. scf-xxx-api) 기준으로 쿼리 수행
+        Function function = functionRepository.findByName(name).orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
+
+        // 1. 함수 상태 DB 업데이트
+        function.setFunctionStatus(TypeEnums.FunctionStatus.valueOf(functionDtos.getFunctionStatus()));
+
+        log.info("함수 이름:" + function.getName());
+        log.info("함수 키:" + function.getFunctionKey());
+        log.info("함수 상태:" + function.getFunctionStatus());
+
+        // 함수 재배포 이후, 초기 상태가 일시적으로 False (NOT_READY)일 수 있음
+        // SCP-V의 함수 라이프사이클을 고려하여 scf-watcher에서 NOT_READY에 대한 이벤트가 전달 시에는 DB 내 함수 상태 정보 갱신 X
+        // 24.12.19 함수 상태가 DEPLOYING 상태로 유지되는 오류 수정을 위해 NOT READY 이벤트에 대해서도 함수 상태 갱신하도록 수정
+        functionRepository.save(function);
+
+        // 2. 상태 변경 시, SCP 모듈로 상태 알림 API 호출 (클라우드 모니터링 연계)
+        log.info("클라우드 모니터링 연계를 위한 API 연계 동작 수행");
+
+        // 요청 전달할 URL 주소 정의 (APIM Endpoint + internal api)
+        URL url = new URL(apimEndpoint+"/cloud-function/v1/internal/cloud-functions/status");
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setConnectTimeout(timeOutValue);
+        connection.setReadTimeout(timeOutValue);
+        connection.setRequestMethod("POST"); // HTTP 요청 방식을 POST로 설정
+
+        /* 헤더 설정 */
+        connection.setRequestProperty("Content-Type", "application/json; utf-8"); // 요청의 컨텐츠 타입을 JSON으로 설정
+        connection.setRequestProperty("accept", "*/*");
+        connection.setRequestProperty("X-Cmp-ProjectId", function.getProjectId());
+        connection.setRequestProperty("Authorization", "Bearer "+ apimToken);
+
+        connection.setDoOutput(true); // 요청 본문에 데이터를 전송할 수 있도록 설정
+
+        /* 서버로 전송할 RequestBody의 Template Json 정의 */
+        String originBody = """
+                        {
+                                  "projectId": "$projectId$",
+                                  "eventData": null,
+                                  "loggingData": null,
+                                  "region": "$region$",
+                                  "requestBy": "$requestBy$",
+                                  "resourceId": "$resourceId$",
+                                  "resourceName": "$resourceName$",
+                                  "resourceState": "$resourceState$"
+                        }    
+                    """;
+
+        /* 함수 상태 정보에 대한 분기 처리 */
+        /* 함수가 DEPLOYING 상태로 변경되었을 때 DEPLOYING 대신 NOT_READY 이벤트 전달 (클라우드 모니터링 기준) */
+        String resourceState = "";
+        if (function.isReady()) {
+            resourceState = "Ready";
+        } else {
+            resourceState = "Not Ready";
+        }
+
+        /* 업데이트할 펑션의 데이터를 기반으로 RequestBody 생성 */
+        String requestBody = originBody.replace("$projectId$", function.getProjectId())
+                .replace("$region$", function.getRegion())
+                .replace("$requestBy$", function.getUserId())
+                .replace("$resourceId$", function.getFunctionKey())
+                .replace("$resourceName$", function.getDisplayName())
+                .replace("$resourceState$", resourceState);
+
+        log.info(requestBody);
+
+        /* Json 문자열을 byte 배열로 전환하여 전송 */
+        try (OutputStream os = connection.getOutputStream()) {
+            byte[] input = requestBody.getBytes("utf-8");
+            os.write(input, 0, input.length);
+        }
+
+        int responseCode = connection.getResponseCode();
+
+        if(responseCode==HttpURLConnection.HTTP_OK){
+            BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+            StringBuffer stringBuffer = new StringBuffer();
+
+            // 서버의 응답을 저장하여 로그로 출력
+            String inputLine;
+            while ((inputLine = bufferedReader.readLine()) != null)  {
+                stringBuffer.append(inputLine);
+            }
+            bufferedReader.close();
+
+            log.info("SCP 함수 상태 갱신 API 정상 호출");
+            log.info(stringBuffer.toString());
+        } else {
+            log.warn("SCP 함수 상태 갱신 API 호출 실패: " + responseCode);
+        }
+
+        return function.toDto();
+    }
 }
-
-이렇게 분리하면 코드 재사용성이 높아지고, 각 메소드의 역할이 더 명확해집니다. 정말 잘 작성하셨어요!"
-
-
-
-
----
-
-2. callIstioAndKnative 메소드 관련
-
-> "이 메소드에서는 Istio 관련 로직과 함수 호출이 함께 이루어지고 있는데, 이를 별도의 메소드로 분리하면 단일 책임 원칙을 더욱 잘 지킬 수 있을 것 같아요. 예를 들어, Istio 설정 부분은 configureIstioPolicy로 분리하고, 함수 호출은 callFunction 메소드에서 처리하면 좋을 것 같아요. 이렇게 분리하면 테스트와 디버깅이 훨씬 수월해질 거예요. 지금도 이미 많은 노력이 보이네요. 아주 좋은 시도입니다!"
-
-
-
-
----
-
-3. deployFunction 메소드 관련
-
-> "deployFunction 메소드에서 Knative Service를 생성하는 부분에서 timeoutSeconds 설정이 RevisionSpec 내부에 있어야 한다는 점이 조금 헷갈릴 수 있어요. Fabric8 Knative API에서는 아래와 같이 설정하는 것이 일반적입니다:
-
-Service service = new ServiceBuilder()
-    .withNewMetadata()
-        .withName(function.getName())
-        .withNamespace(function.getName())
-    .endMetadata()
-    .withNewSpec()
-        .withNewTemplate()
-            .withNewMetadata()
-                .withAnnotations(annotations)
-            .endMetadata()
-            .withNewSpec()
-                .withTimeoutSeconds((int) timeout)
-                // 나머지 컨테이너 설정들...
-            .endSpec()
-        .endTemplate()
-    .endSpec()
-    .build();
-
-이렇게 RevisionSpec 내에 설정하면 API에서 요구하는 포맷에 맞춰 실행됩니다. 정말 꼼꼼하게 작성해주셨네요!"
-
-
-
-
----
-
-4. generateManagerFileName 메소드 관련
-
-> "generateManagerFileName 메소드에서 Optional을 활용한 예외 처리는 매우 깔끔합니다. 기존 getOrDefault 대신 아래와 같이 Optional을 사용하면 예외 처리와 코드 간결성을 동시에 잡을 수 있어요:
-
-private String generateManagerFileName(FunctionDTO.Register reqDto) {
-    return Optional.ofNullable(MANAGER_FILE_MAP.get(reqDto.getRuntime()))
-            .orElseThrow(() -> new RuntimeException("지원하지 않는 런타임입니다."));
-}
-
-이 방법은 특히 Java 8 이상의 코드 스타일에 적합해서, 팀의 코드 퀄리티를 한층 더 높일 수 있다고 생각해요. 멋진 선택입니다!"
-
-
-
-
----
-
-5. 공통 개선 사항 (Magic String 및 상수화)
-
-> "코드 전반에 걸쳐 'Y', 'N', 'token' 등 하드코딩된 문자열들을 상수화하신 점이 아주 인상적입니다. 이런 작은 변화가 유지보수성과 가독성에 큰 영향을 주거든요. 예를 들어,
-
-private static final String YES = "Y";
-private static final String NO = "N";
-private static final String TOKEN_TYPE = "token";
-
-이렇게 상수화하면 향후 값이 변경되더라도 한 곳만 수정하면 되니 정말 좋습니다. 코드 품질 향상에 큰 도움이 되었어요!"
-
-
-
-
----
-
-6. 전반적인 코드 구조 및 책임 분리
-
-> "전체적으로 함수들의 책임이 명확하게 분리되어 있어서, 읽는 사람 입장에서 각 메소드가 어떤 역할을 하는지 쉽게 이해할 수 있었어요. 특히 Istio 관련 로직과 Knative 배포 로직이 분리된 점이 눈에 띕니다. 예를 들어, configureIstioPolicy와 handleIstioToken을 분리한 방식은 SOLID 원칙 중 단일 책임 원칙(SRP)을 잘 반영한 것 같아요. 이런 개선은 나중에 추가 기능을 확장할 때도 큰 도움이 될 거예요. 팀원 모두의 노력이 느껴집니다!"
-
-
-
-
----
-
-7. 질문 및 지식 공유
-
-> "혹시 deployFunction 메소드에서 다른 컨테이너 설정 옵션이나, 예를 들어 환경 변수 설정 부분에 대해 추가 고려해본 적 있으신가요? 만약 미래에 필요하다면, 환경 변수 설정 부분도 별도의 메소드로 분리해두면 더욱 깔끔해질 것 같아요. 예를 들어,
-
-private List<EnvVar> createEnvVars(Function function, FunctionDTO.Register reqDto) {
-    // 환경 변수 생성 로직
-}
-
-이런 구조로 분리하면 테스트하기도 편하고, 코드의 재사용성도 높일 수 있을 것 같습니다. 아주 훌륭하게 진행되고 있어요!"
-
-
-
-
----
-
-각 코멘트는 팀원들의 코드 작성 노력을 진심으로 칭찬하며, 개선할 수 있는 부분에 대해 구체적인 예시와 설명을 덧붙였습니다. 이런 리뷰가 서로의 코드 퀄리티를 높이고, 팀 전체의 성장에 기여할 수 있기를 바랍니다. 멋진 작업 계속 해주세요!
-
