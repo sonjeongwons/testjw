@@ -1,424 +1,197 @@
-PR 1: 리팩토링 - 서비스 계층 개선 및 중복 코드 제거
-핵심 변경 사항
-메소드 분리 및 SRP(단일 책임 원칙) 적용
-중복 코드 제거
-유효성 검사 메소드 개선
-불필요한 Optional 처리 제거
-기본 코드 생성 메소드 개선
-1. registerFunction 메소드 개선
-개선 전 문제점:
+📌 PR 1 코드 리뷰 - 티키타카 스타일로 심층 피드백!
 
-registerFunction에서 여러 역할을 수행 (유효성 검사, 중복 확인, 저장, 초기화 등)
-validationCheckFunctionName, validationCheckFunctionArgs 등에서 중복 검사
-함수 생성 후 환경 변수를 설정하는 setEnvironment가 함수 내에서 직접 호출됨 → 서비스의 역할과 맞지 않음
-개선 후 적용 내용:
+PR 작성자와 리뷰어가 적극적으로 의견을 주고받으며 더 나은 코드를 만들어가는 과정입니다! 🚀
 
-유효성 검사 메소드 분리 (validateFunctionRequest)
-중복 체크 분리 (isFunctionExists)
-환경 설정 로직을 별도 메소드로 이동 (initializeFunction)
-중복된 로직 제거
-java
-복사
-편집
-@Transactional
-public FunctionDTO.Response registerFunction(FunctionDTO.Register reqDto) throws IOException, ParseException {
-    validateFunctionRequest(reqDto);
 
-    if (isFunctionExists(reqDto.getFunctionKey(), reqDto.getDisplayName(), reqDto.getProjectId())) {
-        throw new RuntimeException("이미 존재하는 펑션 키 또는 펑션명을 사용하였습니다.");
-    }
+---
 
-    reqDto.setName(generateFunctionName());
-    reqDto.setFunctionStatus(TypeEnums.FunctionStatus.NOT_READY.getKey());
+🔹 1. registerFunction의 역할 분리 개선
 
-    if (!reqDto.getRuntime().startsWith("Java")) {
-        reqDto.setContent(generateBaseCode(reqDto));
-    }
+💬 리뷰어(나):
 
-    Function function = functionRepository.save(Function.register(reqDto));
-    initializeFunction(function, reqDto);
+> 프로님, registerFunction의 리팩토링이 깔끔하게 진행된 게 보이네요! 🎉
+역할을 나누면서 가독성이 좋아졌어요.
 
-    return function.toDto();
-}
+그런데 initializeFunction 내부에서 Allow IP 등록과 트리거 생성이 함께 처리되고 있는데,
+이 부분도 메소드 분리하면 유지보수가 더 편해질 것 같아요.
 
-private void validateFunctionRequest(FunctionDTO.Register reqDto) {
-    if (StringUtils.isEmpty(reqDto.getFunctionKey()) || StringUtils.isEmpty(reqDto.getProjectId()) 
-        || StringUtils.isEmpty(reqDto.getUserId()) || StringUtils.isEmpty(reqDto.getEndPointType()) 
-        || StringUtils.isEmpty(reqDto.getRuntime())) {
-        throw new RuntimeException("필수 입력값을 확인해주세요.");
-    }
-}
-
-private boolean isFunctionExists(String functionKey, String displayName, String projectId) {
-    return functionRepository.findByFunctionKeyAndDelYn(functionKey, "N").isPresent() ||
-           functionRepository.existsByDisplayNameAndProjectIdAndDelYn(displayName, projectId, "N");
-}
-
-private String generateFunctionName() {
-    return "scf-" + UUID.randomUUID() + "-api";
-}
+예를 들면 이렇게요!
 
 private void initializeFunction(Function function, FunctionDTO.Register reqDto) {
     setEnvironment(function);
-
-    if (!CollectionUtils.isEmpty(reqDto.getAllowIps())) {
-        reqDto.getAllowIps().forEach(allowIp -> allowIpService.registerAllowIp(allowIp, function.getFunctionSeq()));
-    }
-
-    triggerService.createDefaultTrigger(function);
-
-    if (function.getRuntime().startsWith("Java")) {
-        SourceFileDTO.Register sampleDto = new SourceFileDTO.Register();
-        sampleDto.setSourceFileType("sample");
-        sourceFileService.saveSourceFile(sampleDto, function.getFunctionKey());
-    }
-}
-개선된 점
-✅ SRP(단일 책임 원칙) 적용:
-
-함수의 역할을 세분화하여 가독성 및 유지보수성을 향상
-✅ 중복 코드 제거:
-기존의 validationCheckFunctionArgs 및 validationCheckFunctionName를 단순화
-✅ 메소드 크기 축소:
-registerFunction의 길이가 짧아지고, 가독성이 향상됨
-2. registerFunctionCode 메소드 개선
-개선 전 문제점:
-
-function.isReady() 검사 후, 직접 저장하는 로직이 중복되어 있음
-함수가 배포 가능할 때만 knativeService.callIstioAndKnative를 호출해야 하지만, 별도 처리 없이 항상 호출됨
-개선 후 적용 내용:
-
-배포 가능 상태 확인 메소드 추가 (shouldDeployFunction)
-배포 상태 업데이트 분리 (updateFunctionStatus)
-배포 로직을 별도 메소드로 이동 (deployFunction)
-java
-복사
-편집
-@Transactional
-public FunctionDTO.Response registerFunctionCode(FunctionDTO.Register reqDto, String functionKey) throws IOException, ParseException {
-    Function function = functionRepository.findByFunctionKey(functionKey)
-            .orElseThrow(() -> new ResourceNotFoundException("펑션이 존재하지 않습니다."));
-
-    function.updateContent(reqDto.getContent());
-
-    if (shouldDeployFunction(function)) {
-        deployFunction(function);
-    }
-
-    return function.toDto();
+    registerAllowIps(reqDto.getAllowIps(), function.getFunctionSeq());
+    createDefaultTrigger(function);
+    registerJavaSourceFileIfNeeded(function);
 }
 
-private boolean shouldDeployFunction(Function function) {
-    return function.isReady();
+이렇게 하면 나중에 Allow IP 로직을 변경하거나 트리거 처리 방식을 수정할 때,
+initializeFunction을 건드리지 않고 해당 메소드만 수정하면 되니까 더 좋지 않을까요? 😊
+
+
+
+📝 PR 작성자(팀원):
+
+> 오! 프로님 말씀 듣고 보니 확실히 더 나눠야 할 필요가 있네요. 😮
+initializeFunction이 여전히 너무 많은 책임을 갖고 있었어요.
+
+근데 registerAllowIps에서 reqDto.getAllowIps()가 null일 수도 있어서,
+CollectionUtils.isEmpty() 체크를 여기서 해줘야 할까요?
+
+
+
+💬 리뷰어(나):
+
+> 좋은 포인트입니다, 프로님! 🔥
+CollectionUtils.isEmpty() 체크를 registerAllowIps 내부에서 처리하면,
+호출하는 쪽에서는 신경 안 써도 돼서 더 깔끔할 것 같아요!
+
+즉, 이렇게요!
+
+private void registerAllowIps(List<String> allowIps, Long functionSeq) {
+    if (CollectionUtils.isEmpty(allowIps)) return;
+    allowIps.forEach(ip -> allowIpService.registerAllowIp(ip, functionSeq));
 }
 
-private void deployFunction(Function function) {
-    function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
-    functionRepository.save(function);
-    knativeService.callIstioAndKnative(function);
-}
-개선된 점
-✅ 배포 여부 판단을 별도 메소드로 분리:
+이렇게 하면 initializeFunction에서 null 체크 안 해도 되고,
+코드가 더 단순하고 직관적으로 유지될 것 같아요. 🚀
 
-shouldDeployFunction를 사용해 논리 명확화
-✅ 배포 로직을 deployFunction으로 분리:
-중복 제거 및 함수 크기 축소
-3. generateBaseCode 메소드 개선
-개선 전 문제점:
 
-codeName이 비어 있는 경우 default 값을 사용하지만, 불필요한 if-else 중첩이 있음
-findByRuntimeAndVersionAndDefaultYn와 findByRuntimeAndVersionAndCodeName을 하나의 로직으로 합칠 수 있음
-개선 후 적용 내용:
 
-기본 값 설정 로직 개선
-중복된 if-else 구조 제거
-java
-복사
-편집
-private String generateBaseCode(FunctionDTO.Register reqDto) {
-    String[] array = reqDto.getRuntime().split(":");
-    String runtime = array[0];
-    String version = array[1];
-    String codeName = StringUtils.defaultIfEmpty(reqDto.getCodeName(), "default");
+📝 PR 작성자(팀원):
 
-    FunctionCode functionCode = functionCodeRepository.findByRuntimeAndVersionAndCodeName(runtime, version, codeName)
-            .orElseThrow(() -> new ResourceNotFoundException("요청된 코드가 존재하지 않습니다."));
-
-    return functionCode.getCodeContent();
-}
-개선된 점
-✅ 중복된 로직 제거:
-
-findByRuntimeAndVersionAndDefaultYn와 findByRuntimeAndVersionAndCodeName을 하나로 통합
-✅ StringUtils.defaultIfEmpty 활용:
-codeName이 비어 있을 때 기본값을 설정하는 로직을 간결하게 개선
-PR 1 요약
-✅ 메소드 역할 분리로 유지보수성 향상
-✅ 중복 코드 제거로 코드 간결화
-✅ 메소드 크기 축소 및 가독성 개선
-✅ 의미가 명확한 메소드 명명으로 코드 이해도 상승
+> 와… 역시 프로님! 😍
+확실히 registerAllowIps가 더 유연하게 처리될 수 있겠네요.
+바로 반영하겠습니다! 🙌
 
 
 
 
+---
 
+🔹 2. validateFunctionRequest의 유효성 검사 개선
 
+💬 리뷰어(나):
 
+> 프로님, validateFunctionRequest에 StringUtils.isAnyEmpty() 적용한 거 센스 최고예요! 🔥
 
-PR 1: 서비스 계층 개선 및 중복 코드 제거
-🔹 주요 변경 사항 요약
-registerFunction 메소드 리팩토링
-역할을 세분화하여 유효성 검사, 중복 확인, 초기화 로직 분리
-불필요한 중복 코드 제거 및 가독성 개선
-registerFunctionCode 메소드 리팩토링
-배포 여부 판단을 shouldDeployFunction 메소드로 분리
-배포 로직을 deployFunction 메소드로 이동하여 중복 제거
-generateBaseCode 메소드 개선
-기본 코드 조회 로직을 간결화 (defaultIfEmpty 활용)
-findByRuntimeAndVersionAndDefaultYn와 findByRuntimeAndVersionAndCodeName을 하나의 로직으로 통합
-📌 변경된 메소드 상세 설명
-1️⃣ registerFunction 메소드 리팩토링
-🔹 변경 전 문제점
-registerFunction 메소드가 너무 많은 역할을 수행
-유효성 검사
-중복 확인
-함수 생성 및 저장
-환경 설정 및 Allow IP 등록
-기본 트리거 생성
-Java Runtime 초기 코드 등록
-이러한 과도한 책임은 단일 책임 원칙(SRP) 위배
-중복된 로직이 많아 가독성이 떨어짐
-✅ 변경 후 개선점
-유효성 검사 분리 → validateFunctionRequest
-중복 검사 분리 → isFunctionExists
-함수 초기화 로직 분리 → initializeFunction
-함수명 생성 로직 분리 → generateFunctionName
-환경 설정 로직을 별도 메소드로 이동
-📌 변경 후 코드
-java
-복사
-편집
-@Transactional
-public FunctionDTO.Response registerFunction(FunctionDTO.Register reqDto) throws IOException, ParseException {
-    validateFunctionRequest(reqDto);
+그런데 혹시 functionKey 같은 값이 특정 패턴을 따라야 한다면,
+유효성 검사를 좀 더 세분화하면 어떨까요?
 
-    if (isFunctionExists(reqDto.getFunctionKey(), reqDto.getDisplayName(), reqDto.getProjectId())) {
-        throw new RuntimeException("이미 존재하는 펑션 키 또는 펑션명을 사용하였습니다.");
-    }
-
-    reqDto.setName(generateFunctionName());
-    reqDto.setFunctionStatus(TypeEnums.FunctionStatus.NOT_READY.getKey());
-
-    if (!reqDto.getRuntime().startsWith("Java")) {
-        reqDto.setContent(generateBaseCode(reqDto));
-    }
-
-    Function function = functionRepository.save(Function.register(reqDto));
-    initializeFunction(function, reqDto);
-
-    return function.toDto();
-}
-
-// 유효성 검사 로직을 별도 메소드로 이동
-private void validateFunctionRequest(FunctionDTO.Register reqDto) {
-    if (StringUtils.isEmpty(reqDto.getFunctionKey()) || StringUtils.isEmpty(reqDto.getProjectId()) 
-        || StringUtils.isEmpty(reqDto.getUserId()) || StringUtils.isEmpty(reqDto.getEndPointType()) 
-        || StringUtils.isEmpty(reqDto.getRuntime())) {
-        throw new RuntimeException("필수 입력값을 확인해주세요.");
-    }
-}
-
-// 중복 검사 로직 분리
-private boolean isFunctionExists(String functionKey, String displayName, String projectId) {
-    return functionRepository.findByFunctionKeyAndDelYn(functionKey, "N").isPresent() ||
-           functionRepository.existsByDisplayNameAndProjectIdAndDelYn(displayName, projectId, "N");
-}
-
-// 함수명 생성 로직 분리
-private String generateFunctionName() {
-    return "scf-" + UUID.randomUUID() + "-api";
-}
-
-// 환경 변수 설정, Allow IP 등록 등 초기화 로직 분리
-private void initializeFunction(Function function, FunctionDTO.Register reqDto) {
-    setEnvironment(function);
-
-    if (!CollectionUtils.isEmpty(reqDto.getAllowIps())) {
-        reqDto.getAllowIps().forEach(allowIp -> allowIpService.registerAllowIp(allowIp, function.getFunctionSeq()));
-    }
-
-    triggerService.createDefaultTrigger(function);
-
-    if (function.getRuntime().startsWith("Java")) {
-        SourceFileDTO.Register sampleDto = new SourceFileDTO.Register();
-        sampleDto.setSourceFileType("sample");
-        sourceFileService.saveSourceFile(sampleDto, function.getFunctionKey());
-    }
-}
-2️⃣ registerFunctionCode 메소드 리팩토링
-🔹 변경 전 문제점
-function.isReady() 검사 후 직접 저장하는 로직이 중복됨
-knativeService.callIstioAndKnative 호출 여부를 판단하는 코드가 직관적이지 않음
-function.setFunctionStatus 로직이 여러 곳에서 사용됨 → 별도 메소드로 분리 필요
-✅ 변경 후 개선점
-배포 여부 판단을 shouldDeployFunction 메소드로 분리
-배포 로직을 deployFunction 메소드로 이동하여 중복 제거
-📌 변경 후 코드
-java
-복사
-편집
-@Transactional
-public FunctionDTO.Response registerFunctionCode(FunctionDTO.Register reqDto, String functionKey) throws IOException, ParseException {
-    Function function = functionRepository.findByFunctionKey(functionKey)
-            .orElseThrow(() -> new ResourceNotFoundException("펑션이 존재하지 않습니다."));
-
-    function.updateContent(reqDto.getContent());
-
-    if (shouldDeployFunction(function)) {
-        deployFunction(function);
-    }
-
-    return function.toDto();
-}
-
-// 배포 가능 여부 판단 메소드
-private boolean shouldDeployFunction(Function function) {
-    return function.isReady();
-}
-
-// 배포 처리 메소드
-private void deployFunction(Function function) {
-    function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
-    functionRepository.save(function);
-    knativeService.callIstioAndKnative(function);
-}
-3️⃣ generateBaseCode 메소드 개선
-🔹 변경 전 문제점
-codeName이 비어 있는 경우 "default" 값을 사용하지만, 불필요한 if-else 중첩이 있음
-findByRuntimeAndVersionAndDefaultYn와 findByRuntimeAndVersionAndCodeName을 하나의 로직으로 합칠 수 있음
-✅ 변경 후 개선점
-기본 코드 조회 로직을 간결화 (defaultIfEmpty 활용)
-findByRuntimeAndVersionAndDefaultYn와 findByRuntimeAndVersionAndCodeName을 하나의 로직으로 통합
-📌 변경 후 코드
-java
-복사
-편집
-private String generateBaseCode(FunctionDTO.Register reqDto) {
-    String[] array = reqDto.getRuntime().split(":");
-    String runtime = array[0];
-    String version = array[1];
-    String codeName = StringUtils.defaultIfEmpty(reqDto.getCodeName(), "default");
-
-    FunctionCode functionCode = functionCodeRepository.findByRuntimeAndVersionAndCodeName(runtime, version, codeName)
-            .orElseThrow(() -> new ResourceNotFoundException("요청된 코드가 존재하지 않습니다."));
-
-    return functionCode.getCodeContent();
-}
-📌 PR 1 - 전체 변경 코드
-아래는 PR1을 적용한 전체 리팩토링 코드입니다.
-
-Refactored Function Service
-
-대신 채팅에서 답합니다
-🔹 PR 1 요약
-✅ 메소드 역할 분리로 유지보수성 향상
-✅ 중복 코드 제거로 코드 간결화
-✅ 메소드 크기 축소 및 가독성 개선
-✅ 의미가 명확한 메소드 명명으로 코드 이해도 상승
-
-이제 PR 2에서는 클린 코드 원칙을 적용하여 예외 처리와 서비스 계층을 개선하겠습니다. 🚀
-PR 2를 진행할까요?
-
-
-
-@Transactional
-public FunctionDTO.Response registerFunction(FunctionDTO.Register reqDto) throws IOException, ParseException {
-    validateFunctionRequest(reqDto);
-
-    if (isFunctionExists(reqDto.getFunctionKey(), reqDto.getDisplayName(), reqDto.getProjectId())) {
-        throw new RuntimeException("이미 존재하는 펑션 키 또는 펑션명을 사용하였습니다.");
-    }
-
-    reqDto.setName(generateFunctionName());
-    reqDto.setFunctionStatus(TypeEnums.FunctionStatus.NOT_READY.getKey());
-
-    if (!reqDto.getRuntime().startsWith("Java")) {
-        reqDto.setContent(generateBaseCode(reqDto));
-    }
-
-    Function function = functionRepository.save(Function.register(reqDto));
-    initializeFunction(function, reqDto);
-
-    return function.toDto();
-}
+예를 들면, 이런 식으로 나누면 유지보수성이 더 좋아질 것 같아요!
 
 private void validateFunctionRequest(FunctionDTO.Register reqDto) {
-    if (StringUtils.isEmpty(reqDto.getFunctionKey()) || StringUtils.isEmpty(reqDto.getProjectId()) 
-        || StringUtils.isEmpty(reqDto.getUserId()) || StringUtils.isEmpty(reqDto.getEndPointType()) 
-        || StringUtils.isEmpty(reqDto.getRuntime())) {
-        throw new RuntimeException("필수 입력값을 확인해주세요.");
+    checkRequiredFields(reqDto);
+    checkFunctionKeyFormat(reqDto.getFunctionKey());
+    checkDisplayNameFormat(reqDto.getDisplayName());
+}
+
+이렇게 분리하면 새로운 유효성 검사 규칙이 추가될 때,
+기존 코드를 건드리지 않고 해당 검증 메소드만 수정하면 되니까 더 깔끔하지 않을까요? 😊
+
+
+
+📝 PR 작성자(팀원):
+
+> 오, 프로님 좋은 아이디어네요! 👏
+지금까지는 단순 isEmpty() 체크만 했는데,
+말씀하신 대로 functionKey는 특정 패턴을 따라야 할 수도 있으니
+미리 checkFunctionKeyFormat 같은 검증 메소드를 만들어 두면 확장성도 올라가겠어요!
+
+
+
+💬 리뷰어(나):
+
+> 맞습니다! 🚀
+예를 들어, functionKey가 영문 소문자로 시작해야 하고, 63자 이하여야 한다면
+정규식을 활용해서 검증하면 좋을 것 같아요.
+
+예제 코드:
+
+private void checkFunctionKeyFormat(String functionKey) {
+    if (!functionKey.matches("^[a-z][a-z0-9-]{0,63}$")) {
+        throw new InvalidFunctionRequestException("FunctionKey 형식이 올바르지 않습니다.");
     }
 }
 
-private boolean isFunctionExists(String functionKey, String displayName, String projectId) {
-    return functionRepository.findByFunctionKeyAndDelYn(functionKey, "N").isPresent() ||
-           functionRepository.existsByDisplayNameAndProjectIdAndDelYn(displayName, projectId, "N");
+이렇게 하면 유효성 검사 코드가 한 곳에 모여 있어서 유지보수가 훨씬 쉬워질 거예요! 🚀
+
+
+
+📝 PR 작성자(팀원):
+
+> 이거 완전 좋은 방법이네요, 프로님! 😆
+functionKey가 이상하게 들어오는 걸 미리 방지할 수도 있고,
+규칙이 추가될 때 기존 코드를 안 건드려도 되니까 정말 깔끔할 것 같아요!
+
+바로 반영하겠습니다! 🎯
+
+
+
+
+---
+
+🔹 3. deleteFunction의 관련 리소스 삭제 최적화
+
+💬 리뷰어(나):
+
+> 프로님, deleteFunction 메소드에서 관련 리소스 삭제하는 방식이 직관적이네요! 💡
+
+그런데 혹시 대량 데이터 삭제 성능 최적화를 고려해봤을까요?
+
+deleteAll() 대신 deleteAllInBatch()를 활용하면 성능이 더 좋아질 수 있어요!
+
+예제 코드:
+
+private void deleteRelatedResources(Function function) {
+    allowIpRepository.deleteAllInBatch(allowIpRepository.findByFunction(function));
+    functionEnvironmentRepository.deleteAllInBatch(functionEnvironmentRepository.findByFunction(function));
+    keyManagerRepository.findByFunctionAndDelYn(function, "N").ifPresent(keyManagerRepository::delete);
+    sourceFileRepository.findByFunction(function).ifPresent(sourceFileRepository::delete);
 }
 
-private String generateFunctionName() {
-    return "scf-" + UUID.randomUUID() + "-api";
-}
+이렇게 하면 데이터 양이 많아도 한 번의 쿼리로 처리돼서 DB 부하를 줄일 수 있을 것 같아요! 🚀
 
-private void initializeFunction(Function function, FunctionDTO.Register reqDto) {
-    setEnvironment(function);
 
-    if (!CollectionUtils.isEmpty(reqDto.getAllowIps())) {
-        reqDto.getAllowIps().forEach(allowIp -> allowIpService.registerAllowIp(allowIp, function.getFunctionSeq()));
-    }
 
-    triggerService.createDefaultTrigger(function);
+📝 PR 작성자(팀원):
 
-    if (function.getRuntime().startsWith("Java")) {
-        SourceFileDTO.Register sampleDto = new SourceFileDTO.Register();
-        sampleDto.setSourceFileType("sample");
-        sourceFileService.saveSourceFile(sampleDto, function.getFunctionKey());
-    }
-}
+> 와… 프로님 이건 몰랐던 꿀팁이네요! 🤩
 
-@Transactional
-public FunctionDTO.Response registerFunctionCode(FunctionDTO.Register reqDto, String functionKey) throws IOException, ParseException {
-    Function function = functionRepository.findByFunctionKey(functionKey)
-            .orElseThrow(() -> new ResourceNotFoundException("펑션이 존재하지 않습니다."));
+deleteAllInBatch()가 여러 개의 데이터를 한 번에 삭제하는 거라면,
+대량 데이터 처리할 때 성능 차이가 꽤 날 것 같아요!
 
-    function.updateContent(reqDto.getContent());
 
-    if (shouldDeployFunction(function)) {
-        deployFunction(function);
-    }
 
-    return function.toDto();
-}
+💬 리뷰어(나):
 
-private boolean shouldDeployFunction(Function function) {
-    return function.isReady();
-}
+> 맞아요!
+deleteAll()은 개별적으로 DELETE 쿼리를 실행하지만,
+deleteAllInBatch()는 한 번에 쿼리를 묶어서 실행하니까 훨씬 빠를 수 있어요!
 
-private void deployFunction(Function function) {
-    function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
-    functionRepository.save(function);
-    knativeService.callIstioAndKnative(function);
-}
+특히, AllowIp나 FunctionEnvironment처럼 다량의 데이터가 삭제될 가능성이 있는 테이블에서는
+확실한 성능 최적화를 기대할 수 있습니다. 🚀
 
-private String generateBaseCode(FunctionDTO.Register reqDto) {
-    String[] array = reqDto.getRuntime().split(":");
-    String runtime = array[0];
-    String version = array[1];
-    String codeName = StringUtils.defaultIfEmpty(reqDto.getCodeName(), "default");
 
-    FunctionCode functionCode = functionCodeRepository.findByRuntimeAndVersionAndCodeName(runtime, version, codeName)
-            .orElseThrow(() -> new ResourceNotFoundException("요청된 코드가 존재하지 않습니다."));
 
-    return functionCode.getCodeContent();
-}
+📝 PR 작성자(팀원):
 
+> 완전 공감합니다, 프로님! 🔥
+
+나중에 대량 삭제가 필요할 수도 있으니까 미리 적용해 두면 좋겠어요.
+이건 무조건 반영해야겠네요! 😆
+
+
+
+
+---
+
+🎯 PR 1 코드 리뷰 요약
+
+✅ 역할 분리 및 가독성 개선 (initializeFunction 분리 & registerAllowIps 최적화)
+✅ 유효성 검사 모듈화 (validateFunctionRequest 개선 & 정규식 활용)
+✅ 삭제 로직 최적화 (deleteAllInBatch() 활용으로 성능 향상)
+✅ 사전 오류 방지 및 확장성을 고려한 코드 개선
+
+🎉 프로님 덕분에 코드가 한층 더 업그레이드되었습니다! 🚀
+PR 2 코드 리뷰도 시작해볼까요? 😊
 
