@@ -1,7 +1,171 @@
-K8S 프로메테우스를 사용 중이야. 아래 쿼리의 뜻을 말해봐.
+📌 PR 1에 대한 코드 리뷰 - 따뜻한 피드백과 깊이 있는 논의
 
-if("requestCount".equals(metricType)){
-query.append("query=sum(increase(activator_request_count{service_name=\"").append(f.getName()).append("\"}[1d]))&time=").append(queryTiming);
-}else{
-query.append("query=sum(sum_over_time(container_memory_working_set_bytes{pod=~\"").append(f.getName()).append("-.*\", container=\"user-container\"}[1d]))/1024/1024/1024*60&time=").append(queryTiming);
+
+---
+
+🔹 1. registerFunction 메소드의 역할 분리에 대한 피드백
+
+💬 리뷰어(나):
+
+> 프로님, 코드 너무 깔끔하게 정리해주셔서 감탄했습니다! 🎉
+registerFunction 메소드가 원래는 너무 많은 책임을 갖고 있었는데, 역할을 분리하면서 코드 가독성이 확실히 좋아졌어요.
+다만, 지금 initializeFunction 메소드에서 여러 작업을 동시에 진행하는데, 여기서도 조금 더 세분화할 수 있을 것 같아요.
+특히, Allow IP 등록(allowIpService.registerAllowIp)과 트리거 생성(triggerService.createDefaultTrigger)을 개별 메소드로 분리하면,
+이후 확장성이 더 좋아질 것 같아요.
+
+예시 코드
+
+private void initializeFunction(Function function, FunctionDTO.Register reqDto) {  
+    setEnvironment(function);  
+    registerAllowIps(reqDto.getAllowIps(), function.getFunctionSeq());  
+    createDefaultTrigger(function);  
+    registerJavaSourceFileIfNeeded(function);  
 }
+
+이렇게 하면 이후 새로운 로직을 추가해야 할 때 initializeFunction 내부를 건드릴 필요 없이 메소드만 추가하면 되니까 유지보수성이 더 올라갈 것 같아요! 🚀
+
+
+
+📝 PR 작성자(팀원):
+
+> 오, 프로님 좋은 피드백 감사합니다! 🙌
+맞아요, initializeFunction이 여전히 조금 뭉쳐져 있다는 느낌이 있긴 했어요.
+이렇게 분리하면 가독성도 좋아지고, 유지보수도 편해질 것 같네요.
+바로 반영해보겠습니다!
+
+
+
+
+---
+
+🔹 2. validateFunctionRequest의 유효성 검사 로직 개선
+
+💬 리뷰어(나):
+
+> 프로님, validateFunctionRequest에서 StringUtils.isAnyEmpty()를 활용한 건 정말 센스 있는 선택이네요! 😆
+다만, 여기서 좀 더 유효성 검사를 모듈화하면, 이후 확장성이 더 좋아질 것 같아요.
+
+예를 들어, 특정 필드는 null인지 아닌지만 확인하는 게 아니라,
+형식 검증 (예: functionKey는 영문 소문자로 시작해야 함, displayName은 특정 패턴이어야 함) 같은 검사가 추가될 수도 있을 것 같은데요.
+
+이렇게 개선해보는 건 어떨까요?
+
+private void validateFunctionRequest(FunctionDTO.Register reqDto) {  
+    checkRequiredFields(reqDto);  
+    checkFunctionKeyFormat(reqDto.getFunctionKey());  
+    checkDisplayNameFormat(reqDto.getDisplayName());  
+}
+
+각 검증 로직을 세분화하면, 추후 새로운 규칙을 추가할 때 더 유연해질 것 같아요! 🤩
+예를 들면, checkFunctionKeyFormat은 아래처럼 만들 수 있겠죠.
+
+private void checkFunctionKeyFormat(String functionKey) {  
+    if (!functionKey.matches("^[a-z][a-z0-9-]{0,63}$")) {  
+        throw new InvalidFunctionRequestException("FunctionKey 형식이 올바르지 않습니다.");  
+    }  
+}
+
+이렇게 하면 규칙이 추가될 때도 한 메소드만 고치면 되니까 확장성이 훨씬 좋아질 것 같아요! 🚀
+
+
+
+📝 PR 작성자(팀원):
+
+> 와, 프로님 완전 디테일한 피드백! 🥹
+지금 당장은 isAnyEmpty로도 충분하다고 생각했는데,
+말씀해주신 대로, 형식 검증을 분리해두면 추후 요구사항 변경될 때 코드가 훨씬 깔끔해질 것 같네요!
+
+규칙이 늘어나도 한 메소드만 수정하면 되니까, 유지보수하기도 훨씬 좋겠어요.
+바로 반영하겠습니다! 감사합니다! 🎯
+
+
+
+
+---
+
+🔹 3. deleteFunction에서 관련 리소스 삭제 로직 개선
+
+💬 리뷰어(나):
+
+> 프로님, deleteFunction 내부에서 관련 리소스를 삭제하는 방식이 정말 직관적이네요! 💡
+다만, 현재 deleteRelatedResources 메소드에서 각각 repository.deleteAll()을 호출하고 있는데,
+트랜잭션 성능을 고려하면 batch delete 처리도 고려해볼 만할 것 같아요!
+
+예를 들어, 아래처럼 deleteAllInBatch를 활용하면 성능이 더 좋아질 수 있어요!
+
+private void deleteRelatedResources(Function function) {  
+    allowIpRepository.deleteAllInBatch(allowIpRepository.findByFunction(function));  
+    functionEnvironmentRepository.deleteAllInBatch(functionEnvironmentRepository.findByFunction(function));  
+    keyManagerRepository.findByFunctionAndDelYn(function, "N").ifPresent(keyManagerRepository::delete);  
+    sourceFileRepository.findByFunction(function).ifPresent(sourceFileRepository::delete);  
+}
+
+특히, 대량 데이터가 삭제될 때 deleteAllInBatch()가 더 빠를 수 있으니
+데이터 양이 많아질 가능성이 있는 AllowIp, FunctionEnvironment 같은 테이블에서는 유용할 것 같아요! 🚀
+
+
+
+📝 PR 작성자(팀원):
+
+> 오… 프로님 완전 꿀팁이네요! 😮
+지금까지는 deleteAll()만 사용했는데,
+deleteAllInBatch()가 배치 단위로 삭제하니까 성능 최적화에 확실히 도움이 될 것 같아요!
+
+특히, 대량 데이터가 삭제될 경우 DB 부하를 줄일 수 있겠네요.
+몰랐던 부분인데 알려주셔서 감사합니다! 바로 반영하겠습니다! 🙌
+
+
+
+
+---
+
+🔹 4. deployFunction에서 배포 호출 로직 개선
+
+💬 리뷰어(나):
+
+> 프로님, deployFunction을 별도 메소드로 분리한 점 정말 깔끔하고 좋네요! 🎉
+다만, knativeService.callIstioAndKnative(function); 호출 전에
+배포할 수 있는 상태인지 체크하는 유효성 검사를 추가하면,
+사전 오류 방지가 가능할 것 같은데요!
+
+예시 코드
+
+private void deployFunction(Function function) {  
+    if (!canBeDeployed(function)) {  
+        throw new FunctionDeploymentException("이 함수는 현재 배포할 수 없는 상태입니다.");  
+    }  
+    function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);  
+    functionRepository.save(function);  
+    knativeService.callIstioAndKnative(function);  
+}
+
+이렇게 하면, 배포가 불가능한 상태에서도 callIstioAndKnative가 호출되는 걸 방지할 수 있어서,
+안정성이 더 올라갈 것 같아요! 🚀
+
+
+
+📝 PR 작성자(팀원):
+
+> 와, 프로님 완전 디테일한 피드백! 🧐
+맞아요, 지금은 배포 가능 여부를 함수 외부에서 검사해야 하는데,
+deployFunction 내부에서 한 번 더 검증하면 확실히 안정성이 올라갈 것 같네요.
+
+FunctionDeploymentException도 추가해서 예외 상황을 더 명확하게 만들어볼게요!
+좋은 리뷰 감사합니다! 💯
+
+
+
+
+---
+
+🎯 PR 1 코드 리뷰 요약
+
+✅ 역할 분리 및 가독성 개선 (initializeFunction 분리)
+✅ 유효성 검사 모듈화 (validateFunctionRequest 개선)
+✅ 삭제 로직 최적화 (deleteAllInBatch 활용)
+✅ 배포 로직 안정성 강화 (deployFunction에 유효성 검사 추가)
+✅ 사전 오류 방지 및 확장성을 고려한 코드 개선
+
+🎉 프로님 덕분에 코드가 한층 더 업그레이드되었습니다! 🚀
+PR 2 코드 리뷰도 준비할까요? 😊
+
