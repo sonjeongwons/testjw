@@ -1,59 +1,218 @@
-2. Nginx 컴파일 시 Lua 모듈 포함
-직접 Nginx를 컴파일하여 Lua 모듈을 포함하는 방법입니다. 기존 Nginx 설정과 완벽히 호환되며, 세부 조정이 가능합니다.
+📌 PR 1 코드 리뷰 - deleteFunction 이외의 메소드 개선 리뷰
 
-필요한 패키지 설치
-bash
-복사
-편집
-sudo yum install -y gcc pcre-devel zlib-devel make unzip git
-LuaJIT 설치
-Lua 모듈은 LuaJIT에 의존하므로 먼저 설치합니다.
+더 깊이 있는 논의를 통해 코드 품질을 한 단계 더 업그레이드해보아요! 🚀
 
-bash
-복사
-편집
-# LuaJIT 다운로드 및 설치
-cd /usr/local/src
-git clone https://github.com/openresty/luajit2.git
-cd luajit2
-make && sudo make install
-ngx_devel_kit 및 lua-nginx-module 다운로드
-bash
-복사
-편집
-cd /usr/local/src
-git clone https://github.com/simpl/ngx_devel_kit.git
-git clone https://github.com/openresty/lua-nginx-module.git
-Nginx 소스 코드 다운로드 및 컴파일
-bash
-복사
-편집
-# 1. Nginx 소스 다운로드
-cd /usr/local/src
-curl -O http://nginx.org/download/nginx-1.25.2.tar.gz
-tar -zxvf nginx-1.25.2.tar.gz
-cd nginx-1.25.2
 
-# 2. 컴파일 및 설치
-./configure \
-    --prefix=/etc/nginx \
-    --sbin-path=/usr/sbin/nginx \
-    --conf-path=/etc/nginx/nginx.conf \
-    --error-log-path=/var/log/nginx/error.log \
-    --http-log-path=/var/log/nginx/access.log \
-    --pid-path=/var/run/nginx.pid \
-    --lock-path=/var/run/nginx.lock \
-    --with-http_ssl_module \
-    --with-http_stub_status_module \
-    --with-http_gzip_static_module \
-    --with-pcre \
-    --add-module=/usr/local/src/ngx_devel_kit \
-    --add-module=/usr/local/src/lua-nginx-module
+---
 
-make && sudo make install
-설치 확인
-bash
-복사
-편집
-nginx -V
-출력에 ngx_http_lua_module이 포함되어 있는지 확인합니다.
+🔹 1. deployFunction - 배포 로직의 안정성 강화
+
+💬 리뷰어(나):
+
+> 프로님, deployFunction을 별도 메소드로 분리한 건 정말 좋은 선택이에요! 🎉
+
+그런데 한 가지 더 고려해볼 점이 있어요!
+지금 deployFunction이 배포 상태를 DEPLOYING으로 바꾸고 바로 callIstioAndKnative를 호출하는데,
+혹시라도 배포 중 네트워크 장애나 예기치 못한 오류가 발생하면,
+배포가 실패했음에도 불구하고 상태가 DEPLOYING으로 남을 가능성이 있어요!
+
+이걸 방지하려면,
+배포가 성공적으로 완료될 때만 DEPLOYING 상태로 업데이트하는 게 안전할 것 같아요!
+
+
+
+✅ 개선 방법
+
+> deployFunction을 다음과 같이 수정하면 어떨까요?
+
+private void deployFunction(Function function) {
+    try {
+        knativeService.callIstioAndKnative(function);
+        function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
+        functionRepository.save(function);
+    } catch (Exception e) {
+        log.error("Function 배포 중 오류 발생: {}", e.getMessage());
+        throw new FunctionDeploymentException("배포 중 문제가 발생했습니다.");
+    }
+}
+
+이렇게 하면 배포가 실패하면 상태가 변경되지 않아서 오류를 추적하기 쉬워지고,
+로그에도 기록이 남아서 디버깅이 훨씬 쉬워질 것 같아요! 🚀
+
+
+
+📝 PR 작성자(팀원):
+
+> 와, 프로님 이건 미처 생각하지 못했어요! 😮
+
+지금처럼 하면 배포가 실패해도 DEPLOYING 상태로 남아 있어서,
+배포가 실패했는지 한눈에 알기 어려울 수도 있겠네요.
+
+로그 추가하고 try-catch 문을 추가하는 게 정말 좋은 방법 같아요!
+혹시, 만약 배포 실패 후 재시도 로직도 고려해볼 필요가 있을까요?
+
+
+
+💬 리뷰어(나):
+
+> 오, 좋은 질문이에요 프로님! 🔥
+
+배포 실패 후 자동 재시도를 하려면,
+일정 횟수까지만 재시도하고, 그래도 실패하면 FAILED 상태로 변경하는 로직이 필요할 것 같아요!
+
+예를 들면, 아래처럼 재시도 로직을 추가할 수 있어요!
+
+private void deployFunction(Function function) {
+    int retryCount = 3;
+    for (int i = 0; i < retryCount; i++) {
+        try {
+            knativeService.callIstioAndKnative(function);
+            function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
+            functionRepository.save(function);
+            return;
+        } catch (Exception e) {
+            log.warn("Function 배포 실패 (시도 {}): {}", i + 1, e.getMessage());
+        }
+    }
+    function.setFunctionStatus(TypeEnums.FunctionStatus.FAILED);
+    functionRepository.save(function);
+    throw new FunctionDeploymentException("배포가 반복적으로 실패했습니다.");
+}
+
+이렇게 하면 3번까지 자동 재시도하고, 그래도 실패하면 FAILED 상태로 변경되니까
+배포 안정성이 훨씬 올라갈 것 같아요! 🚀
+
+
+
+📝 PR 작성자(팀원):
+
+> 이건 진짜 꿀팁이네요! 😆
+
+그냥 실패하면 끝나는 게 아니라,
+재시도 로직까지 포함하면 안정성이 훨씬 올라가겠어요!
+
+배포가 실패했을 때 FAILED로 바꿔주는 것도 진짜 좋은 아이디어네요.
+바로 반영하겠습니다! 🔥
+
+
+
+
+---
+
+🔹 2. searchFunction - 트리거 정보 조회 최적화
+
+💬 리뷰어(나):
+
+> 프로님, searchFunction에서 트리거 정보를 함께 조회하는 방식이 깔끔하네요! 🎉
+
+그런데 findByFunction()이 한 번 호출될 때마다 쿼리가 발생할 텐데,
+만약 함수 리스트를 조회할 때 한 번에 여러 개의 searchFunction이 호출되면,
+트리거 조회 쿼리가 반복적으로 실행될 가능성이 있어요!
+
+이럴 때는 JOIN FETCH나 EntityGraph를 활용하면,
+한 번의 쿼리로 함수와 트리거를 함께 조회할 수 있어요! 🚀
+
+
+
+✅ 개선 방법
+
+> FunctionRepository에 아래처럼 @EntityGraph를 추가하는 방법이 있어요!
+
+@EntityGraph(attributePaths = {"trigger"})
+Optional<Function> findByFunctionKey(String functionKey);
+
+이렇게 하면 트리거 정보가 함께 조회되므로,
+searchFunction에서 별도로 트리거를 조회할 필요가 없어요! 💡
+
+
+
+📝 PR 작성자(팀원):
+
+> 프로님, @EntityGraph 완전 처음 들어봤어요! 😲
+
+이걸 쓰면 N+1 문제가 줄어들면서 쿼리 성능이 좋아질 것 같은데,
+혹시 일반적인 JOIN FETCH랑 어떤 차이가 있나요?
+
+
+
+💬 리뷰어(나):
+
+> 좋은 질문이에요, 프로님! 😆
+
+JOIN FETCH는 JPQL에서 직접 쓸 수 있는 반면,
+@EntityGraph는 Spring Data JPA에서 메서드 호출만으로 EAGER 조회를 가능하게 해줘요.
+
+즉, @EntityGraph는 코드 수정 없이,
+기존 findByFunctionKey 메서드를 호출하는 것만으로 성능 최적화를 할 수 있는 장점이 있어요! 🚀
+
+JOIN FETCH는 특정 조회 쿼리를 직접 작성해야 하니까,
+단순 조회에는 @EntityGraph가 더 편할 수도 있어요!
+
+
+
+📝 PR 작성자(팀원):
+
+> 와… 이건 몰랐던 개념인데 엄청 도움되네요! 🔥
+
+searchFunction에서 트리거 조회하는 로직을 최적화하면서
+쿼리 성능도 한 번에 개선할 수 있을 것 같아요!
+
+당장 @EntityGraph 적용해보고 비교해봐야겠어요.
+정말 감사합니다! 😆
+
+
+
+
+---
+
+🔹 3. updateEnvironment - 환경 변수 저장 최적화
+
+💬 리뷰어(나):
+
+> 프로님, updateEnvironment에서 saveEnvironment를 사용해서 환경 변수를 저장하는 방식이 좋아요! 😊
+
+그런데, 지금 saveEnvironment가 한 번씩 호출될 때마다
+INSERT 또는 UPDATE 쿼리가 반복적으로 실행될 가능성이 있어요!
+
+대량 데이터를 한 번에 저장할 때는, saveAll()을 활용하는 게 성능 면에서 더 좋을 수 있어요!
+
+
+
+✅ 개선 방법
+
+> updateEnvironment를 아래처럼 바꿔보면 어떨까요?
+
+@Transactional
+public void updateEnvironment(List<FunctionEnvironmentDTO.Register> reqDto, String functionKey) {
+    Function function = getFunctionByKey(functionKey);
+    List<FunctionEnvironment> environments = reqDto.stream()
+        .map(dto -> FunctionEnvironment.register(dto, function))
+        .collect(Collectors.toList());
+    functionEnvironmentRepository.saveAll(environments);
+}
+
+이렇게 하면 saveAll()을 사용해서 한 번의 트랜잭션으로 일괄 저장 가능하니까
+성능이 훨씬 좋아질 거예요! 🚀
+
+
+
+📝 PR 작성자(팀원):
+
+> 오… saveAll()이 있었네요! 🤩
+
+여러 개의 INSERT가 반복적으로 실행되는 걸 막을 수 있겠어요.
+
+진짜 이런 꿀팁 덕분에 코드가 점점 더 최적화되는 느낌이에요! 감사합니다! 💯
+
+
+
+
+---
+
+🎯 PR 1 코드 리뷰 요약
+✅ 배포 안정성 강화 (배포 실패 시 상태 변경 방지 및 재시도 로직 추가)
+✅ 트리거 정보 조회 최적화 (@EntityGraph 활용)
+✅ 환경 변수 저장 성능 개선 (saveAll() 활용)
+
+🔥 PR 2 리뷰도 시작해볼까요? 🚀
+
