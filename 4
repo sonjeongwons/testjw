@@ -1,258 +1,140 @@
-$ git diff develop...feature-function-alignAlias | cat
-diff --git a/src/main/java/com/scf/manager/mvc/service/FunctionService.java b/src/main/java/com/scf/manager/mvc/service/FunctionService.java
-index d269b96..a154418 100644
---- a/src/main/java/com/scf/manager/mvc/service/FunctionService.java
-+++ b/src/main/java/com/scf/manager/mvc/service/FunctionService.java
-@@ -134,9 +134,7 @@ public class FunctionService {
-         reqDto.setName(generateFunctionName());
-         reqDto.setFunctionStatus(TypeEnums.FunctionStatus.NOT_READY.getKey());
+코드 리뷰 및 피드백 (티키타카 스타일)
+1. setFunctionContent() 메서드 분리 👍
+💬 리뷰어 (리뷰어)
 
--        if (!reqDto.getRuntime().startsWith("Java")) {
--            reqDto.setContent(generateBaseCode(reqDto));
--        }
-+        setFunctionContent(reqDto);
+"프로님! setFunctionContent()를 별도 메서드로 뺀 거 너무 좋아요! 🎉
+기존 if 문을 메서드로 분리하면서 registerFunction()의 가독성이 훨씬 좋아졌어요.
+작은 함수로 나누면 유지보수도 편해지고, 테스트도 쉬워지죠!
 
-         Function function = functionRepository.save(Function.register(reqDto));
-         initializeFunction(function, reqDto);
-@@ -145,29 +143,43 @@ public class FunctionService {
-     }
+근데 한 가지 더 개선하면 어떨까 싶은 게, 현재 generateBaseCode()가 내부적으로 Optional이나 try-catch를 활용하지 않고 orElseThrow()만 사용하네요.
+만약 코드가 존재하지 않는 경우, ResourceNotFoundException이 발생하는데, 이 부분을 로그를 먼저 남긴 후 예외 처리하는 게 어떨까요?"
 
-     private void validateFunctionRequest(FunctionDTO.Register reqDto) {
--        if (StringUtils.isEmpty(reqDto.getFunctionKey()) || StringUtils.isEmpty(reqDto.getProjectId())
--                || StringUtils.isEmpty(reqDto.getUserId()) || StringUtils.isEmpty(reqDto.getEndPointType())
--                || StringUtils.isEmpty(reqDto.getRuntime())) {
-+        if (StringUtils.isEmpty(reqDto.getFunctionKey()) ||
-+                StringUtils.isEmpty(reqDto.getProjectId()) ||
-+                StringUtils.isEmpty(reqDto.getUserId()) ||
-+                StringUtils.isEmpty(reqDto.getEndPointType()) ||
-+                StringUtils.isEmpty(reqDto.getRuntime())) {
-             throw new RuntimeException("필수 입력값을 확인해주세요.");
-         }
-     }
+📝 PR 작성자 (프로님)
 
-+    private void setFunctionContent(FunctionDTO.Register reqDto) {
-+        if (!reqDto.getRuntime().startsWith("Java")) {
-+            reqDto.setContent(generateBaseCode(reqDto));
-+        }
-+    }
-+
-     private boolean isFunctionExists(String functionKey, String displayName, String projectId) {
-         return functionRepository.findByFunctionKeyAndDelYn(functionKey, "N").isPresent() ||
-                 functionRepository.existsByDisplayNameAndProjectIdAndDelYn(displayName, projectId, "N");
-     }
+"오! 좋은 포인트네요! 예외가 발생할 때 원인을 로그로 남기는 습관, 저도 익혀야겠어요.
+혹시 예시 코드 추천해주실 수 있을까요?"
 
-     private String generateFunctionName() {
--        return "scf-" + UUID.randomUUID() + "-api";
-+        return String.format("scf-%s-api", UUID.randomUUID().toString().replace("-", ""));
-     }
+💬 리뷰어 (리뷰어)
 
-     private void initializeFunction(Function function, FunctionDTO.Register reqDto) throws IOException, ParseException {
-         setEnvironment(function);
-+        registerAllowedIPs(reqDto, function);
-+        setupTriggers(function, reqDto);
-+    }
+"당연하죠! 아래처럼 로그를 남긴 뒤 예외를 던지는 방식은 어떨까요?
 
-+    private void registerAllowedIPs(FunctionDTO.Register reqDto, Function function) {
-         if (!CollectionUtils.isEmpty(reqDto.getAllowIps())) {
-             reqDto.getAllowIps().forEach(allowIp -> allowIpService.registerAllowIp(allowIp, function.getFunctionSeq()));
-         }
-+    }
+java
+복사
+편집
+private void setFunctionContent(FunctionDTO.Register reqDto) {
+    if (!reqDto.getRuntime().startsWith("Java")) {
+        try {
+            reqDto.setContent(generateBaseCode(reqDto));
+        } catch (ResourceNotFoundException e) {
+            log.error("기본 코드 생성 실패! runtime: {}, version: {}, codeName: {}", 
+                      reqDto.getRuntime(), reqDto.getVersion(), reqDto.getCodeName());
+            throw e;
+        }
+    }
+}
+이렇게 하면 어떤 요청에서 예외가 발생했는지 로그를 통해 한눈에 확인할 수 있어요! 🚀"
 
-+    private void setupTriggers(Function function, FunctionDTO.Register reqDto) throws IOException, ParseException {
-         triggerService.createDefaultTrigger(function);
+📝 PR 작성자 (프로님)
 
-         if (function.getRuntime().startsWith("Java")) {
-@@ -362,38 +374,21 @@ public class FunctionService {
+"와, 진짜 좋은 개선이네요! 이거 반영해서 올릴게요! 감사합니다! 🙌"
 
-     @Transactional
-     public void deleteFunction(String functionKey) {
--
--        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
-+        Function function = functionRepository.findByFunctionKey(functionKey)
-+                .orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
+2. deleteFunction() 내부 리팩토링 🔥
+💬 리뷰어 (리뷰어)
 
-         if (function.isReady() || function.isDeploying()) {
--            kn.services().inNamespace(function.getName())
--                    .withName(function.getName()).delete();
--
-+            kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
-             istioCallService.deleteIstioPolicy(function.getName());
--            this.deleteKnativeFunction(function.getName());
--            deleteUserPVC(function);
--            deleteUserEnvoyFilter(function);
--            deleteScfWatcherCustomResource(function);
--            deleteUserNamespace(function);
-+            deleteNamespace(function);
-+            cleanupFunctionResources(function);
-         }
+"프로님! deleteFunction()을 보면서 너무 깔끔하게 정리된 게 느껴졌어요.
+특히 deleteNamespace(), cleanupFunctionResources(), markFunctionAsDeleted()로 분리한 게 진짜 Good! 👍
 
--        deleteRelatedResources(function);
--
--        //사용자 경로
--        String path = "/mb_scf/serverless" + "/"
--                + function.getName();
--        log.info("path = " + path);
--
--        AppUtil.deleteDirectory(path);
--
--        /* 함수 삭제 시 해당 함수의 Trigger 삭제 */
--        triggerService.deleteTrigger(function, true);
--
--        function.modifyDelYn();
--        functionRepository.save(function);
-+        markFunctionAsDeleted(function);
-     }
+근데 한 가지 궁금한 게 있어요! kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
+이 부분에서 Knative 서비스가 삭제되지 않았을 때의 예외 처리도 필요할 것 같은데, 예외 발생 시 어떻게 핸들링할지 생각해 보셨나요?"
 
--    private void deleteRelatedResources(Function function) {
-+
-+    private void cleanupFunctionResources(Function function) {
-         List<AllowIp> AllowIps = allowIpRepository.findByFunction(function);
-         List<FunctionEnvironment> functionEnvironments = functionEnvironmentRepository.findByFunction(function);
-         KeyManager keyManager = keyManagerRepository.findByFunctionAndDelYn(function, "N").orElse(null);
-@@ -414,6 +409,20 @@ public class FunctionService {
-         }
-     }
+📝 PR 작성자 (프로님)
 
-+    private void deleteNamespace(Function function) {
-+        try (KubernetesClient client = new DefaultKubernetesClient()) {
-+            client.namespaces().withName(function.getName()).delete();
-+            log.info("사용자 네임스페이스 {} 삭제 완료", function.getName());
-+        } catch (Exception e) {
-+            log.error("사용자 네임스페이스 삭제 중 오류 발생: {}", e.getMessage());
-+        }
-+    }
-+
-+    private void markFunctionAsDeleted(Function function) {
-+        function.modifyDelYn();
-+        functionRepository.save(function);
-+    }
-+
+"오! 예리한 지적이에요! 😆 지금은 그냥 delete()만 호출하고 있는데, 만약 서비스가 없거나 삭제가 실패하면 어떻게 해야 할지 고민해본 적이 없어요.
+혹시 추천해주실 방법이 있을까요?"
 
-     @Transactional
-     public TokenDTO.Response updateEnvironment(List<FunctionEnvironmentDTO.Register> reqDto, String functionkey) {
-@@ -664,100 +673,42 @@ public class FunctionService {
-     }
+💬 리뷰어 (리뷰어)
 
-     // 함수 상태 정보 알림에 대한 동작 처리를 수행하는 서비스
-+    @Transactional
-     public FunctionDTO.Response updateFunctionStatus(FunctionDTO.Modify functionDtos, String name) throws IOException {
--        log.info("함수 상태 업데이트 API 호출");
--
--        // functionKey가 아닌 name (e.g. scf-xxx-api) 기준으로 쿼리 수행
--        Function function = functionRepository.findByName(name).orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
-+        Function function = functionRepository.findByName(name)
-+                .orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
+"네! 일반적으로 Kubernetes API 호출은 실패할 수도 있기 때문에 try-catch로 감싸는 게 좋아요.
+예를 들면 이렇게?
 
--        // 1. 함수 상태 DB 업데이트
-         function.setFunctionStatus(TypeEnums.FunctionStatus.valueOf(functionDtos.getFunctionStatus()));
--
--        log.info("함수 이름:" + function.getName());
--        log.info("함수 키:" + function.getFunctionKey());
--        log.info("함수 상태:" + function.getFunctionStatus());
--
--        // 함수 재배포 이후, 초기 상태가 일시적으로 False (NOT_READY)일 수 있음
--        // SCP-V의 함수 라이프사이클을 고려하여 scf-watcher에서 NOT_READY에 대한 이벤트가 전달 시에는 DB 내 함수 상태 정보 갱신 X
--        // 24.12.19 함수 상태가 DEPLOYING 상태로 유지되는 오류 수정을 위해 NOT READY 이벤트에 대해서도 함수 상태 갱신하도록 수정
-         functionRepository.save(function);
+java
+복사
+편집
+private void deleteKnativeService(Function function) {
+    try {
+        boolean deleted = kn.services()
+                            .inNamespace(function.getName())
+                            .withName(function.getName())
+                            .delete();
 
--        // 2. 상태 변경 시, SCP 모듈로 상태 알림 API 호출 (클라우드 모니터링 연계)
--        log.info("클라우드 모니터링 연계를 위한 API 연계 동작 수행");
--
--        // 요청 전달할 URL 주소 정의 (APIM Endpoint + internal api)
--        URL url = new URL(apimEndpoint+"/cloud-function/v1/internal/cloud-functions/status");
--        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
--        connection.setConnectTimeout(timeOutValue);
--        connection.setReadTimeout(timeOutValue);
--        connection.setRequestMethod("POST"); // HTTP 요청 방식을 POST로 설정
--
--        /* 헤더 설정 */
--        connection.setRequestProperty("Content-Type", "application/json; utf-8"); // 요청의 컨텐츠 타입을 JSON으로 설정
--        connection.setRequestProperty("accept", "*/*");
--        connection.setRequestProperty("X-Cmp-ProjectId", function.getProjectId());
--        connection.setRequestProperty("Authorization", "Bearer "+ apimToken);
--
--        connection.setDoOutput(true); // 요청 본문에 데이터를 전송할 수 있도록 설정
--
--        /* 서버로 전송할 RequestBody의 Template Json 정의 */
--        String originBody = """
--                        {
--                                  "projectId": "$projectId$",
--                                  "eventData": null,
--                                  "loggingData": null,
--                                  "region": "$region$",
--                                  "requestBy": "$requestBy$",
--                                  "resourceId": "$resourceId$",
--                                  "resourceName": "$resourceName$",
--                                  "resourceState": "$resourceState$"
--                        }
--                    """;
--
--        /* 함수 상태 정보에 대한 분기 처리 */
--        /* 함수가 DEPLOYING 상태로 변경되었을 때 DEPLOYING 대신 NOT_READY 이벤트 전달 (클라우드 모니터링 기준) */
--        String resourceState = "";
--        if (function.isReady()) {
--            resourceState = "Ready";
--        } else {
--            resourceState = "Not Ready";
--        }
-+        notifyCloudMonitoring(function);
-+        return function.toDto();
-+    }
+        if (!deleted) {
+            log.warn("Knative 서비스 삭제 실패: {}", function.getName());
+        }
+    } catch (KubernetesClientException e) {
+        log.error("Knative 서비스 삭제 중 오류 발생: {}", e.getMessage());
+    }
+}
+이렇게 하면 삭제가 안 되었을 때 경고 로그를 남기고, 예외가 발생하면 오류 로그를 기록할 수 있어요.
+예외를 무조건 던지기보다는 정확한 원인을 남기는 게 운영 측면에서 훨씬 안정적이죠! 🚀"
 
--        /* 업데이트할 펑션의 데이터를 기반으로 RequestBody 생성 */
--        String requestBody = originBody.replace("$projectId$", function.getProjectId())
--                .replace("$region$", function.getRegion())
--                .replace("$requestBy$", function.getUserId())
--                .replace("$resourceId$", function.getFunctionKey())
--                .replace("$resourceName$", function.getDisplayName())
--                .replace("$resourceState$", resourceState);
-+    private void notifyCloudMonitoring(Function function) throws IOException {
-+        String resourceState = function.isReady() ? "Ready" : "Not Ready";
+📝 PR 작성자 (프로님)
 
--        log.info(requestBody);
-+        String requestBody = buildFunctionStatusJson(function, resourceState);
-+        URL url = new URL(apimEndpoint + "/cloud-function/v1/internal/cloud-functions/status");
-+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-+        connection.setRequestMethod("POST");
-+        connection.setRequestProperty("Content-Type", "application/json; utf-8");
-+        connection.setRequestProperty("Authorization", "Bearer " + apimToken);
-+        connection.setDoOutput(true);
+"와우, 이거 완전 꿀팁이네요! 😍 제가 놓쳤던 부분인데, 바로 반영할게요.
+Kubernetes API 예외 처리도 이렇게 하면 관리가 훨씬 수월해지겠어요!"
 
--        /* Json 문자열을 byte 배열로 전환하여 전송 */
-         try (OutputStream os = connection.getOutputStream()) {
--            byte[] input = requestBody.getBytes("utf-8");
--            os.write(input, 0, input.length);
-+            os.write(requestBody.getBytes("utf-8"));
-         }
+3. notifyCloudMonitoring() API 호출 개선 🚀
+💬 리뷰어 (리뷰어)
 
--        int responseCode = connection.getResponseCode();
--
--        if(responseCode==HttpURLConnection.HTTP_OK){
--            BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
--            StringBuffer stringBuffer = new StringBuffer();
--
--            // 서버의 응답을 저장하여 로그로 출력
--            String inputLine;
--            while ((inputLine = bufferedReader.readLine()) != null)  {
--                stringBuffer.append(inputLine);
--            }
--            bufferedReader.close();
--
--            log.info("SCP 함수 상태 갱신 API 정상 호출");
--            log.info(stringBuffer.toString());
--        } else {
--            log.warn("SCP 함수 상태 갱신 API 호출 실패: " + responseCode);
-+        if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
-+            log.warn("SCP 함수 상태 갱신 API 호출 실패");
-         }
-+    }
+"프로님! notifyCloudMonitoring() API 호출 부분을 보니까 HttpURLConnection을 직접 사용하고 계시네요!
+직접 핸들링하는 것도 좋지만, 요즘은 RestTemplate이나 WebClient 같은 Spring의 HTTP 클라이언트를 사용하는 게 더 깔끔할 수도 있을 것 같아요!
 
--        return function.toDto();
-+    private String buildFunctionStatusJson(Function function, String resourceState) {
-+        return String.format(
-+                "{\"projectId\": \"%s\", \"region\": \"%s\", \"requestBy\": \"%s\", \"resourceId\": \"%s\", \"resourceName\": \"%s\", \"resourceState\": \"%s\"}",
-+                function.getProjectId(), function.getRegion(), function.getUserId(),
-+                function.getFunctionKey(), function.getDisplayName(), resourceState);
-     }
- }
-\ No newline at end of file
+혹시 WebClient 써보신 적 있나요?"
+
+📝 PR 작성자 (프로님)
+
+"아, 맞아요! HttpURLConnection이 좀 귀찮긴 했는데, WebClient는 아직 익숙하지 않아서 그냥 기존 방식으로 구현했어요.
+WebClient 쓰면 뭐가 더 좋아질까요?"
+
+💬 리뷰어 (리뷰어)
+
+"오, 좋은 질문이에요! WebClient의 장점 몇 가지 알려드릴게요! 🚀
+
+1️⃣ 비동기 방식: HttpURLConnection은 블로킹 방식이라 동기적으로 API를 호출하는데, WebClient를 쓰면 비동기로 처리할 수 있어요.
+2️⃣ 코드 간결화: try-catch나 OutputStream 처리 없이 훨씬 짧고 직관적인 코드를 작성할 수 있어요.
+3️⃣ 에러 핸들링 강화: 응답을 받았을 때 예외 처리 로직을 훨씬 깔끔하게 구성할 수 있죠!
+
+예시 코드 보여드릴게요! ✨
+
+java
+복사
+편집
+private void notifyCloudMonitoring(Function function) {
+    WebClient.create(apimEndpoint)
+        .post()
+        .uri("/cloud-function/v1/internal/cloud-functions/status")
+        .header("Authorization", "Bearer " + apimToken)
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue(buildFunctionStatusJson(function, function.isReady() ? "Ready" : "Not Ready"))
+        .retrieve()
+        .bodyToMono(Void.class)
+        .doOnSuccess(response -> log.info("SCP 함수 상태 갱신 성공"))
+        .doOnError(error -> log.error("SCP 함수 상태 갱신 실패: {}", error.getMessage()))
+        .subscribe();
+}
+이렇게 하면 try-catch 없이도 비동기로 API 호출을 깔끔하게 관리할 수 있어요!"
+
+📝 PR 작성자 (프로님)
+
+"와, WebClient 코드가 엄청 간결하네요! 😲 예외 처리까지 자연스럽게 되고…
+요즘 비동기 방식으로 HTTP 호출하는 게 트렌드라고 들었는데, 이참에 적용해봐야겠어요! 🚀
+코드 반영해서 리뷰 다시 요청드릴게요! 감사합니다!"
+
+마무리 🌟
+"프로님! 전체적으로 코드가 SOLID 원칙을 잘 따르고, 의미 있는 네이밍과 책임 분리가 잘 되어 있어요!
+정말 좋은 PR이고, 몇 가지 예외 처리 및 최신 트렌드 적용하면 더욱 완벽해질 것 같아요!
+
+특히 setFunctionContent(), deleteFunction(), notifyCloudMonitoring() 부분을 리팩토링하면 가독성 향상 & 유지보수 용이성이 대폭 개선될 것 같아요!
+반영하시면 다시 한번 리뷰 요청 주세요! 저도 공부가 많이 되네요! 🚀🔥"
+
+이런 식으로 코드 품질 개선, 최신 기술 적용, 예외 처리 강화 등을 논의하는 티키타카 리뷰가 가능해요!
+이제 PR 리뷰 요청하고 팀원들과 코드 품질을 한 단계 더 끌어올려 보세요! 🚀🔥
