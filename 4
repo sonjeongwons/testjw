@@ -1,507 +1,169 @@
-아래는 리팩토링 후 개선된 전체 코드입니다.
-PR 1, PR 2, PR 3에 걸쳐 구조적인 개선, 클린 코드 적용, 성능 최적화를 모두 포함하고 있습니다.
-
-
----
-
-개선된 FunctionService.java (리팩토링 적용)
-
-package com.scf.manager.mvc.service;
-
-import com.nimbusds.jose.JOSEException;
-import com.nimbusds.jose.jwk.RSAKey;
-import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
-import com.scf.manager.base.domain.FunctionCode;
-import com.scf.manager.base.repository.FunctionCodeRepository;
-import com.scf.manager.common.enums.TypeEnums;
-import com.scf.manager.common.exception.ResourceNotFoundException;
-import com.scf.manager.common.util.AppUtil;
-import com.scf.manager.common.util.UrlUtil;
-import com.scf.manager.mvc.domain.*;
-import com.scf.manager.mvc.dto.*;
-import com.scf.manager.mvc.repository.*;
-import io.fabric8.istio.client.DefaultIstioClient;
-import io.fabric8.knative.client.DefaultKnativeClient;
-import io.fabric8.knative.serving.v1.Service;
-import io.fabric8.knative.serving.v1.ServiceList;
-import io.fabric8.kubernetes.api.model.Namespace;
-import io.fabric8.kubernetes.client.*;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.CollectionUtils;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.*;
-
-import java.io.*;
-import java.net.*;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.text.ParseException;
-import java.time.Duration;
-import java.util.*;
-
-@Slf4j
-@org.springframework.stereotype.Service
-@RequiredArgsConstructor
-public class FunctionService {
-
-    private static final int KEY_SIZE_2048 = 2048;
-
-    private final FunctionRepository functionRepository;
-    private final FunctionCodeRepository functionCodeRepository;
-    private final FunctionEnvironmentRepository functionEnvironmentRepository;
-    private final TriggerService triggerService;
-    private final KnativeService knativeService;
-    private final DefaultKnativeClient kn;
-    private final DefaultIstioClient istioClient;
-    private final AllowIpService allowIpService;
-    private final SourceFileService sourceFileService;
-    
-    @Value("${apim.endpoint}")
-    private String apimEndpoint;
-
-    @Value("${apim.token}")
-    private String apimToken;
-
-    @Transactional
-    public FunctionDTO.Response registerFunction(FunctionDTO.Register reqDto) throws IOException, ParseException {
-        validateFunctionRequest(reqDto);
-
-        if (isFunctionExists(reqDto.getFunctionKey(), reqDto.getDisplayName(), reqDto.getProjectId())) {
-            throw new RuntimeException("이미 존재하는 펑션 키 또는 펑션명을 사용하였습니다.");
-        }
-
-        reqDto.setName(generateFunctionName());
-        reqDto.setFunctionStatus(TypeEnums.FunctionStatus.NOT_READY.getKey());
-
-        setFunctionContent(reqDto);
-
-        Function function = functionRepository.save(Function.register(reqDto));
-        initializeFunction(function, reqDto);
-
-        return function.toDto();
-    }
-
-    private void validateFunctionRequest(FunctionDTO.Register reqDto) {
-        if (StringUtils.isEmpty(reqDto.getFunctionKey()) || 
-            StringUtils.isEmpty(reqDto.getProjectId()) ||
-            StringUtils.isEmpty(reqDto.getUserId()) || 
-            StringUtils.isEmpty(reqDto.getEndPointType()) ||
-            StringUtils.isEmpty(reqDto.getRuntime())) {
-            throw new RuntimeException("필수 입력값을 확인해주세요.");
-        }
-    }
-
-    private void setFunctionContent(FunctionDTO.Register reqDto) {
-        if (!reqDto.getRuntime().startsWith("Java")) {
-            reqDto.setContent(generateBaseCode(reqDto));
-        }
-    }
-
-    private boolean isFunctionExists(String functionKey, String displayName, String projectId) {
-        return functionRepository.existsByFunctionKeyOrDisplayNameAndProjectId(functionKey, displayName, projectId, "N");
-    }
-
-    private String generateFunctionName() {
-        return String.format("scf-%s-api", UUID.randomUUID().toString().replace("-", ""));
-    }
-
-    private void initializeFunction(Function function, FunctionDTO.Register reqDto) throws IOException, ParseException {
-        setEnvironment(function);
-        registerAllowedIPs(reqDto, function);
-        setupTriggers(function, reqDto);
-    }
-
-    private void registerAllowedIPs(FunctionDTO.Register reqDto, Function function) {
-        if (!CollectionUtils.isEmpty(reqDto.getAllowIps())) {
-            reqDto.getAllowIps().forEach(allowIp -> allowIpService.registerAllowIp(allowIp, function.getFunctionSeq()));
-        }
-    }
-
-    private void setupTriggers(Function function, FunctionDTO.Register reqDto) throws IOException, ParseException {
-        triggerService.createDefaultTrigger(function);
-
-        if (function.getRuntime().startsWith("Java")) {
-            SourceFileDTO.Register sampleDto = new SourceFileDTO.Register();
-            sampleDto.setSourceFileType("sample");
-            sourceFileService.saveSourceFile(sampleDto, function.getFunctionKey());
-        }
-    }
-
-    @Transactional
-    public void deleteFunction(String functionKey) {
-        Function function = functionRepository.findByFunctionKey(functionKey)
-                .orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
-
-        if (function.isReady() || function.isDeploying()) {
-            kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
-            istioCallService.deleteIstioPolicy(function.getName());
-            deleteNamespace(function);
-            cleanupFunctionResources(function);
-        }
-
-        markFunctionAsDeleted(function);
-    }
-
-    private void deleteNamespace(Function function) {
-        try (KubernetesClient client = new DefaultKubernetesClient()) {
-            client.namespaces().withName(function.getName()).delete();
-            log.info("사용자 네임스페이스 {} 삭제 완료", function.getName());
-        } catch (Exception e) {
-            log.error("사용자 네임스페이스 삭제 중 오류 발생: {}", e.getMessage());
-        }
-    }
-
-    private void cleanupFunctionResources(Function function) {
-        functionEnvironmentRepository.deleteAllByFunction(function);
-        keyManagerRepository.deleteByFunctionAndDelYn(function, "N");
-        sourceFileRepository.deleteByFunction(function);
-    }
-
-    private void markFunctionAsDeleted(Function function) {
-        function.modifyDelYn();
-        functionRepository.save(function);
-    }
-
-    @Transactional
-    public FunctionDTO.Response updateFunctionStatus(FunctionDTO.Modify functionDtos, String name) throws IOException {
-        Function function = functionRepository.findByName(name)
-                .orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
-
-        function.setFunctionStatus(TypeEnums.FunctionStatus.valueOf(functionDtos.getFunctionStatus()));
-        functionRepository.save(function);
-
-        notifyCloudMonitoring(function);
-        return function.toDto();
-    }
-
-    private void notifyCloudMonitoring(Function function) throws IOException {
-        String resourceState = function.isReady() ? "Ready" : "Not Ready";
-
-        String requestBody = buildFunctionStatusJson(function, resourceState);
-        URL url = new URL(apimEndpoint + "/cloud-function/v1/internal/cloud-functions/status");
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setRequestMethod("POST");
-        connection.setRequestProperty("Content-Type", "application/json; utf-8");
-        connection.setRequestProperty("Authorization", "Bearer " + apimToken);
-        connection.setDoOutput(true);
-
-        try (OutputStream os = connection.getOutputStream()) {
-            os.write(requestBody.getBytes("utf-8"));
-        }
-
-        if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
-            log.warn("SCP 함수 상태 갱신 API 호출 실패");
-        }
-    }
-
-    private String buildFunctionStatusJson(Function function, String resourceState) {
-        return String.format("""
-            {
-                "projectId": "%s",
-                "region": "%s",
-                "requestBy": "%s",
-                "resourceId": "%s",
-                "resourceName": "%s",
-                "resourceState": "%s"
-            }
-        """, function.getProjectId(), function.getRegion(), function.getUserId(),
-            function.getFunctionKey(), function.getDisplayName(), resourceState);
-    }
-}
-
-
----
-
-이제 코드 리뷰 및 PR 생성을 진행하면 됩니다.
-각 PR의 목적과 개선 내용을 상세히 정리하여 리뷰하면 팀원들과 효과적으로 논의할 수 있습니다!
-
-
-
-리팩토링 및 클린 코드 개선 사항
-
-코드의 품질을 향상시키기 위해 SOLID 원칙, 중복 제거, 의미 있는 네이밍, 예외 처리 개선, 의존성 최소화, 객체 지향적 설계 개선 등의 여러 기법을 적용했습니다.
-PR을 3개로 나누어 구조적인 리팩토링, 클린 코드 적용, 성능 개선 및 예외 처리 강화로 진행합니다.
-
-
----
-
-PR 1: 구조적인 리팩토링 (SRP 적용 & 중복 제거)
-
-목적: 단일 책임 원칙(Single Responsibility Principle) 적용, 중복 코드 제거 및 역할 분리
-
-
-1. registerFunction()
-
-변경 사항
-
-1. validateFunctionRequest(reqDto) 검증 메서드 위치 변경
-
-
-2. 중복되는 if (!reqDto.getRuntime().startsWith("Java")) 검사를 메서드로 분리
-
-
-3. initializeFunction(function, reqDto) 내부 로직을 메서드로 세분화하여 가독성 향상
-
-
-
-변경 코드
-
-@Transactional
-public FunctionDTO.Response registerFunction(FunctionDTO.Register reqDto) throws IOException, ParseException {
-    validateFunctionRequest(reqDto);
-
-    if (isFunctionExists(reqDto.getFunctionKey(), reqDto.getDisplayName(), reqDto.getProjectId())) {
-        throw new RuntimeException("이미 존재하는 펑션 키 또는 펑션명을 사용하였습니다.");
-    }
-
-    reqDto.setName(generateFunctionName());
-    reqDto.setFunctionStatus(TypeEnums.FunctionStatus.NOT_READY.getKey());
-
-    setFunctionContent(reqDto);
-
-    Function function = functionRepository.save(Function.register(reqDto));
-    initializeFunction(function, reqDto);
-
-    return function.toDto();
-}
-
-private void setFunctionContent(FunctionDTO.Register reqDto) {
-    if (!reqDto.getRuntime().startsWith("Java")) {
-        reqDto.setContent(generateBaseCode(reqDto));
-    }
-}
-
-개선 이유
-
-setFunctionContent(reqDto) 메서드 분리로 중복 코드 제거
-
-registerFunction() 메서드의 단일 책임 강화 → 가독성 향상
-
-
-
----
-
-2. initializeFunction()
-
-변경 사항
-
-1. setEnvironment(function), registerAllowedIPs(reqDto, function), setupTriggers(function, reqDto) 세 가지로 메서드 분리
-
-
-
-변경 코드
-
-private void initializeFunction(Function function, FunctionDTO.Register reqDto) throws IOException, ParseException {
-    setEnvironment(function);
-    registerAllowedIPs(reqDto, function);
-    setupTriggers(function, reqDto);
-}
-
-private void registerAllowedIPs(FunctionDTO.Register reqDto, Function function) {
-    if (!CollectionUtils.isEmpty(reqDto.getAllowIps())) {
-        reqDto.getAllowIps().forEach(allowIp -> allowIpService.registerAllowIp(allowIp, function.getFunctionSeq()));
-    }
-}
-
-private void setupTriggers(Function function, FunctionDTO.Register reqDto) throws IOException, ParseException {
-    triggerService.createDefaultTrigger(function);
-
-    if (function.getRuntime().startsWith("Java")) {
-        SourceFileDTO.Register sampleDto = new SourceFileDTO.Register();
-        sampleDto.setSourceFileType("sample");
-        sourceFileService.saveSourceFile(sampleDto, function.getFunctionKey());
-    }
-}
-
-개선 이유
-
-단일 메서드가 너무 많은 역할을 수행 → initializeFunction()을 3개의 메서드로 분리
-
-각각의 기능을 독립적으로 이해하고 유지보수하기 쉬워짐
-
-
-
----
-
-PR 2: 클린 코드 적용 (네이밍 & 중복제거 & 책임분리)
-
-목적: 메서드 네이밍 개선, 중복 제거, 불필요한 예외 발생 최소화
-
-
-1. deleteFunction()
-
-변경 사항
-
-1. 네이밍 개선 (deleteRelatedResources() → cleanupFunctionResources())
-
-
-2. deleteKnativeFunction(), deleteIstioPolicy(), deleteNamespace() 등의 개별 메서드 활용
-
-
-3. 로깅 추가 (삭제 시 어떤 리소스가 삭제되는지 명확하게 기록)
-
-
-
-변경 코드
-
-@Transactional
-public void deleteFunction(String functionKey) {
-    Function function = functionRepository.findByFunctionKey(functionKey)
-            .orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
-
-    if (function.isReady() || function.isDeploying()) {
-        kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
-        istioCallService.deleteIstioPolicy(function.getName());
-        deleteNamespace(function);
-        cleanupFunctionResources(function);
-    }
-
-    markFunctionAsDeleted(function);
-}
-
-private void deleteNamespace(Function function) {
-    try (KubernetesClient client = new DefaultKubernetesClient()) {
-        client.namespaces().withName(function.getName()).delete();
-        log.info("사용자 네임스페이스 {} 삭제 완료", function.getName());
-    } catch (Exception e) {
-        log.error("사용자 네임스페이스 삭제 중 오류 발생: {}", e.getMessage());
-    }
-}
-
-private void cleanupFunctionResources(Function function) {
-    allowIpRepository.deleteAllByFunction(function);
-    functionEnvironmentRepository.deleteAllByFunction(function);
-    keyManagerRepository.deleteByFunctionAndDelYn(function, "N");
-    sourceFileRepository.deleteByFunction(function);
-}
-
-private void markFunctionAsDeleted(Function function) {
-    function.modifyDelYn();
-    functionRepository.save(function);
-}
-
-개선 이유
-
-삭제 로직을 cleanupFunctionResources()로 추출 → deleteFunction()의 가독성 향상
-
-deleteNamespace(), markFunctionAsDeleted() 추가 → 역할별 코드 분리
-
-예외 발생 시 오류 메시지를 명확히 로깅
-
-
-
----
-
-2. generateFunctionName()
-
-변경 사항
-
-1. UUID.randomUUID().toString()을 사용하면 하이픈이 포함되므로 replace("-", "")를 사용하여 제거
-
-
-2. 불필요한 "scf-" + ... + "-api" 연결 방식을 String.format()으로 변경
-
-
-
-변경 코드
-
-private String generateFunctionName() {
-    return String.format("scf-%s-api", UUID.randomUUID().toString().replace("-", ""));
-}
-
-개선 이유
-
-UUID에서 하이픈을 제거하여 가독성을 높이고 String.format()을 사용하여 가독성 개선
-
-
-
----
-
-PR 3: 성능 개선 및 예외 처리 강화
-
-목적: 불필요한 예외 방지, 효율적인 데이터 조회, 성능 개선
-
-
-1. isFunctionExists()
-
-변경 사항
-
-1. findByFunctionKeyAndDelYn()과 existsByDisplayNameAndProjectIdAndDelYn()을 한 번만 실행하도록 개선
-
-
-2. Optional을 활용하여 중복된 조회 로직 제거
-
-
-
-변경 코드
-
-private boolean isFunctionExists(String functionKey, String displayName, String projectId) {
-    return functionRepository.existsByFunctionKeyOrDisplayNameAndProjectId(functionKey, displayName, projectId, "N");
-}
-
-개선 이유
-
-기존 코드에서 findByFunctionKeyAndDelYn()와 existsByDisplayNameAndProjectIdAndDelYn() 두 번의 쿼리를 실행하던 것을 하나의 메서드로 최적화 → 성능 향상
-
-
-
----
-
-2. updateFunctionStatus()
-
-변경 사항
-
-1. HttpURLConnection의 setDoOutput(true)를 POST 메서드에서만 사용하도록 수정
-
-
-2. try-with-resources로 OutputStream을 안전하게 닫도록 변경
-
-
-3. apimEndpoint와 function.getProjectId() 등의 변수를 String.format()으로 개선하여 가독성 향상
-
-
-
-변경 코드
-
-private String buildFunctionStatusJson(Function function, String resourceState) {
-    return String.format("""
-        {
-            "projectId": "%s",
-            "region": "%s",
-            "requestBy": "%s",
-            "resourceId": "%s",
-            "resourceName": "%s",
-            "resourceState": "%s"
-        }
-    """, function.getProjectId(), function.getRegion(), function.getUserId(),
-        function.getFunctionKey(), function.getDisplayName(), resourceState);
-}
-
-개선 이유
-
-JSON 문자열을 String.format()으로 변경하여 유지보수성을 높임
-
-try-with-resources로 자원 관리 최적화
-
-
-
----
-
-정리
-
-PR 1: 구조적인 리팩토링 (SRP 적용 & 중복 제거)
-
-PR 2: 클린 코드 적용 (네이밍 개선, 가독성 향상)
-
-PR 3: 성능 개선 및 예외 처리 강화
-
-
-이제 이 변경 사항을 기반으로 PR을 생성하여 코드 리뷰를 진행하면 좋을 것 같습니다.
-
+exit status 1
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/ScfManagerApplication.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/api/DataHandleApiController.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/api/FunctionCodeApiController.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/api/MemberApiController.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/domain/BaseDomain.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/domain/BooleanToYNConverter.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/domain/FunctionCode.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/domain/Member.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/domain/RetrieveClauseBuilder.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/dto/DataHandleDTO.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/dto/FunctionCodeDTO.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/dto/MemberDTO.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/dto/PagingDTO.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/dto/SearchParamDTO.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/enums/ContentsType.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/enums/EnumModel.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/enums/EnumValue.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/enums/RoleType.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/repository/FunctionCodeRepository.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/repository/MemberRepository.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/repository/MemberRepositoryCustom.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/repository/MemberRepositoryImpl.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/service/DataHandleService.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/service/FunctionCodeService.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/base/service/MemberService.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/constants/CacheKeys.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/constants/Constants.java)
+07:55:24.999 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/constants/DataConst.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/constants/ExceptionConst.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/constants/NoticeCont.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/constants/PropertiesValue.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/crd/CeAttributesStatus.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/crd/ConditionsStatus.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/crd/ConnectionSecretSpec.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/crd/RabbitMQClusterReferenceSpec.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/crd/RabbitMQResourcesConfigSpec.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/crd/RabbitMQSource.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/crd/RabbitMQSourceSpec.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/crd/RabbitMQSourceStatus.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/crd/RefSpec.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/crd/SinkSpec.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/enums/ContentsType.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/enums/Direction.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/enums/TriggerTypeEnum.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/enums/TypeEnums.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/exception/CustomizedResponseEntityExceptionHandler.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/exception/ExceptionMessages.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/exception/ExceptionResponse.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/exception/FileException.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/exception/ResourceNotFoundException.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/exception/SourceFileException.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/infrastructure/RedisSubscriber.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/infrastructure/StompHandler.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/util/AppUtil.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/util/AuthenticationUtil.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/util/EnumUtil.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/util/FirebaseCloudMessageUtils.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/util/GeometryUtil.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/util/JsonUtil.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/util/Location.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/util/RedisUtil.java)
+07:55:25.000 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/common/util/UrlUtil.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/AuditorAwareImpl.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/JpaAuditConfig.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/JwtTokenProvider.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/RabbitMqConfig.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/RedisConfig.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/SpringDocsConfig.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/WebSocketConfig.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/security/AuthenticationFilter.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/security/AuthenticationVerificationFilter.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/security/CorsConfig.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/security/SecurityConfig.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/security/SecurityConstants.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/security/WebSecurityConfig.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/security/auth/PrincipalDetails.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/security/jwt/JwtAuthenticationFilter.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/security/jwt/JwtAuthorizationFilter.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/config/security/jwt/JwtProperties.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/api/AdminApiController.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/api/BaseImageApiController.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/api/BoardApiController.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/api/FileManagerApiController.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/api/FunctionApiController.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/api/FunctionEnvironmentApiController.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/api/FunctionLogApiController.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/api/FunctionMetricApiController.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/api/FunctionRabbitMQApiController.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/api/KmsApiController.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/api/TriggerApiController.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/domain/AllowIp.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/domain/BaseImage.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/domain/Board.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/domain/FileManager.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/domain/Function.java)
+07:55:25.001 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/domain/FunctionEnvironment.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/domain/FunctionToken.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/domain/KeyManager.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/domain/SourceFile.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/domain/Trigger.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/domain/TriggerAPIGW.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/domain/TriggerCron.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/domain/TriggerHTTP.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/AllowIpDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/BaseImageDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/BoardDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/CloudLoggingDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/DataKeyDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/DownloadDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/FileManagerDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/FunctionBillingElementsDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/FunctionBillingMetricDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/FunctionDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/FunctionEnvironmentDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/FunctionLogDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/FunctionMetricDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/FunctionMetricElementsDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/FunctionMetricElementsListDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/FunctionMetricListDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/KeyManagerDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/RecoveryDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/SourceFileDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/Timestamped.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/TokenDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/TriggerDTO.java)
+07:55:25.002 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/dto/UrlDTO.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/AllowIpRepository.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/BaseImageRepository.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/BaseImageRepositoryCustom.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/BaseImageRepositoryImpl.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/BoardRepository.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/BoardRepositoryCustom.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/BoardRepositoryImpl.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/FileManagerRepository.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/FileManagerRepositoryCustom.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/FileManagerRepositoryImpl.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/FunctionEnvironmentRepository.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/FunctionRepository.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/FunctionRepositoryCustom.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/FunctionRepositoryImpl.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/KeyManagerRepository.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/SourceFileRepository.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/TriggerAPIGWRepository.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/TriggerCronRepository.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/TriggerHTTPRepository.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/repository/TriggerRepository.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/AllowIpService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/BaseImageService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/BoardService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/FileManagerService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/FunctionCronService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/FunctionEnvironmentService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/FunctionLogService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/FunctionMetricService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/FunctionRabbitMQService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/FunctionService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/IstioCallService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/KmsService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/KnativeService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/SourceFileService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/nuri-scf-manager/2025-03-13_07.54.28.401931489/src/main/java/com/scf/manager/mvc/service/TriggerService.java)
+07:55:25.003 ERROR c.s.s.java.target.TargetFileManager - 161 files have no binary file. Please check the binary path. (target files: 161, binary files: 0)
+Exception in thread "main" java.lang.RuntimeException: 161 files have no binary file. Please check the binary path. (target files: 161, binary files: 0)
+	at com.samsungsds.sam.java.target.TargetFileManager.getTargetFileList(TargetFileManager.java:167)
+	at com.samsungsds.sam.java.App.process(App.java:83)
+	at com.samsungsds.sam.java.App.main(App.java:45)
+
+Error : exit status 1
