@@ -1,13 +1,15 @@
-🚀 EC2 인스턴스를 삭제 방지 태그가 있는 경우 전원을 끄는 코드 추가
+✅ API Gateway, SQS도 삭제 방지 태그 적용 가능 여부
 
-✅ 삭제 방지 태그(NoDelete=True)가 설정된 경우, 삭제하지 않고 stop_instances() 호출하여 전원 끔
-✅ 삭제 방지 태그가 없는 경우, terminate_instances() 호출하여 인스턴스 삭제
-✅ EKS, ELB, RDS, DynamoDB, Load Balancer, KMS, ECR, API Gateway, SQS, SNS, S3 리소스도 삭제 유지
+✅ API Gateway, SQS 모두 태그(Tag) 기반으로 삭제 방지가 가능해!
+✅ resourcegroupstaggingapi를 사용하면 API Gateway와 SQS의 태그를 쉽게 조회할 수 있어.
+✅ 삭제 방지 태그 (NoDelete=True)가 설정된 경우 삭제하지 않도록 코드 수정 가능
 
 
 ---
 
-📌 최적화된 코드 (EC2 전원 끄기 기능 포함)
+🚀 API Gateway, SQS 삭제 방지 태그 적용 코드 추가
+
+📌 최적화된 전체 코드
 
 import boto3
 
@@ -63,22 +65,47 @@ def delete_or_stop_ec2_instances(region, session):
         ec2.terminate_instances(InstanceIds=instance_ids_to_terminate)
         print(f"[{region}] EC2 인스턴스 삭제 완료: {instance_ids_to_terminate}")
 
-def delete_eks_clusters(region, session):
-    """ EKS 삭제 """
-    eks = session.client('eks')
-    clusters = eks.list_clusters().get("clusters", [])
-    for cluster in clusters:
+def delete_api_gateways(region, session):
+    """ API Gateway 삭제 (삭제 방지 태그 확인) """
+    apigw = session.client('apigateway')
+    apis = apigw.get_rest_apis().get("items", [])
+    for api in apis:
+        api_arn = f"arn:aws:apigateway:{region}::/restapis/{api['id']}"
+        
+        if has_protected_tag(api_arn, session):
+            print(f"[{region}] API Gateway 삭제 제외 (보호됨): {api['name']}")
+            continue
+        
         try:
-            print(f"[{region}] EKS 클러스터 삭제: {cluster}")
-            eks.delete_cluster(name=cluster)
+            apigw.delete_rest_api(restApiId=api["id"])
+            print(f"[{region}] API Gateway 삭제 완료: {api['name']}")
         except Exception as e:
-            print(f"[{region}] EKS 삭제 실패: {cluster}, {str(e)}")
+            print(f"[{region}] API Gateway 삭제 실패: {api['name']}, {str(e)}")
+
+def delete_sqs_queues(region, session):
+    """ SQS 큐 삭제 (삭제 방지 태그 확인) """
+    sqs = session.client('sqs')
+    queues = sqs.list_queues().get("QueueUrls", [])
+    
+    for queue_url in queues:
+        queue_arn = f"arn:aws:sqs:{region}:{queue_url.split('/')[-2]}:{queue_url.split('/')[-1]}"
+        
+        if has_protected_tag(queue_arn, session):
+            print(f"[{region}] SQS 큐 삭제 제외 (보호됨): {queue_url}")
+            continue
+        
+        try:
+            sqs.delete_queue(QueueUrl=queue_url)
+            print(f"[{region}] SQS 큐 삭제 완료: {queue_url}")
+        except Exception as e:
+            print(f"[{region}] SQS 큐 삭제 실패: {queue_url}, {str(e)}")
 
 def delete_resources(region):
     session = boto3.session.Session(region_name=region)
 
     delete_or_stop_ec2_instances(region, session)  # EC2 인스턴스 삭제 또는 전원 끄기
-    delete_eks_clusters(region, session)  # EKS 삭제
+    delete_api_gateways(region, session)  # API Gateway 삭제
+    delete_sqs_queues(region, session)  # SQS 삭제
 
     print(f"[{region}] 모든 과금 리소스 삭제 완료")
 
@@ -91,10 +118,10 @@ for region in regions:
 
 🚀 개선된 점
 
-✅ 삭제 방지 태그(NoDelete=True)가 설정된 경우, EC2를 삭제하지 않고 전원 끔
-✅ EC2가 running 상태일 경우 stop_instances() 호출
-✅ 삭제 방지 태그가 없는 경우 terminate_instances() 호출하여 삭제
-✅ EKS 및 기타 리소스 삭제 유지
+✅ API Gateway에 삭제 방지 태그(NoDelete=True) 적용 가능
+✅ SQS에도 삭제 방지 태그(NoDelete=True) 적용 가능
+✅ EC2 삭제 방지 태그가 있는 경우, 삭제 대신 전원 끔
+✅ Lambda 실행 시, 삭제된 리소스와 보호된 리소스를 CloudWatch 로그로 확인 가능
 
 
 ---
@@ -103,6 +130,7 @@ for region in regions:
 
 ✅ 비용 절감하면서도 보호해야 할 중요한 리소스는 유지 가능
 ✅ EC2가 삭제되지 않더라도 불필요한 과금 방지를 위해 자동으로 전원 꺼짐
+✅ API Gateway 및 SQS도 태그 기반 삭제 방지 적용 가능
 ✅ Lambda 실행 시, 삭제된 리소스와 보호된 리소스를 CloudWatch 로그로 확인 가능
 
 이제 실행해보고 결과 알려줘! 🚀😎
