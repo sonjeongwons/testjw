@@ -1,140 +1,222 @@
-코드 리뷰 및 피드백 (티키타카 스타일)
-1. setFunctionContent() 메서드 분리 👍
-💬 리뷰어 (리뷰어)
+import boto3
 
-"프로님! setFunctionContent()를 별도 메서드로 뺀 거 너무 좋아요! 🎉
-기존 if 문을 메서드로 분리하면서 registerFunction()의 가독성이 훨씬 좋아졌어요.
-작은 함수로 나누면 유지보수도 편해지고, 테스트도 쉬워지죠!
+# 제외할 서비스 목록
+EXCLUDED_SERVICES = [
+    "iam", "organizations", "sso", "billing", "cost-explorer", "support",
+    "cloudwatch", "cloudtrail"
+]
 
-근데 한 가지 더 개선하면 어떨까 싶은 게, 현재 generateBaseCode()가 내부적으로 Optional이나 try-catch를 활용하지 않고 orElseThrow()만 사용하네요.
-만약 코드가 존재하지 않는 경우, ResourceNotFoundException이 발생하는데, 이 부분을 로그를 먼저 남긴 후 예외 처리하는 게 어떨까요?"
+# CleanupLambda 함수 정보
+CLEANUP_LAMBDA_NAME = "CleanupLambda"
+CLEANUP_LAMBDA_REGION = "ap-northeast-2"  # 서울 리전
 
-📝 PR 작성자 (프로님)
+# 모든 리전 조회
+regions = [region['RegionName'] for region in boto3.client('ec2').describe_regions()['Regions']]
 
-"오! 좋은 포인트네요! 예외가 발생할 때 원인을 로그로 남기는 습관, 저도 익혀야겠어요.
-혹시 예시 코드 추천해주실 수 있을까요?"
 
-💬 리뷰어 (리뷰어)
+def delete_eks_clusters(region, session):
+    eks = session.client('eks')
 
-"당연하죠! 아래처럼 로그를 남긴 뒤 예외를 던지는 방식은 어떨까요?
+    # 모든 EKS 클러스터 목록 조회
+    clusters = eks.list_clusters().get("clusters", [])
+    for cluster in clusters:
+        try:
+            print(f"[{region}] EKS 클러스터 삭제 시작: {cluster}")
 
-java
-복사
-편집
-private void setFunctionContent(FunctionDTO.Register reqDto) {
-    if (!reqDto.getRuntime().startsWith("Java")) {
-        try {
-            reqDto.setContent(generateBaseCode(reqDto));
-        } catch (ResourceNotFoundException e) {
-            log.error("기본 코드 생성 실패! runtime: {}, version: {}, codeName: {}", 
-                      reqDto.getRuntime(), reqDto.getVersion(), reqDto.getCodeName());
-            throw e;
-        }
-    }
-}
-이렇게 하면 어떤 요청에서 예외가 발생했는지 로그를 통해 한눈에 확인할 수 있어요! 🚀"
+            # 1️⃣ 노드 그룹 삭제
+            node_groups = eks.list_nodegroups(clusterName=cluster).get("nodegroups", [])
+            for node_group in node_groups:
+                try:
+                    eks.delete_nodegroup(clusterName=cluster, nodegroupName=node_group)
+                    print(f"[{region}] EKS 노드 그룹 삭제: {node_group}")
+                except Exception as e:
+                    print(f"[{region}] EKS 노드 그룹 삭제 실패: {node_group}, {str(e)}")
 
-📝 PR 작성자 (프로님)
+            # 노드 그룹이 삭제될 때까지 대기 (필수)
+            waiter = eks.get_waiter('nodegroup_deleted')
+            for node_group in node_groups:
+                try:
+                    waiter.wait(clusterName=cluster, nodegroupName=node_group)
+                    print(f"[{region}] EKS 노드 그룹 삭제 완료: {node_group}")
+                except Exception as e:
+                    print(f"[{region}] EKS 노드 그룹 삭제 대기 중 오류: {node_group}, {str(e)}")
 
-"와, 진짜 좋은 개선이네요! 이거 반영해서 올릴게요! 감사합니다! 🙌"
+            # 2️⃣ 클러스터 삭제
+            eks.delete_cluster(name=cluster)
+            print(f"[{region}] EKS 클러스터 삭제 요청 완료: {cluster}")
 
-2. deleteFunction() 내부 리팩토링 🔥
-💬 리뷰어 (리뷰어)
+        except Exception as e:
+            print(f"[{region}] EKS 클러스터 삭제 실패: {cluster}, {str(e)}")
 
-"프로님! deleteFunction()을 보면서 너무 깔끔하게 정리된 게 느껴졌어요.
-특히 deleteNamespace(), cleanupFunctionResources(), markFunctionAsDeleted()로 분리한 게 진짜 Good! 👍
 
-근데 한 가지 궁금한 게 있어요! kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
-이 부분에서 Knative 서비스가 삭제되지 않았을 때의 예외 처리도 필요할 것 같은데, 예외 발생 시 어떻게 핸들링할지 생각해 보셨나요?"
+def delete_load_balancers(region, session):
+    elb = session.client('elbv2')  # Application/Network Load Balancer (ALB, NLB)
+    elb_v1 = session.client('elb')  # Classic Load Balancer (ELBv1)
 
-📝 PR 작성자 (프로님)
+    # 1️⃣ ELBv2 (ALB/NLB) 삭제
+    try:
+        lbs = elb.describe_load_balancers().get("LoadBalancers", [])
+        for lb in lbs:
+            lb_arn = lb["LoadBalancerArn"]
+            lb_name = lb["LoadBalancerName"]
+            
+            print(f"[{region}] ALB/NLB 삭제 시작: {lb_name}")
 
-"오! 예리한 지적이에요! 😆 지금은 그냥 delete()만 호출하고 있는데, 만약 서비스가 없거나 삭제가 실패하면 어떻게 해야 할지 고민해본 적이 없어요.
-혹시 추천해주실 방법이 있을까요?"
+            # (1) 연결된 리스너 삭제
+            listeners = elb.describe_listeners(LoadBalancerArn=lb_arn).get("Listeners", [])
+            for listener in listeners:
+                try:
+                    elb.delete_listener(ListenerArn=listener["ListenerArn"])
+                    print(f"[{region}] 리스너 삭제: {listener['ListenerArn']}")
+                except Exception as e:
+                    print(f"[{region}] 리스너 삭제 실패: {listener['ListenerArn']}, {str(e)}")
 
-💬 리뷰어 (리뷰어)
+            # (2) 연결된 Target Group 삭제
+            target_groups = elb.describe_target_groups().get("TargetGroups", [])
+            for tg in target_groups:
+                try:
+                    elb.delete_target_group(TargetGroupArn=tg["TargetGroupArn"])
+                    print(f"[{region}] Target Group 삭제: {tg['TargetGroupArn']}")
+                except Exception as e:
+                    print(f"[{region}] Target Group 삭제 실패: {tg['TargetGroupArn']}, {str(e)}")
 
-"네! 일반적으로 Kubernetes API 호출은 실패할 수도 있기 때문에 try-catch로 감싸는 게 좋아요.
-예를 들면 이렇게?
+            # (3) Load Balancer 삭제
+            elb.delete_load_balancer(LoadBalancerArn=lb_arn)
+            print(f"[{region}] ALB/NLB 삭제 완료: {lb_name}")
 
-java
-복사
-편집
-private void deleteKnativeService(Function function) {
-    try {
-        boolean deleted = kn.services()
-                            .inNamespace(function.getName())
-                            .withName(function.getName())
-                            .delete();
+    except Exception as e:
+        print(f"[{region}] ELBv2(ALB/NLB) 삭제 실패: {str(e)}")
 
-        if (!deleted) {
-            log.warn("Knative 서비스 삭제 실패: {}", function.getName());
-        }
-    } catch (KubernetesClientException e) {
-        log.error("Knative 서비스 삭제 중 오류 발생: {}", e.getMessage());
-    }
-}
-이렇게 하면 삭제가 안 되었을 때 경고 로그를 남기고, 예외가 발생하면 오류 로그를 기록할 수 있어요.
-예외를 무조건 던지기보다는 정확한 원인을 남기는 게 운영 측면에서 훨씬 안정적이죠! 🚀"
+    # 2️⃣ Classic Load Balancer (ELBv1) 삭제
+    try:
+        classic_lbs = elb_v1.describe_load_balancers().get("LoadBalancerDescriptions", [])
+        for clb in classic_lbs:
+            try:
+                elb_v1.delete_load_balancer(LoadBalancerName=clb["LoadBalancerName"])
+                print(f"[{region}] Classic Load Balancer 삭제 완료: {clb['LoadBalancerName']}")
+            except Exception as e:
+                print(f"[{region}] Classic Load Balancer 삭제 실패: {clb['LoadBalancerName']}, {str(e)}")
+    except Exception as e:
+        print(f"[{region}] Classic ELB 조회 실패: {str(e)}")
 
-📝 PR 작성자 (프로님)
+def delete_resources(region):
+    session = boto3.session.Session(region_name=region)
 
-"와우, 이거 완전 꿀팁이네요! 😍 제가 놓쳤던 부분인데, 바로 반영할게요.
-Kubernetes API 예외 처리도 이렇게 하면 관리가 훨씬 수월해지겠어요!"
+    # EC2 인스턴스 삭제
+    ec2 = session.client('ec2')
+    instances = ec2.describe_instances(Filters=[{'Name': 'instance-state-name', 'Values': ['running', 'stopped']}])
+    instance_ids = [i["InstanceId"] for r in instances["Reservations"] for i in r["Instances"]]
+    if instance_ids:
+        ec2.terminate_instances(InstanceIds=instance_ids)
+        print(f"[{region}] EC2 인스턴스 삭제: {instance_ids}")
 
-3. notifyCloudMonitoring() API 호출 개선 🚀
-💬 리뷰어 (리뷰어)
+    # S3 버킷 삭제
+    s3 = session.client('s3')
+    buckets = s3.list_buckets().get("Buckets", [])
+    for bucket in buckets:
+        try:
+            s3.delete_bucket(Bucket=bucket["Name"])
+            print(f"[{region}] S3 버킷 삭제: {bucket['Name']}")
+        except:
+            pass  # 버킷이 비어있지 않으면 실패함
 
-"프로님! notifyCloudMonitoring() API 호출 부분을 보니까 HttpURLConnection을 직접 사용하고 계시네요!
-직접 핸들링하는 것도 좋지만, 요즘은 RestTemplate이나 WebClient 같은 Spring의 HTTP 클라이언트를 사용하는 게 더 깔끔할 수도 있을 것 같아요!
+    # RDS 인스턴스 삭제
+    rds = session.client('rds')
+    rds_instances = rds.describe_db_instances().get("DBInstances", [])
+    for db in rds_instances:
+        try:
+            rds.delete_db_instance(DBInstanceIdentifier=db["DBInstanceIdentifier"], SkipFinalSnapshot=True, DeleteAutomatedBackups=True)
+            print(f"[{region}] RDS 인스턴스 삭제: {db['DBInstanceIdentifier']}")
+        except:
+            pass
 
-혹시 WebClient 써보신 적 있나요?"
+    # Lambda 함수 삭제 (CleanupLambda 제외)
+    lambda_client = session.client('lambda')
+    functions = lambda_client.list_functions().get("Functions", [])
+    for function in functions:
+        function_name = function["FunctionName"]
+        if region == CLEANUP_LAMBDA_REGION and function_name == CLEANUP_LAMBDA_NAME:
+            print(f"[{region}] {CLEANUP_LAMBDA_NAME} 함수는 삭제 대상에서 제외됨")
+            continue
+        try:
+            lambda_client.delete_function(FunctionName=function_name)
+            print(f"[{region}] Lambda 삭제: {function_name}")
+        except:
+            pass
 
-📝 PR 작성자 (프로님)
+    # EKS 클러스터 삭제
+    delete_eks_clusters(region, session)
 
-"아, 맞아요! HttpURLConnection이 좀 귀찮긴 했는데, WebClient는 아직 익숙하지 않아서 그냥 기존 방식으로 구현했어요.
-WebClient 쓰면 뭐가 더 좋아질까요?"
+    # DynamoDB 테이블 삭제
+    dynamodb = session.client('dynamodb')
+    tables = dynamodb.list_tables().get("TableNames", [])
+    for table in tables:
+        try:
+            dynamodb.delete_table(TableName=table)
+            print(f"[{region}] DynamoDB 테이블 삭제: {table}")
+        except:
+            pass
 
-💬 리뷰어 (리뷰어)
+    # Load Balancer 삭제
+    delete_load_balancers(region, session)
 
-"오, 좋은 질문이에요! WebClient의 장점 몇 가지 알려드릴게요! 🚀
+    # SNS 토픽 삭제
+    sns = session.client('sns')
+    topics = sns.list_topics().get("Topics", [])
+    for topic in topics:
+        try:
+            sns.delete_topic(TopicArn=topic["TopicArn"])
+            print(f"[{region}] SNS 토픽 삭제: {topic['TopicArn']}")
+        except:
+            pass
 
-1️⃣ 비동기 방식: HttpURLConnection은 블로킹 방식이라 동기적으로 API를 호출하는데, WebClient를 쓰면 비동기로 처리할 수 있어요.
-2️⃣ 코드 간결화: try-catch나 OutputStream 처리 없이 훨씬 짧고 직관적인 코드를 작성할 수 있어요.
-3️⃣ 에러 핸들링 강화: 응답을 받았을 때 예외 처리 로직을 훨씬 깔끔하게 구성할 수 있죠!
+    # SQS 큐 삭제
+    sqs = session.client('sqs')
+    queues = sqs.list_queues().get("QueueUrls", [])
+    for queue in queues:
+        try:
+            sqs.delete_queue(QueueUrl=queue)
+            print(f"[{region}] SQS 큐 삭제: {queue}")
+        except:
+            pass
 
-예시 코드 보여드릴게요! ✨
+    # API Gateway 삭제
+    apigw = session.client('apigateway')
+    apis = apigw.get_rest_apis().get("items", [])
+    for api in apis:
+        try:
+            apigw.delete_rest_api(restApiId=api["id"])
+            print(f"[{region}] API Gateway 삭제: {api['name']}")
+   
+        except:
+            pass
 
-java
-복사
-편집
-private void notifyCloudMonitoring(Function function) {
-    WebClient.create(apimEndpoint)
-        .post()
-        .uri("/cloud-function/v1/internal/cloud-functions/status")
-        .header("Authorization", "Bearer " + apimToken)
-        .contentType(MediaType.APPLICATION_JSON)
-        .bodyValue(buildFunctionStatusJson(function, function.isReady() ? "Ready" : "Not Ready"))
-        .retrieve()
-        .bodyToMono(Void.class)
-        .doOnSuccess(response -> log.info("SCP 함수 상태 갱신 성공"))
-        .doOnError(error -> log.error("SCP 함수 상태 갱신 실패: {}", error.getMessage()))
-        .subscribe();
-}
-이렇게 하면 try-catch 없이도 비동기로 API 호출을 깔끔하게 관리할 수 있어요!"
 
-📝 PR 작성자 (프로님)
+    # **KMS 키 삭제 (예약 삭제)**
+    kms = session.client('kms')
+    keys = kms.list_keys().get("Keys", [])
+    for key in keys:
+        try:
+            kms.schedule_key_deletion(KeyId=key["KeyId"], PendingWindowInDays=7)
+            print(f"[{region}] KMS 키 삭제 예약: {key['KeyId']}")
+        except:
+            pass
 
-"와, WebClient 코드가 엄청 간결하네요! 😲 예외 처리까지 자연스럽게 되고…
-요즘 비동기 방식으로 HTTP 호출하는 게 트렌드라고 들었는데, 이참에 적용해봐야겠어요! 🚀
-코드 반영해서 리뷰 다시 요청드릴게요! 감사합니다!"
 
-마무리 🌟
-"프로님! 전체적으로 코드가 SOLID 원칙을 잘 따르고, 의미 있는 네이밍과 책임 분리가 잘 되어 있어요!
-정말 좋은 PR이고, 몇 가지 예외 처리 및 최신 트렌드 적용하면 더욱 완벽해질 것 같아요!
+    # ECR 리포지토리 삭제
+    ecr = session.client('ecr')
+    repositories = ecr.describe_repositories().get("repositories", [])
+    for repo in repositories:
+        try:
+            ecr.delete_repository(repositoryName=repo["repositoryName"], force=True)
+            print(f"[{region}] ECR 리포지토리 삭제: {repo['repositoryName']}")
+        except:
+            pass
 
-특히 setFunctionContent(), deleteFunction(), notifyCloudMonitoring() 부분을 리팩토링하면 가독성 향상 & 유지보수 용이성이 대폭 개선될 것 같아요!
-반영하시면 다시 한번 리뷰 요청 주세요! 저도 공부가 많이 되네요! 🚀🔥"
 
-이런 식으로 코드 품질 개선, 최신 기술 적용, 예외 처리 강화 등을 논의하는 티키타카 리뷰가 가능해요!
-이제 PR 리뷰 요청하고 팀원들과 코드 품질을 한 단계 더 끌어올려 보세요! 🚀🔥
+    print(f"[{region}] 모든 과금 리소스 삭제 완료")
+
+# 모든 리전에 대해 실행
+for region in regions:
+    delete_resources(region)
+
