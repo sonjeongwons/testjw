@@ -1,251 +1,220 @@
-리팩토링 & 클린 코드 적용 후 개선사항
-
-
----
-
-1. 리팩토링 주요 개선점
-
-중복 코드 제거
-
-여러 곳에서 반복적으로 사용되는 로직을 별도 메소드로 추출하여 코드 재사용성을 높임.
-
-예: registerFunction과 registerFunctionCode에서 공통적으로 사용되는 검증 및 초기화 로직을 별도 메소드로 분리.
-
-
-단일 책임 원칙(SRP, Single Responsibility Principle) 적용
-
-하나의 메소드가 너무 많은 역할을 수행하지 않도록 역할을 분리.
-
-예: initializeFunction 메소드는 환경설정, IP 등록, 트리거 설정 등의 역할을 수행하므로 별도 메소드로 분리.
-
-
-가독성 향상
-
-복잡한 조건문 및 중첩된 로직을 단순화하여 읽기 쉬운 코드로 변환.
-
-예: validateFunctionRequest에서 StringUtils.isEmpty를 여러 번 호출하는 대신 Stream과 anyMatch를 활용.
-
-
-예외 처리 및 로깅 개선
-
-catch (Exception e) 대신 특정 예외 타입을 명확히 지정하여 예외 발생 시 원인 파악을 쉽게 함.
-
-예: deleteUserNamespace 및 deleteUserPVC에서 KubernetesClientException을 명시적으로 캐치.
-
-
-Magic Number 및 Magic String 제거
-
-registerJWK에서 KEY_SIZE_2048 상수를 사용하여 코드의 의미를 명확히 함.
-
-generateFunctionName에서 하드코딩된 문자열 "scf-%s-api"을 상수로 추출하여 관리 용이.
-
-
-객체지향 원칙 적용
-
-Function 객체의 상태 변경을 메소드 내에서 직접 수행하지 않고, Function 내부 메소드를 통해 변경.
-
-예: function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING); 대신 function.deploy(); 메소드 생성.
-
-
-
-
----
-
-2. 리팩토링된 코드 및 변경 사항 설명
-
-(1) registerFunction 메소드 개선
-
-변경 전:
-
-@Transactional  
-public FunctionDTO.Response registerFunction(FunctionDTO.Register reqDto) throws IOException, ParseException {  
-    validateFunctionRequest(reqDto);  
-
-    if (isFunctionExists(reqDto.getFunctionKey(), reqDto.getDisplayName(), reqDto.getProjectId())) {  
-        throw new RuntimeException("이미 존재하는 펑션 키 또는 펑션명을 사용하였습니다.");  
-    }  
-
-    reqDto.setName(generateFunctionName());  
-    reqDto.setFunctionStatus(TypeEnums.FunctionStatus.NOT_READY.getKey());  
-
-    setFunctionContent(reqDto);  
-
-    Function function = functionRepository.save(Function.register(reqDto));  
-    initializeFunction(function, reqDto);  
-
-    return function.toDto();  
-}
-
-변경 후:
-
-@Transactional  
-public FunctionDTO.Response registerFunction(FunctionDTO.Register reqDto) throws IOException, ParseException {  
-    validateFunctionRequest(reqDto);  
-    checkIfFunctionExists(reqDto);  
-
-    reqDto.setName(generateFunctionName());  
-    reqDto.setFunctionStatus(TypeEnums.FunctionStatus.NOT_READY.getKey());  
-    setFunctionContent(reqDto);  
-
-    Function function = functionRepository.save(Function.register(reqDto));  
-    initializeFunction(function, reqDto);  
-
-    return function.toDto();  
-}
-
-// 기존 중복 코드 제거
-private void checkIfFunctionExists(FunctionDTO.Register reqDto) {
-    if (functionRepository.findByFunctionKeyAndDelYn(reqDto.getFunctionKey(), "N").isPresent() ||  
-        functionRepository.existsByDisplayNameAndProjectIdAndDelYn(reqDto.getDisplayName(), reqDto.getProjectId(), "N")) {
-        throw new RuntimeException("이미 존재하는 펑션 키 또는 펑션명을 사용하였습니다.");
-    }
-}
-
-변경 이유 및 개선점
-
-1. checkIfFunctionExists 메소드로 중복 제거 → 중복 코드 제거 및 가독성 향상.
-
-
-2. initializeFunction을 호출하기 전에 함수 등록에 필요한 값만 처리 → 명확한 역할 분리.
-
-
-
-
----
-
-(2) validateFunctionRequest 메소드 개선
-
-변경 전:
-
-private void validateFunctionRequest(FunctionDTO.Register reqDto) {  
-    if (StringUtils.isEmpty(reqDto.getFunctionKey()) ||  
-            StringUtils.isEmpty(reqDto.getProjectId()) ||  
-            StringUtils.isEmpty(reqDto.getUserId()) ||  
-            StringUtils.isEmpty(reqDto.getEndPointType()) ||  
-            StringUtils.isEmpty(reqDto.getRuntime())) {  
-        throw new RuntimeException("필수 입력값을 확인해주세요.");  
-    }  
-}
-
-변경 후:
-
-private void validateFunctionRequest(FunctionDTO.Register reqDto) {
-    List<String> requiredFields = Arrays.asList(reqDto.getFunctionKey(), reqDto.getProjectId(), 
-                                                reqDto.getUserId(), reqDto.getEndPointType(), 
-                                                reqDto.getRuntime());
-
-    if (requiredFields.stream().anyMatch(StringUtils::isEmpty)) {
-        throw new RuntimeException("필수 입력값을 확인해주세요.");
-    }
-}
-
-변경 이유 및 개선점
-
-1. List<String>과 Stream API 활용 → 반복적인 조건문을 줄이고 가독성 향상.
-
-
-2. 변경 전 코드는 각 항목을 개별적으로 검사하여 코드가 길었지만, 리스트로 관리하여 유연성과 유지보수성이 증가.
-
-
-
-
----
-
-(3) deleteUserNamespace 메소드 개선
-
-변경 전:
-
-public void deleteUserNamespace(Function function) {  
-    try (KubernetesClient client = new DefaultKubernetesClient()) {  
-        client.namespaces().withName(function.getName()).delete();  
-        log.info("사용자 네임스페이스 삭제 완료.");  
-    } catch (KubernetesClientException e) {  
-        log.error("사용자 네임스페이스 삭제오류 발생: " + e.getMessage());  
-        e.printStackTrace();  
-    }  
-}
-
-변경 후:
-
-public void deleteUserNamespace(Function function) {  
-    try (KubernetesClient client = new DefaultKubernetesClient()) {  
-        boolean deleted = client.namespaces().withName(function.getName()).delete();
-        log.info("사용자 네임스페이스 {} 삭제 {}", function.getName(), deleted ? "완료" : "실패");
-    } catch (KubernetesClientException e) {  
-        log.error("네임스페이스 {} 삭제 중 오류 발생: {}", function.getName(), e.getMessage(), e);  
-    }  
-}
-
-변경 이유 및 개선점
-
-1. 삭제 성공 여부 확인 → .delete()의 반환값 활용하여 성공/실패 여부를 명확히 로깅.
-
-
-2. 예외 처리 개선 → log.error에서 예외 객체를 추가로 전달하여 스택 트레이스를 포함.
-
-
-3. e.printStackTrace() 제거 → log.error에서 예외 정보를 충분히 제공.
-
-
-
-
----
-
-(4) registerJWK 메소드 개선
-
-변경 전:
-
-@Transactional  
-public String registerJWK(TokenDTO.Register reqDto) throws JOSEException {  
-    Function function = reqDto.getFunction();  
-
-    RSAKey rsaJWK = new RSAKeyGenerator(KEY_SIZE_2048)  
-            .keyID(reqDto.getKeyId() + "-" + UUID.randomUUID())  
-            .generate();  
-
-    KeyManager keyManager = keyManagerRepository.findByFunctionAndDelYn(function, "N").orElse(null);  
-
-    if (keyManager != null) {  
-        keyManager.updateJwk(rsaJWK.toString());  
-        keyManager.updateDelYn("N");  
-        keyManager.updateFunction(function);  
-    } else {  
-        keyManager = keyManagerRepository.save(KeyManager.register(new KeyManagerDTO.Register(rsaJWK.toString(), "N", function)));  
-    }  
-
-    return keyManager.getJwk();  
-}
-
-변경 후:
-
-@Transactional  
-public String registerJWK(TokenDTO.Register reqDto) throws JOSEException {  
-    Function function = reqDto.getFunction();  
-    RSAKey rsaJWK = generateRSAKey(reqDto.getKeyId());  
-
-    KeyManager keyManager = keyManagerRepository.findByFunctionAndDelYn(function, "N").orElseGet(() ->
-        keyManagerRepository.save(KeyManager.register(new KeyManagerDTO.Register(rsaJWK.toString(), "N", function)))
-    );
-
-    keyManager.updateJwk(rsaJWK.toString());  
-    return keyManager.getJwk();  
-}
-
-private RSAKey generateRSAKey(String keyId) throws JOSEException {
-    return new RSAKeyGenerator(KEY_SIZE_2048).keyID(keyId + "-" + UUID.randomUUID()).generate();
-}
-
-변경 이유 및 개선점
-
-1. RSAKey 생성 메소드 분리 → 가독성 및 재사용성 증가.
-
-
-2. Optional 활용 → findByFunctionAndDelYn 결과가 없으면 save() 호출.
-
-
-
-
----
-
-이와 같은 방식으로 추가 리팩토링을 적용하면 코드의 품질이 더욱 향상됩니다. PR에서 팀원들과 논의할 포인트도 충분할 것입니다.
-
+import boto3
+ 
+# 제외할 서비스 목록
+EXCLUDED_SERVICES = [
+    "iam", "organizations", "sso", "billing", "cost-explorer", "support",
+    "cloudwatch", "cloudtrail"
+]
+ 
+# CleanupLambda 함수 정보
+CLEANUP_LAMBDA_NAME = "CleanupLambda"
+CLEANUP_LAMBDA_REGION = "ap-northeast-2"  # 서울 리전
+ 
+# 모든 리전 조회
+regions = [region['RegionName'] for region in boto3.client('ec2').describe_regions()['Regions']]
+ 
+ 
+def delete_eks_clusters(region, session):
+    eks = session.client('eks')
+ 
+    # 모든 EKS 클러스터 목록 조회
+    clusters = eks.list_clusters().get("clusters", [])
+    for cluster in clusters:
+        try:
+            print(f"[{region}] EKS 클러스터 삭제 시작: {cluster}")
+ 
+            # 1️⃣ 노드 그룹 삭제
+            node_groups = eks.list_nodegroups(clusterName=cluster).get("nodegroups", [])
+            for node_group in node_groups:
+                try:
+                    eks.delete_nodegroup(clusterName=cluster, nodegroupName=node_group)
+                    print(f"[{region}] EKS 노드 그룹 삭제: {node_group}")
+                except Exception as e:
+                    print(f"[{region}] EKS 노드 그룹 삭제 실패: {node_group}, {str(e)}")
+ 
+            # 노드 그룹이 삭제될 때까지 대기 (필수)
+            waiter = eks.get_waiter('nodegroup_deleted')
+            for node_group in node_groups:
+                try:
+                    waiter.wait(clusterName=cluster, nodegroupName=node_group)
+                    print(f"[{region}] EKS 노드 그룹 삭제 완료: {node_group}")
+                except Exception as e:
+                    print(f"[{region}] EKS 노드 그룹 삭제 대기 중 오류: {node_group}, {str(e)}")
+ 
+            # 2️⃣ 클러스터 삭제
+            eks.delete_cluster(name=cluster)
+            print(f"[{region}] EKS 클러스터 삭제 요청 완료: {cluster}")
+ 
+        except Exception as e:
+            print(f"[{region}] EKS 클러스터 삭제 실패: {cluster}, {str(e)}")
+ 
+ 
+def delete_load_balancers(region, session):
+    elb = session.client('elbv2')  # Application/Network Load Balancer (ALB, NLB)
+    elb_v1 = session.client('elb')  # Classic Load Balancer (ELBv1)
+ 
+    # 1️⃣ ELBv2 (ALB/NLB) 삭제
+    try:
+        lbs = elb.describe_load_balancers().get("LoadBalancers", [])
+        for lb in lbs:
+            lb_arn = lb["LoadBalancerArn"]
+            lb_name = lb["LoadBalancerName"]
+             
+            print(f"[{region}] ALB/NLB 삭제 시작: {lb_name}")
+ 
+            # (1) 연결된 리스너 삭제
+            listeners = elb.describe_listeners(LoadBalancerArn=lb_arn).get("Listeners", [])
+            for listener in listeners:
+                try:
+                    elb.delete_listener(ListenerArn=listener["ListenerArn"])
+                    print(f"[{region}] 리스너 삭제: {listener['ListenerArn']}")
+                except Exception as e:
+                    print(f"[{region}] 리스너 삭제 실패: {listener['ListenerArn']}, {str(e)}")
+ 
+            # (2) 연결된 Target Group 삭제
+            target_groups = elb.describe_target_groups().get("TargetGroups", [])
+            for tg in target_groups:
+                try:
+                    elb.delete_target_group(TargetGroupArn=tg["TargetGroupArn"])
+                    print(f"[{region}] Target Group 삭제: {tg['TargetGroupArn']}")
+                except Exception as e:
+                    print(f"[{region}] Target Group 삭제 실패: {tg['TargetGroupArn']}, {str(e)}")
+ 
+            # (3) Load Balancer 삭제
+            elb.delete_load_balancer(LoadBalancerArn=lb_arn)
+            print(f"[{region}] ALB/NLB 삭제 완료: {lb_name}")
+ 
+    except Exception as e:
+        print(f"[{region}] ELBv2(ALB/NLB) 삭제 실패: {str(e)}")
+ 
+    # 2️⃣ Classic Load Balancer (ELBv1) 삭제
+    try:
+        classic_lbs = elb_v1.describe_load_balancers().get("LoadBalancerDescriptions", [])
+        for clb in classic_lbs:
+            try:
+                elb_v1.delete_load_balancer(LoadBalancerName=clb["LoadBalancerName"])
+                print(f"[{region}] Classic Load Balancer 삭제 완료: {clb['LoadBalancerName']}")
+            except Exception as e:
+                print(f"[{region}] Classic Load Balancer 삭제 실패: {clb['LoadBalancerName']}, {str(e)}")
+    except Exception as e:
+        print(f"[{region}] Classic ELB 조회 실패: {str(e)}")
+ 
+def delete_resources(region):
+    session = boto3.session.Session(region_name=region)
+ 
+    # EC2 인스턴스 삭제
+    #ec2 = session.client('ec2')
+    #instances = ec2.describe_instances(Filters=[{'Name': 'instance-state-name', 'Values': ['running', 'stopped']}])
+    #instance_ids = [i["InstanceId"] for r in instances["Reservations"] for i in r["Instances"]]
+    #if instance_ids:
+    #    ec2.terminate_instances(InstanceIds=instance_ids)
+    #    print(f"[{region}] EC2 인스턴스 삭제: {instance_ids}")
+ 
+    # S3 버킷 삭제
+    s3 = session.client('s3')
+    buckets = s3.list_buckets().get("Buckets", [])
+    for bucket in buckets:
+        try:
+            s3.delete_bucket(Bucket=bucket["Name"])
+            print(f"[{region}] S3 버킷 삭제: {bucket['Name']}")
+        except:
+            pass  # 버킷이 비어있지 않으면 실패함
+ 
+    # RDS 인스턴스 삭제
+    rds = session.client('rds')
+    rds_instances = rds.describe_db_instances().get("DBInstances", [])
+    for db in rds_instances:
+        try:
+            rds.delete_db_instance(DBInstanceIdentifier=db["DBInstanceIdentifier"], SkipFinalSnapshot=True, DeleteAutomatedBackups=True)
+            print(f"[{region}] RDS 인스턴스 삭제: {db['DBInstanceIdentifier']}")
+        except:
+            pass
+ 
+    # Lambda 함수 삭제 (CleanupLambda 제외)
+    lambda_client = session.client('lambda')
+    functions = lambda_client.list_functions().get("Functions", [])
+    for function in functions:
+        function_name = function["FunctionName"]
+        if region == CLEANUP_LAMBDA_REGION and function_name == CLEANUP_LAMBDA_NAME:
+            print(f"[{region}] {CLEANUP_LAMBDA_NAME} 함수는 삭제 대상에서 제외됨")
+            continue
+        try:
+            lambda_client.delete_function(FunctionName=function_name)
+            print(f"[{region}] Lambda 삭제: {function_name}")
+        except:
+            pass
+ 
+    # EKS 클러스터 삭제
+    delete_eks_clusters(region, session)
+ 
+    # DynamoDB 테이블 삭제
+    dynamodb = session.client('dynamodb')
+    tables = dynamodb.list_tables().get("TableNames", [])
+    for table in tables:
+        try:
+            dynamodb.delete_table(TableName=table)
+            print(f"[{region}] DynamoDB 테이블 삭제: {table}")
+        except:
+            pass
+ 
+    # Load Balancer 삭제
+    delete_load_balancers(region, session)
+ 
+    # SNS 토픽 삭제
+    sns = session.client('sns')
+    topics = sns.list_topics().get("Topics", [])
+    for topic in topics:
+        try:
+            sns.delete_topic(TopicArn=topic["TopicArn"])
+            print(f"[{region}] SNS 토픽 삭제: {topic['TopicArn']}")
+        except:
+            pass
+ 
+    # SQS 큐 삭제
+    sqs = session.client('sqs')
+    queues = sqs.list_queues().get("QueueUrls", [])
+    for queue in queues:
+        try:
+            sqs.delete_queue(QueueUrl=queue)
+            print(f"[{region}] SQS 큐 삭제: {queue}")
+        except:
+            pass
+ 
+    # API Gateway 삭제
+    apigw = session.client('apigateway')
+    apis = apigw.get_rest_apis().get("items", [])
+    for api in apis:
+        try:
+            apigw.delete_rest_api(restApiId=api["id"])
+            print(f"[{region}] API Gateway 삭제: {api['name']}")
+        except:
+            pass
+ 
+ 
+    # **KMS 키 삭제 (예약 삭제)**
+    kms = session.client('kms')
+    keys = kms.list_keys().get("Keys", [])
+    for key in keys:
+        try:
+            kms.schedule_key_deletion(KeyId=key["KeyId"], PendingWindowInDays=7)
+            print(f"[{region}] KMS 키 삭제 예약: {key['KeyId']}")
+        except:
+            pass
+ 
+ 
+    # ECR 리포지토리 삭제
+    ecr = session.client('ecr')
+    repositories = ecr.describe_repositories().get("repositories", [])
+    for repo in repositories:
+        try:
+            ecr.delete_repository(repositoryName=repo["repositoryName"], force=True)
+            print(f"[{region}] ECR 리포지토리 삭제: {repo['repositoryName']}")
+        except:
+            pass
+ 
+ 
+    print(f"[{region}] 모든 과금 리소스 삭제 완료")
+ 
+# 모든 리전에 대해 실행
+for region in regions:
+    delete_resources(region)
