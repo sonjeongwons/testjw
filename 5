@@ -188,107 +188,16 @@ PR 작성자
 ---
 
 
-4. validateFunctionRequest 메소드 리뷰 (가독성 및 유지보수성 개선)
+5. validateFunctionRequest 수정 코드 리뷰 (최적화 및 예외 메시지 개선)
+
+
+---
 
 리뷰어
 
-> "프로님! validateFunctionRequest에서 필수 입력값을 검증하는 방식이 아주 직관적이라 좋습니다! 🎯 하지만 현재는 StringUtils.isEmpty()를 여러 번 호출하고 있어서, 리스트로 관리하면 유지보수성이 더 좋아질 것 같아요. 어떻게 생각하시나요? 🤔"
+> "프로님! validateFunctionRequest 코드가 훨씬 더 깔끔하고 유지보수하기 쉬워졌네요! 🎉 List.of()와 Stream.anyMatch()를 활용해서 반복적인 StringUtils.isEmpty() 호출을 줄인 점이 정말 인상적입니다. 👏"
 
 현재 코드:
-
-private void validateFunctionRequest(FunctionDTO.Register reqDto) {  
-    if (StringUtils.isEmpty(reqDto.getFunctionKey()) ||  
-            StringUtils.isEmpty(reqDto.getProjectId()) ||  
-            StringUtils.isEmpty(reqDto.getUserId()) ||  
-            StringUtils.isEmpty(reqDto.getEndPointType()) ||  
-            StringUtils.isEmpty(reqDto.getRuntime())) {  
-        throw new RuntimeException("필수 입력값을 확인해주세요.");  
-    }  
-}
-
-제안 코드:
-
-private void validateFunctionRequest(FunctionDTO.Register reqDto) {
-    List<String> requiredFields = Arrays.asList(reqDto.getFunctionKey(), reqDto.getProjectId(), 
-                                                reqDto.getUserId(), reqDto.getEndPointType(), 
-                                                reqDto.getRuntime());
-    if (requiredFields.stream().anyMatch(StringUtils::isEmpty)) {
-        throw new RuntimeException("필수 입력값을 확인해주세요.");
-    }
-}
-
-"이렇게 하면 isEmpty()를 한 번만 호출해도 되고, 필수 값이 추가되거나 변경될 때도 리스트에만 추가하면 되니까 유지보수성이 높아질 것 같습니다! 😊"
-
-"프로님은 어떻게 생각하시나요? 혹시 더 좋은 방식이 떠오르시는지 궁금해요!"
-
-
-
-
----
-
-PR 작성자
-
-> "와, 프로님! 😲 이렇게 리스트로 만들고 Stream을 활용하면 코드가 훨씬 간결해지네요! 유지보수할 때도 필수 값만 추가하면 돼서 코드 변경도 더 쉽겠어요. 바로 반영해볼게요! 🚀"
-
-"그런데 한 가지 궁금한 게, List.of()를 써도 될까요? Arrays.asList()랑 어떤 차이가 있나요?"
-
-
-
-
----
-
-리뷰어
-
-> "오, 좋은 질문이에요, 프로님! 😊 List.of()와 Arrays.asList()는 비슷하지만 몇 가지 차이가 있어요."
-
-✔ List.of() 특징:
-
-불변 리스트(Immutable List)를 반환합니다.
-
-요소를 추가하거나 제거할 수 없습니다.
-
-Java 9 이상에서 사용 가능.
-
-
-✔ Arrays.asList() 특징:
-
-고정 크기 리스트(Fixed Size List)를 반환합니다.
-
-요소를 변경할 수는 있지만, 추가/삭제는 불가능합니다.
-
-
-즉, 필수 값이 변경될 일이 없다면 List.of()를 사용하는 것이 더 안전할 수도 있어요! 🔥"
-
-"그래서 validateFunctionRequest에서는 List.of()를 사용하는 게 더 적절할 수도 있겠네요! 이렇게 바꿔보는 건 어떨까요?"
-
-private void validateFunctionRequest(FunctionDTO.Register reqDto) {
-    List<String> requiredFields = List.of(reqDto.getFunctionKey(), reqDto.getProjectId(), 
-                                          reqDto.getUserId(), reqDto.getEndPointType(), 
-                                          reqDto.getRuntime());
-    if (requiredFields.stream().anyMatch(StringUtils::isEmpty)) {
-        throw new RuntimeException("필수 입력값을 확인해주세요.");
-    }
-}
-
-
-
-
----
-
-PR 작성자
-
-> "오호~ List.of()는 아예 불변 리스트고, Arrays.asList()는 크기만 고정된 리스트군요! 확실히 필수 값 목록은 변경될 일이 없으니까 List.of()가 더 적절하겠네요. 바로 반영하겠습니다! 🙌"
-
-
-
-
----
-
-리뷰어
-
-> "프로님! 역시 빠르게 이해하고 적용하시네요! 🎉 그리고 한 가지 더! 예외를 던질 때, RuntimeException 대신 IllegalArgumentException을 사용하면 의미가 더 명확해질 것 같아요. RuntimeException은 너무 포괄적이라, 나중에 예외 핸들링할 때 애매할 수도 있거든요. 😉"
-
-예제 코드:
 
 private void validateFunctionRequest(FunctionDTO.Register reqDto) {
     List<String> requiredFields = List.of(reqDto.getFunctionKey(), reqDto.getProjectId(), 
@@ -299,7 +208,42 @@ private void validateFunctionRequest(FunctionDTO.Register reqDto) {
     }
 }
 
-"이렇게 하면 API에서 예외가 발생했을 때도 좀 더 의미 있는 예외가 전달될 수 있어서 유지보수성이 높아질 거예요! 😃 어떻게 생각하시나요?"
+"이렇게 개선된 덕분에 코드가 더 읽기 쉬워졌고, 새로운 필수 필드가 추가될 때도 수정이 용이해서 유지보수성이 확실히 좋아졌어요! 하지만 몇 가지 더 개선할 수 있는 부분이 있을 것 같아요. 😊"
+
+
+
+
+---
+
+리뷰 포인트 1: 어떤 필드가 비었는지 메시지에 포함하기
+
+리뷰어
+
+> "프로님! 지금 IllegalArgumentException을 던지는 부분에서 "필수 입력값을 확인해주세요."라고만 나와서, 정확히 어떤 필드가 비어 있는지 알기 어려울 수도 있을 것 같아요. 🚀
+필드명을 함께 출력해주면 디버깅이 훨씬 편리해질 것 같은데, 어떻게 생각하시나요? 😊"
+
+제안 코드:
+
+private void validateFunctionRequest(FunctionDTO.Register reqDto) {
+    Map<String, String> fieldMap = Map.of(
+        "Function Key", reqDto.getFunctionKey(),
+        "Project ID", reqDto.getProjectId(),
+        "User ID", reqDto.getUserId(),
+        "EndPoint Type", reqDto.getEndPointType(),
+        "Runtime", reqDto.getRuntime()
+    );
+    
+    List<String> missingFields = fieldMap.entrySet().stream()
+        .filter(entry -> StringUtils.isEmpty(entry.getValue()))
+        .map(Map.Entry::getKey)
+        .collect(Collectors.toList());
+    
+    if (!missingFields.isEmpty()) {
+        throw new IllegalArgumentException("필수 입력값이 누락되었습니다: " + String.join(", ", missingFields));
+    }
+}
+
+"이렇게 하면 예외 메시지가 "필수 입력값이 누락되었습니다: Function Key, Project ID" 처럼 나와서 훨씬 직관적으로 확인할 수 있을 것 같아요! 어떻게 생각하시나요? 😊"
 
 
 
@@ -308,7 +252,75 @@ private void validateFunctionRequest(FunctionDTO.Register reqDto) {
 
 PR 작성자
 
-> "와, IllegalArgumentException이 이렇게 쓰이는군요! RuntimeException은 너무 범용적이라서 API에서 핸들링할 때 명확한 의미를 전달하기 어려울 수 있겠네요. IllegalArgumentException을 쓰면 클라이언트에서도 잘못된 입력값 때문이라는 걸 바로 알 수 있을 것 같아요! 바로 적용하겠습니다! 🚀"
+> "오, 프로님! 이거 완전 대박인데요? 😆 어떤 필드가 비어 있는지 명확하게 표시되니까, API 호출할 때 클라이언트에서 디버깅이 훨씬 쉬워질 것 같아요! Map.of()를 사용해서 필드명을 키로 두는 것도 좋은 방법이네요.
+저도 종종 "필수 값이 빠졌습니다"라고만 예외 메시지를 띄웠는데, 이 방법을 적용하면 개선될 것 같아요. 바로 반영해보겠습니다! 🚀"
+
+
+
+
+---
+
+리뷰 포인트 2: null 체크도 포함하기
+
+리뷰어
+
+> "프로님, 한 가지 더! StringUtils.isEmpty()는 null과 ""(빈 문자열)만 체크하는데, 만약 필드가 null이 아닌 Whitespace("  ") 같은 값이 들어오면 검증이 통과할 수도 있어요. StringUtils.isBlank()를 사용하면 이런 문제를 방지할 수 있습니다! 😊"
+
+제안 코드:
+
+List<String> missingFields = fieldMap.entrySet().stream()
+    .filter(entry -> StringUtils.isBlank(entry.getValue())) // isBlank() 사용
+    .map(Map.Entry::getKey)
+    .collect(Collectors.toList());
+
+"이렇게 하면 "  "(공백만 있는 문자열)도 누락된 필드로 감지할 수 있어서, 더 안전한 검증이 가능해집니다! 프로님 의견이 궁금해요! 🚀"
+
+
+
+
+---
+
+PR 작성자
+
+> "와, 진짜 좋은 포인트네요! 😲 저도 isEmpty()랑 isBlank() 차이에 대해서는 알고 있었는데, 실제로 어디서 활용해야 할지 고민이었거든요. isBlank()를 사용하면 Whitespace까지 체크할 수 있으니까, 더 확실한 검증이 가능하겠어요!
+개발하다 보면 " "(공백) 입력이 문제되는 경우가 은근 많았는데, 이 기회에 확실히 잡을 수 있을 것 같네요. 바로 반영하겠습니다! 🙌"
+
+
+
+
+---
+
+리뷰 포인트 3: 필수 값 누락 시 CustomException 사용 고려
+
+리뷰어
+
+> "프로님, IllegalArgumentException을 활용하는 것도 좋지만, 혹시 CustomException을 만들어서 사용하는 건 어떻게 생각하세요? 예외의 의미를 더 명확하게 전달할 수 있을 것 같아요! 🔥"
+
+예제 코드:
+
+public class MissingRequiredFieldException extends RuntimeException {
+    public MissingRequiredFieldException(String message) {
+        super(message);
+    }
+}
+
+그리고 validateFunctionRequest에서 이렇게 사용:
+
+if (!missingFields.isEmpty()) {
+    throw new MissingRequiredFieldException("필수 입력값이 누락되었습니다: " + String.join(", ", missingFields));
+}
+
+"이렇게 하면 예외 처리를 할 때 "필수 입력값 누락"이라는 의도를 더 명확하게 전달할 수 있을 것 같아요! 프로님 의견은 어떠신가요? 🤔"
+
+
+
+
+---
+
+PR 작성자
+
+> "맞아요! IllegalArgumentException을 그냥 던지는 것보다는, MissingRequiredFieldException 같은 커스텀 예외 클래스를 만들어서 사용하면 더 직관적일 것 같아요.
+이렇게 하면 예외를 핸들링할 때 "필수 입력값 누락"인지 다른 문제인지 쉽게 구분할 수 있겠네요! 바로 반영하겠습니다! 🚀"
 
 
 
@@ -317,7 +329,27 @@ PR 작성자
 
 리뷰어
 
-> "프로님, 완벽합니다! 😆 이렇게 개선하면 코드 가독성, 유지보수성, 그리고 예외 처리까지 한층 더 좋아질 거예요! 정말 좋은 방향으로 리팩토링이 진행되고 있어서 너무 좋습니다! 🎉"
+> "역시 프로님! 빠르게 적용해주셔서 감사합니다! 😊 이렇게 하면 코드가 더 명확해지고, 디버깅도 쉬워질 거예요! 앞으로도 이런 패턴을 적극 활용하면, 예외 처리가 한층 더 체계적으로 관리될 수 있을 것 같습니다! 🎉"
+
+
+
+
+---
+
+최종 리뷰 정리
+
+✅ 필수 값 누락 시 어떤 필드가 비었는지 포함하는 메시지 추가
+✅ StringUtils.isEmpty() 대신 StringUtils.isBlank()로 공백 문자도 검증
+✅ 예외를 IllegalArgumentException 대신 CustomException(MissingRequiredFieldException)으로 변경하여 의미를 명확하게 전달
+
+"이제 validateFunctionRequest는 클린 코드의 교과서 같은 코드가 됐네요! 👏 프로님의 코드 개선 능력, 정말 감탄했습니다! 앞으로도 멋진 코드 기대할게요! 🚀"
+
+
+---
+
+이렇게 팀원들과 티키타카 리뷰를 진행하면, 코드 품질을 개선하면서 서로 배우는 기회도 될 수 있습니다! 🔥 코드 리뷰 문화를 적극 활용하면, 개발팀 전체의 수준이 한층 더 향상될 거예요! 😊
+
+
 
 
 
