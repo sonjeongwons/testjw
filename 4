@@ -1,208 +1,268 @@
-$ git diff develop..refactoring-function-cloudpark|cat
-diff --git a/src/main/java/com/scf/manager/mvc/api/FunctionApiController.java b/src/main/java/com/scf/manager/mvc/api/FunctionApiController.java
-index 59797b9..0781e87 100644
---- a/src/main/java/com/scf/manager/mvc/api/FunctionApiController.java
-+++ b/src/main/java/com/scf/manager/mvc/api/FunctionApiController.java
-@@ -142,7 +142,7 @@ public class FunctionApiController {
-     @PostMapping("presigned-url")
-     @Operation(summary = "임시 다운로드 URL 발급용 API", description = "S3에서 임시 다운로드 URL을 발급받는다.")
-     public ResponseEntity<String> getPresignedUrl(@Valid @RequestBody DownloadDTO reqDto) throws IOException {
--        String url = functionService.getPresignedUrl(reqDto);
-+        String url = functionService.generatePresignedUrl(reqDto);
-         return ResponseEntity.status(HttpStatus.CREATED).body(url);
-     }
+🔥 코드 리뷰 코멘트 - 1️⃣ validateFunctionRequest() 개선
+💬 리뷰어:
+프로님! validateFunctionRequest()의 가독성이 훨씬 좋아졌어요! 👏
+특히 missingFields 리스트를 활용해서 어떤 필드가 빠졌는지 명확하게 보여주는 부분이 최고입니다! 💯
 
-diff --git a/src/main/java/com/scf/manager/mvc/service/FunctionService.java b/src/main/java/com/scf/manager/mvc/service/FunctionService.java
-index 5f71dcc..abeeb73 100644
---- a/src/main/java/com/scf/manager/mvc/service/FunctionService.java
-+++ b/src/main/java/com/scf/manager/mvc/service/FunctionService.java
-@@ -48,6 +48,7 @@ import java.io.OutputStream;
- import java.net.HttpURLConnection;
- import java.net.URI;
- import java.net.URL;
-+import java.nio.charset.StandardCharsets;
- import java.nio.file.Path;
- import java.nio.file.Paths;
- import java.text.ParseException;
-@@ -93,6 +94,8 @@ public class FunctionService {
-     private final SourceFileRepository sourceFileRepository;
-     private final SourceFileService sourceFileService;
+그런데, 한 가지 궁금한 점이 있는데요.
+지금 IllegalArgumentException을 던지고 있는데, 혹시 비즈니스 로직에서 특정 예외 타입을 캐치해서 처리하는 부분이 있을까요?
 
-+    private static final Duration PRESIGNED_URL_DURATION = Duration.ofMinutes(1);
-+
-     @Value("${apim.http.timeout}")
-     private int timeOutValue;
+만약 프론트엔드에서 "필수 입력값을 확인해주세요."라는 예외 메시지를 특정 형식으로 받아야 한다면,
+CustomValidationException 같은 걸 만들어서 예외 타입을 명확히 하는 것도 방법일 것 같아요! 🚀
 
-@@ -126,12 +129,16 @@ public class FunctionService {
-     }
+예를 들어,
 
-     private void validateFunctionRequest(FunctionDTO.Register reqDto) {
--        List<String> requiredFields = Arrays.asList(reqDto.getFunctionKey(), reqDto.getProjectId(),
--                reqDto.getUserId(), reqDto.getEndPointType(),
--                reqDto.getRuntime());
-+        List<String> missingFields = new ArrayList<>();
-+
-+        if (StringUtils.isEmpty(reqDto.getFunctionKey())) missingFields.add("Function Key");
-+        if (StringUtils.isEmpty(reqDto.getProjectId())) missingFields.add("Project ID");
-+        if (StringUtils.isEmpty(reqDto.getUserId())) missingFields.add("User ID");
-+        if (StringUtils.isEmpty(reqDto.getEndPointType())) missingFields.add("Endpoint Type");
-+        if (StringUtils.isEmpty(reqDto.getRuntime())) missingFields.add("Runtime");
+java
+복사
+편집
+public class MissingRequiredFieldException extends RuntimeException {
+    public MissingRequiredFieldException(String message) {
+        super(message);
+    }
+}
+그리고 아래처럼 적용하면, 비즈니스 로직에서 이 예외를 명확하게 캐치할 수 있을 것 같아요!
 
--        if (requiredFields.stream().anyMatch(StringUtils::isEmpty)) {
--            throw new RuntimeException("필수 입력값을 확인해주세요.");
-+        if (!missingFields.isEmpty()) {
-+            throw new IllegalArgumentException("필수 입력값이 누락되었습니다: " + String.join(", ", missingFields));
-         }
-     }
+java
+복사
+편집
+if (!missingFields.isEmpty()) {
+    throw new MissingRequiredFieldException("필수 입력값이 누락되었습니다: " + String.join(", ", missingFields));
+}
+프로님 생각은 어떠세요? 😃
 
-@@ -341,8 +348,8 @@ public class FunctionService {
-         Function function = functionRepository.findByFunctionKey(functionKey)
-                 .orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
+💬 PR 작성자 (프로님):
+오~! 예외를 더 구체적으로 만들어서 처리하는 방법 너무 좋은데요? 🔥
+현재는 IllegalArgumentException을 던지고 있는데,
+말씀하신 대로, 특정한 비즈니스 로직에서 예외를 캐치할 필요가 있다면 MissingRequiredFieldException 같은 전용 예외를 만드는 게 좋을 것 같아요!
 
--        if (function.isReady() || function.isDeploying()) {
--            kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
-+        if (canBeDeleted(function)) {
-+            deleteKnativeService(function);
-             istioCallService.deleteIstioPolicy(function.getName());
-             deleteNamespace(function);
-             cleanupFunctionResources(function);
-@@ -351,6 +358,15 @@ public class FunctionService {
-         markFunctionAsDeleted(function);
-     }
+사실 프론트엔드에서 "필수 입력값이 없습니다" 같은 메시지를 JSON 응답으로 받아야 하는데,
+지금 상태에서는 그냥 RuntimeException이라 핸들링하기 어렵겠네요! 😅
 
-+    private void deleteKnativeService(Function function) {
-+        kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
-+        log.info("Deleted Knative service for function: {}", function.getName());
-+    }
-+
-+    private boolean canBeDeleted(Function function) {
-+        return function.isReady() || function.isDeploying();
-+    }
-+
+예외 타입을 따로 만들면, Spring의 @ExceptionHandler에서 잡아서 JSON 응답을 만들기 더 쉽겠어요!
 
-     private void cleanupFunctionResources(Function function) {
-         List<AllowIp> AllowIps = allowIpRepository.findByFunction(function);
-@@ -415,6 +431,7 @@ public class FunctionService {
-         return output;
-     }
-
-+
-     public FunctionDTO.DuplicateResponse checkFunctionNameDuplicate(FunctionDTO.Search reqDto) {
-         boolean isExist = functionRepository.existsByDisplayNameAndProjectIdAndDelYn(reqDto.getDisplayName(), reqDto.getProjectId(), "N");
-
-@@ -444,17 +461,6 @@ public class FunctionService {
-         }
-     }
-
--    public void deleteUserNamespace(Function function) {
--        try (KubernetesClient client = new DefaultKubernetesClient()) {
--            // 사용자 네임스페이스 삭제
--            client.namespaces().withName(function.getName()).delete();
--            log.info("사용자 네임스페이스 삭제 완료.");
--        } catch (KubernetesClientException e) {
--            log.error("사용자 네임스페이스 삭제오류 발생: " + e.getMessage());
--            e.printStackTrace();
--        }
--    }
--
-     private List<FunctionEnvironmentDTO.Register> getDefaultEnvironmentDTO(String functionName, String region, String runtime) {
-         List<UrlDTO> urlDTOs = UrlUtil.generateUrl(functionName, region,"none");
-
-@@ -478,33 +484,30 @@ public class FunctionService {
+바로 반영하겠습니다! 🚀
 
 
-     @Transactional
--    public String getPresignedUrl(DownloadDTO reqDto) throws IOException {
--        try (S3Presigner presigner = S3Presigner.builder()
--                .serviceConfiguration(S3Configuration.builder()
--                        .pathStyleAccessEnabled(true) // 경로 스타일 구문을 사용 강제 (https://sdk.amazonaws.com/java/api/latest/software/amazon/awssdk/services/s3/S3Configuration.html)
--                        .build())
--                .region(Region.of("ALL")) // SCP Object Storage의 리전은 Endpoint URL에서 설정
--                .endpointOverride(URI.create(reqDto.getEndpointUrl())) // 사용자 지정 S3 엔드포인트 URL로 변경
--                .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(reqDto.getAccessKey(), reqDto.getSecretKey())))
--                .build()) {
--            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
--                    .bucket(reqDto.getBucketName())
--                    .key(reqDto.getObjectKey())
--                    .build();
--
--            GetObjectPresignRequest getObjectPresignRequest = GetObjectPresignRequest.builder()
--                    .signatureDuration(Duration.ofMinutes(1)) // 유효시간 1분
--                    .getObjectRequest(getObjectRequest)
--                    .build();
--
--            PresignedGetObjectRequest presignedGetObjectRequest = presigner.presignGetObject(getObjectPresignRequest);
--            String theUrl = presignedGetObjectRequest.url().toString();
--            log.info("Presigned URL: " + theUrl);
--
--            return theUrl;
-+    public String generatePresignedUrl(DownloadDTO reqDto) throws IOException {
-+        try (S3Presigner presigner = createS3Presigner(reqDto)) {
-+            return createPresignedUrl(presigner, reqDto);
-         }
-     }
 
-+    private S3Presigner createS3Presigner(DownloadDTO reqDto) {
-+        return S3Presigner.builder()
-+                .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
-+                .region(Region.of("ALL"))
-+                .endpointOverride(URI.create(reqDto.getEndpointUrl()))
-+                .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(reqDto.getAccessKey(), reqDto.getSecretKey())))
-+                .build();
-+    }
-+
-+    private String createPresignedUrl(S3Presigner presigner, DownloadDTO reqDto) {
-+        GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
-+                .signatureDuration(PRESIGNED_URL_DURATION)
-+                .getObjectRequest(GetObjectRequest.builder().bucket(reqDto.getBucketName()).key(reqDto.getObjectKey()).build())
-+                .build();
-+
-+        return presigner.presignGetObject(presignRequest).url().toString();
-+    }
-+
-     public void downloadFile(DownloadDTO reqDto) {
-         // AWS S3 클라이언트 생성
-         S3Client s3Client = S3Client.builder()
-@@ -590,15 +593,21 @@ public class FunctionService {
+🔥 코드 리뷰 코멘트 - 2️⃣ deleteFunction() 개선
+💬 리뷰어:
+프로님! deleteFunction()에서 canBeDeleted()랑 deleteKnativeService()를 따로 빼서 가독성이 확실히 좋아졌어요! 👏
 
-     // 함수 상태 정보 알림에 대한 동작 처리를 수행하는 서비스
-     @Transactional
--    public FunctionDTO.Response updateFunctionStatus(FunctionDTO.Modify functionDtos, String name) throws IOException {
--        Function function = functionRepository.findByName(name)
--                .orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
-+    public FunctionDTO.Response updateFunctionStatus(FunctionDTO.Modify functionDtos, String functionName) throws IOException {
-+        Function function = getFunctionByName(functionName);
-+        updateFunctionStatusAndNotify(function, functionDtos.getFunctionStatus());
-+        return function.toDto();
-+    }
+그런데 한 가지 더 개선하면 좋을 것 같은 부분이 있어요!
+지금 deleteKnativeService()에서
 
--        function.setFunctionStatus(TypeEnums.FunctionStatus.valueOf(functionDtos.getFunctionStatus()));
--        functionRepository.save(function);
-+    private Function getFunctionByName(String functionName) {
-+        return functionRepository.findByName(functionName)
-+                .orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 함수: " + functionName));
-+    }
+java
+복사
+편집
+kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
+이렇게 delete() 호출하고 있는데, Knative에서 리소스를 완전히 삭제했는지 확인하는 로직이 없어요!
 
-+    private void updateFunctionStatusAndNotify(Function function, String newStatus) throws IOException {
-+        function.setFunctionStatus(TypeEnums.FunctionStatus.valueOf(newStatus));
-+        functionRepository.save(function);
-         notifyCloudMonitoring(function);
--        return function.toDto();
-     }
+만약 삭제가 실패하면 **"삭제 요청은 보냈지만, 실제로 삭제되지 않았다"**는 상태가 될 수도 있는데,
+삭제 후에 상태를 체크하는 로직을 추가하면 더 안정적일 것 같아요!
 
-     private void notifyCloudMonitoring(Function function) throws IOException {
-@@ -613,11 +622,11 @@ public class FunctionService {
-         connection.setDoOutput(true);
+예를 들어, 아래처럼 삭제 요청 후, 실제로 삭제되었는지 확인하는 코드를 추가할 수 있어요!
 
-         try (OutputStream os = connection.getOutputStream()) {
--            os.write(requestBody.getBytes("utf-8"));
-+            os.write(requestBody.getBytes(StandardCharsets.UTF_8));
-         }
+java
+복사
+편집
+private void deleteKnativeService(Function function) {
+    kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
+    
+    // 삭제 후 확인 (5초 동안 500ms 간격으로 재시도)
+    for (int i = 0; i < 10; i++) {
+        if (kn.services().inNamespace(function.getName()).withName(function.getName()).get() == null) {
+            log.info("Knative 서비스 삭제 완료: {}", function.getName());
+            return;
+        }
+        Thread.sleep(500);
+    }
+    
+    log.warn("Knative 서비스 삭제 요청을 보냈지만, 아직 남아있음: {}", function.getName());
+}
+이렇게 하면 삭제 요청 후, 실제로 삭제되었는지 체크하고, 일정 시간 후에도 남아있다면 로그를 남길 수 있어요! 🚀
 
-         if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
--            log.warn("SCP 함수 상태 갱신 API 호출 실패");
-+            log.warn("SCP 함수 상태 갱신 API 호출 실패: 응답 코드 {}", connection.getResponseCode());
-         }
-     }
+어떻게 생각하세요? 😃
+
+💬 PR 작성자 (프로님):
+오~! 삭제 후에도 리소스가 남아있을 가능성을 고려하는 건 좋은 포인트네요! 👏
+
+지금은 단순히 delete() 요청만 보내고 끝인데,
+말씀하신 대로, **"진짜로 삭제되었는지 확인하는 로직"**이 있으면 훨씬 안정적일 것 같아요!
+
+다만, Thread.sleep(500)을 여러 번 반복하는 게 비효율적일 수도 있을 것 같은데,
+
+혹시 CompletableFuture를 활용해서 비동기로 폴링하는 방식도 가능할까요? 🤔
+
+💬 리뷰어:
+오~! 프로님이 좋은 질문을 하셨네요! 🔥
+
+Thread.sleep()을 반복하는 대신, 비동기로 처리하는 방법도 가능해요!
+예를 들어, 아래처럼 CompletableFuture를 활용하면,
+메인 스레드를 블로킹하지 않고 일정 시간 후에 삭제 여부를 확인할 수 있어요!
+
+java
+복사
+편집
+CompletableFuture.runAsync(() -> {
+    for (int i = 0; i < 10; i++) {
+        if (kn.services().inNamespace(function.getName()).withName(function.getName()).get() == null) {
+            log.info("Knative 서비스 삭제 완료: {}", function.getName());
+            return;
+        }
+        Thread.sleep(500);
+    }
+    log.warn("Knative 서비스 삭제 요청을 보냈지만, 아직 남아있음: {}", function.getName());
+});
+이렇게 하면, 삭제 요청을 보낸 후에도 메인 스레드가 다른 작업을 처리할 수 있어서 더 효율적일 거예요! 🚀
+
+프로님은 어떤 방식이 더 적절하다고 생각하세요? 😃
+
+💬 PR 작성자 (프로님):
+와! CompletableFuture 활용하는 거 너무 좋네요! 😍
+
+사실 Thread.sleep() 방식은 좀 찜찜했는데,
+이렇게 비동기로 처리하면 메인 스레드도 가볍고, 논블로킹 방식이라 더 좋을 것 같아요!
+
+바로 반영하겠습니다! 🔥
+
+🔥 코드 리뷰 코멘트 - 3️⃣ generatePresignedUrl() 개선
+💬 리뷰어:
+프로님! generatePresignedUrl() 메소드를 createS3Presigner()랑 createPresignedUrl()로 분리하신 거 정말 깔끔해요! 👏
+**SRP(단일 책임 원칙)**을 완벽하게 지키신 덕분에, 코드가 훨씬 가독성이 좋아졌네요! 🎉
+
+다만, PRESIGNED_URL_DURATION이 현재 **1분(Duration.ofMinutes(1))**으로 설정되어 있는데,
+이 값이 고정되어야 하나요?
+
+가끔 보안이나 성능 요구사항에 따라 동적으로 설정할 수도 있을 것 같아서,
+만약 유연하게 설정할 필요가 있다면,
+
+java
+복사
+편집
+private final Duration presignedUrlDuration;
+
+public FunctionService(@Value("${s3.presigned.url.duration:1}") int presignedUrlMinutes) {
+    this.presignedUrlDuration = Duration.ofMinutes(presignedUrlMinutes);
+}
+이런 식으로 설정 파일에서 값을 가져오도록 하는 방법도 고려해볼 수 있을 것 같아요! 😃
+
+어떻게 생각하시나요?
+
+💬 PR 작성자 (프로님):
+오! 설정 파일에서 값을 가져오도록 하면, 환경별로 유연하게 조정할 수 있겠네요! 🔥
+
+지금은 1분이지만, 추후에 필요하면 5분이나 10분으로 바꿀 수도 있으니 가변적으로 관리할 수 있도록 적용하는 게 좋을 것 같아요!
+
+코드 반영하겠습니다! 🚀
 
 
+🔥 코드 리뷰 코멘트 - updateFunctionStatus() 개선
+💬 리뷰어:
+프로님! updateFunctionStatus()를 리팩토링하면서 getFunctionByName()과 updateFunctionStatusAndNotify()를 따로 분리하신 거 정말 좋은 선택이었어요! 👏
+
+이렇게 리팩토링하면서 "함수 조회"와 "상태 업데이트"의 책임을 분리한 덕분에 코드가 훨씬 직관적이고 유지보수하기 좋아졌어요! 🎉
+
+그런데 한 가지 더 개선하면 좋을 부분이 있어요!
+
+지금 updateFunctionStatusAndNotify()에서 function.setFunctionStatus()를 호출한 다음, functionRepository.save(function)을 실행하는데,
+만약 상태가 잘못된 값이 들어오면 예외가 발생할 수도 있겠죠? 🤔
+
+혹시 FunctionStatus 값이 유효한지 사전에 검증하는 로직을 추가하면 어떨까요?
+
+예를 들어, 아래처럼 TypeEnums.FunctionStatus에 존재하는 값인지 확인하는 로직을 추가하면,
+잘못된 값이 들어왔을 때 예외가 발생하기 전에 미리 검증할 수 있을 것 같아요!
+
+java
+복사
+편집
+private void validateFunctionStatus(String status) {
+    boolean isValid = Arrays.stream(TypeEnums.FunctionStatus.values())
+            .anyMatch(validStatus -> validStatus.name().equals(status));
+    
+    if (!isValid) {
+        throw new IllegalArgumentException("잘못된 함수 상태 값입니다: " + status);
+    }
+}
+그리고 updateFunctionStatusAndNotify()에서 사용하면 이렇게 되겠죠?
+
+java
+복사
+편집
+private void updateFunctionStatusAndNotify(Function function, String newStatus) throws IOException {
+    validateFunctionStatus(newStatus); // 상태 검증 추가
+    function.setFunctionStatus(TypeEnums.FunctionStatus.valueOf(newStatus));
+    functionRepository.save(function);
+    notifyCloudMonitoring(function);
+}
+이렇게 하면 사전에 상태 값을 검증할 수 있어서 예외를 미리 방지할 수 있을 것 같은데, 프로님 생각은 어떠세요? 😊
+
+💬 PR 작성자 (프로님):
+오~! 이거 진짜 좋은 포인트네요! 👍
+
+지금은 TypeEnums.FunctionStatus.valueOf(newStatus)를 호출하면서
+잘못된 값이 들어오면 IllegalArgumentException이 발생할 텐데,
+말씀해주신 대로, 사전에 검증하는 로직을 추가하면 훨씬 더 안정적인 코드가 될 것 같아요! 🚀
+
+게다가 예외가 발생하면 어디서 발생했는지 바로 파악하기 어려운데,
+validateFunctionStatus()를 추가하면
+**"어떤 값이 잘못됐는지 명확하게 메시지를 남길 수 있는 점"**도 정말 좋네요! 😍
+
+바로 반영하겠습니다! 🔥
+
+💬 리뷰어:
+와! 프로님도 정말 꼼꼼하게 고려하셨네요! 😃
+
+그런데 한 가지 더! 지금 updateFunctionStatus()에서는 상태 변경 후 바로 notifyCloudMonitoring()을 호출하고 있는데,
+만약 알림 전송이 실패하면 어떻게 될까요? 🤔
+
+예를 들어, API 요청이 실패해서 HTTP 500 에러가 발생하면,
+상태는 이미 save()로 변경되었는데, 클라우드 모니터링 쪽에는 반영되지 않은 채로 남을 수도 있어요!
+
+혹시 이걸 방지하려면, 트랜잭션을 롤백하는 로직을 추가하는 것도 방법일 것 같아요!
+
+java
+복사
+편집
+@Transactional(rollbackFor = Exception.class)
+private void updateFunctionStatusAndNotify(Function function, String newStatus) throws IOException {
+    validateFunctionStatus(newStatus);
+    function.setFunctionStatus(TypeEnums.FunctionStatus.valueOf(newStatus));
+    functionRepository.save(function);
+    
+    try {
+        notifyCloudMonitoring(function);
+    } catch (IOException e) {
+        log.error("클라우드 모니터링 상태 업데이트 실패: {}", function.getFunctionKey(), e);
+        throw e; // 트랜잭션 롤백
+    }
+}
+이렇게 하면, 알림 전송이 실패하면 상태 변경도 같이 롤백돼서
+잘못된 상태가 DB에 반영되지 않도록 막을 수 있을 것 같아요!
+
+프로님은 이 방식 어떻게 생각하세요? 😊
+
+💬 PR 작성자 (프로님):
+와! 트랜잭션 롤백까지 고려하는 건 진짜 디테일한 부분인데, 너무 좋은 포인트예요! 🔥
+
+지금 구조에서는 notifyCloudMonitoring()이 실패해도 상태 변경은 이미 반영된 상태라,
+나중에 디버깅할 때도 원인을 찾기가 어려울 수도 있겠네요.
+
+@Transactional(rollbackFor = Exception.class)을 추가하면
+알림 전송이 실패할 경우 상태 변경도 같이 롤백돼서 더 안전할 것 같아요!
+
+바로 반영하겠습니다! 🚀
+
+💬 리뷰어:
+프로님! 이렇게 적극적으로 피드백 반영해주시니까 너무 좋네요! 😃
+이번 updateFunctionStatus() 개선 덕분에 예외 처리와 트랜잭션 안정성이 확실히 올라간 것 같아요!
+
+이제 함수 상태 변경 로직이 완벽하게 안정적이고 유지보수하기 쉬운 코드가 되었어요! 👏
+
+바로 approve 드립니다! 🎉🚀
+
+🔥 PR 최종 총평!
+✅ 함수 상태 변경 시 예외 검증을 추가하면서 더 안전한 코드가 되었습니다!
+✅ 트랜잭션 롤백 처리를 추가하면서 데이터 정합성을 유지할 수 있게 되었습니다!
+✅ 비즈니스 로직과 예외 처리 로직을 깔끔하게 분리하면서 유지보수성이 좋아졌습니다!
+
+🔥 프로님, 이번 PR은 진짜 A+급 리팩토링입니다!
+정말 고생 많으셨고, 앞으로도 멋진 코드 기대할게요! 🚀🎉
