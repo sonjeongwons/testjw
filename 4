@@ -1,2 +1,234 @@
-https://scf.kr-east.samsungsdscloud.com/scf-6a8766cb-7be1-4eea-8e2b-5c03eda1b63c-api
-https://scf.kr-west.samsungsdscloud.com/scf-8908b947-4225-4874-b6af-27c09ec42957-api
+    @Transactional
+    public CloudLoggingDTO.Response switchLogging(CloudLoggingDTO.Modify cloudLoggingDtos, String functionKey) throws IOException {
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("데이터가 존재하지않습니다."));
+
+        boolean isChanged = !cloudLoggingDtos.getLogEnableYn().equals(function.getLogEnableYn());
+        if (isChanged) {
+            function.updateLogEnableYn(cloudLoggingDtos.getLogEnableYn());
+
+            /* 함수 상태가 READY 인  경우에만 실제 함수 리소스 생성 */
+            if (function.isReady()) {
+                function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
+                functionRepository.save(function);
+                knativeService.callFunction(function.getFunctionKey());
+            }
+        }
+
+        CloudLoggingDTO.Response output = new CloudLoggingDTO.Response();
+        output.setLogEnableYn(function.getLogEnableYn());
+
+        return output;
+    }
+
+    public FunctionDTO.DuplicateResponse checkFunctionNameDuplicate(FunctionDTO.Search reqDto) {
+        boolean isExist = functionRepository.existsByDisplayNameAndProjectIdAndDelYn(reqDto.getDisplayName(), reqDto.getProjectId(), "N");
+
+        log.info("isExist = " + isExist);
+        if (isExist) {
+            return FunctionDTO.
+                    DuplicateResponse.
+                    builder().duplicateYn("Y").
+                    build();
+
+        } else {
+            return FunctionDTO.
+                    DuplicateResponse.
+                    builder().duplicateYn("N").
+                    build();
+        }
+    }
+
+    public void deleteKnativeFunctionAll() {
+        
+        ServiceList services = kn.services()
+                .inNamespace("scf-user")
+                .list();
+        for (Service svc : services.getItems()) {
+            log.info("svc.getMetadata().getName() = " + svc.getMetadata().getName());
+            kn.services().inNamespace("scf-user").withName(svc.getMetadata().getName()).delete();
+        }
+    }
+
+    public void deleteUserNamespace(Function function) {
+        try (KubernetesClient client = new DefaultKubernetesClient()) {
+            // 사용자 네임스페이스 삭제
+            client.namespaces().withName(function.getName()).delete();
+            log.info("사용자 네임스페이스 삭제 완료.");
+        } catch (KubernetesClientException e) {
+            log.error("사용자 네임스페이스 삭제오류 발생: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private List<FunctionEnvironmentDTO.Register> getDefaultEnvironmentDTO(String functionName, String region, String runtime) {
+        List<UrlDTO> urlDTOs = UrlUtil.generateUrl(functionName, region,"none");
+
+        List<FunctionEnvironmentDTO.Register> outputs = new ArrayList<>();
+
+        outputs.add(FunctionEnvironmentDTO.Register.builder().type("memory").key("").value("128").build());
+        outputs.add(FunctionEnvironmentDTO.Register.builder().type("limit").key("minute").value("1").build());
+        outputs.add(FunctionEnvironmentDTO.Register.builder().type("limit").key("second").value("0").build());
+        outputs.add(FunctionEnvironmentDTO.Register.builder().type("coldStartYn").key("").value("N").build());
+        outputs.add(FunctionEnvironmentDTO.Register.builder().type("token").key("").value("N").build());
+
+        urlDTOs.stream().forEach(urlDTO -> outputs.add(FunctionEnvironmentDTO.Register.builder().type("url").key(urlDTO.getProtocol()).value(urlDTO.getUrl()).build()));
+
+        return outputs;
+    }
+
+    public FunctionDTO.Response getFunctionCode(String functionKey) {
+        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("펑션키를 확인해주세요"));
+        return function.toDto();
+    }
+
+
+    @Transactional
+    public String getPresignedUrl(DownloadDTO reqDto) throws IOException {
+        try (S3Presigner presigner = S3Presigner.builder()
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(true) // 경로 스타일 구문을 사용 강제 (https://sdk.amazonaws.com/java/api/latest/software/amazon/awssdk/services/s3/S3Configuration.html)
+                        .build())
+                .region(Region.of("ALL")) // SCP Object Storage의 리전은 Endpoint URL에서 설정
+                .endpointOverride(URI.create(reqDto.getEndpointUrl())) // 사용자 지정 S3 엔드포인트 URL로 변경
+                .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(reqDto.getAccessKey(), reqDto.getSecretKey())))
+                .build()) {
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(reqDto.getBucketName())
+                    .key(reqDto.getObjectKey())
+                    .build();
+
+            GetObjectPresignRequest getObjectPresignRequest = GetObjectPresignRequest.builder()
+                    .signatureDuration(Duration.ofMinutes(1)) // 유효시간 1분
+                    .getObjectRequest(getObjectRequest)
+                    .build();
+
+            PresignedGetObjectRequest presignedGetObjectRequest = presigner.presignGetObject(getObjectPresignRequest);
+            String theUrl = presignedGetObjectRequest.url().toString();
+            log.info("Presigned URL: " + theUrl);
+
+            return theUrl;
+        }
+    }
+
+    public void downloadFile(DownloadDTO reqDto) {
+        // AWS S3 클라이언트 생성
+        S3Client s3Client = S3Client.builder()
+                .region(Region.of("ALL")) // SCP Object Storage의 리전은 Endpoint URL에서 설정
+                .endpointOverride(URI.create(reqDto.getEndpointUrl())) // 사용자 지정 S3 엔드포인트 URL로 변경
+                .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(reqDto.getAccessKey(), reqDto.getSecretKey())))
+                .forcePathStyle(true) // 클라이언트 빌더에서 클라이언트가 버킷에 경로 스타일 주소 지정을 사용하도록 강제 (https://docs.aws.amazon.com/ko_kr/sdk-for-java/latest/developer-guide/examples-s3.html)
+                .build();
+
+        // 다운로드할 파일 S3 객체 키 (Object Storage 내 파일 경로)
+        String s3ObjectKey = reqDto.getObjectKey();
+
+        // 로컬에 저장할 파일 경로 및 파일명
+        String localFilePath = "/mb_scf/serverless/javafunction/javafunction.jar";
+
+        // S3 객체 메타데이터 조회
+        HeadObjectRequest headObjectRequest = HeadObjectRequest.builder()
+                .bucket(reqDto.getBucketName())
+                .key(s3ObjectKey)
+                .build();
+
+        try {
+            HeadObjectResponse headObjectResponse = s3Client.headObject(headObjectRequest);
+
+            // S3 객체의 크기 (파일 크기) 가져오기
+            long fileSizeInBytes = headObjectResponse.contentLength();
+            System.out.println("파일 크기: " + fileSizeInBytes + " bytes");
+        } catch (Exception e) {
+            System.err.println("파일 크기 조회 중 오류 발생: " + e.getMessage());
+        }
+
+        // S3에서 파일 다운로드
+        try (ResponseInputStream responseInputStream = s3Client.getObject(
+                GetObjectRequest.builder().bucket(reqDto.getBucketName()).key(s3ObjectKey).build())) {
+            saveInputStreamToFile(responseInputStream, Paths.get(localFilePath));
+            System.out.println("파일이 " + reqDto.getBucketName() + "/" + s3ObjectKey + "에서 다운로드되었습니다.");
+        } catch (IOException e) {
+            System.err.println("파일 다운로드 중 오류 발생: " + e.getMessage());
+        }
+    }
+    private void saveInputStreamToFile(ResponseInputStream responseInputStream, Path destination) throws IOException {
+        try (FileOutputStream outputStream = new FileOutputStream(destination.toFile())) {
+            responseInputStream.transferTo(outputStream);
+        }
+    }
+
+    public void migrationFunction() {
+
+        List<Function> functions = functionRepository.findByFunctionStatusAndDelYn(TypeEnums.FunctionStatus.READY,"N");
+        for (Function function: functions) {
+            // 함수 재배포 시, 함수 상태를 다시 DEPLOYING으로 업데이트
+            if(function.isReady()) {
+                function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
+                functionRepository.save(function);
+            }
+
+            try (KubernetesClient client = new DefaultKubernetesClient()) {
+                // 네임스페이스 목록 가져오기
+                Namespace namespace = client.namespaces().withName(function.getName()).get();
+                if(namespace != null) continue;
+            }
+            catch (Exception e) {
+                e.printStackTrace();
+            }
+            try{
+                triggerService.createUserNamespace(function);
+                triggerService.createUserPVC(function);
+                triggerService.createUserEnvoyFilter(function);
+                knativeService.callIstioAndKnative(function);
+            }catch (Exception e){
+                e.printStackTrace();
+                log.info("\"\" = " + "비동기 임시 에러처리");
+            }
+
+            Trigger trigger = triggerRepository.findByFunction(function).orElse(null);
+
+            if(trigger != null && trigger.getTriggerType().equals("cron")){
+                TriggerCron triggerCron = triggerCronRepository.findByTrigger(trigger).orElseThrow(() -> new ResourceNotFoundException("유효한 Cron 트리거가 존재하지않습니다."));
+                triggerService.makePingSource(function.getName(), triggerCron.getTimezone(), triggerCron.getSchedule());
+            }
+        }
+    }
+
+    // 함수 상태 정보 알림에 대한 동작 처리를 수행하는 서비스
+    @Transactional
+    public FunctionDTO.Response updateFunctionStatus(FunctionDTO.Modify functionDtos, String name) throws IOException {
+        Function function = functionRepository.findByName(name)
+                .orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
+
+        function.setFunctionStatus(TypeEnums.FunctionStatus.valueOf(functionDtos.getFunctionStatus()));
+        functionRepository.save(function);
+
+        notifyCloudMonitoring(function);
+        return function.toDto();
+    }
+
+    private void notifyCloudMonitoring(Function function) throws IOException {
+        String resourceState = function.isReady() ? "Ready" : "Not Ready";
+
+        String requestBody = buildFunctionStatusJson(function, resourceState);
+        URL url = new URL(apimEndpoint + "/cloud-function/v1/internal/cloud-functions/status");
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setRequestMethod("POST");
+        connection.setRequestProperty("Content-Type", "application/json; utf-8");
+        connection.setRequestProperty("Authorization", "Bearer " + apimToken);
+        connection.setDoOutput(true);
+
+        try (OutputStream os = connection.getOutputStream()) {
+            os.write(requestBody.getBytes("utf-8"));
+        }
+
+        if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
+            log.warn("SCP 함수 상태 갱신 API 호출 실패");
+        }
+    }
+
+    private String buildFunctionStatusJson(Function function, String resourceState) {
+        return String.format(
+                "{\"projectId\": \"%s\", \"region\": \"%s\", \"requestBy\": \"%s\", \"resourceId\": \"%s\", \"resourceName\": \"%s\", \"resourceState\": \"%s\"}",
+                function.getProjectId(), function.getRegion(), function.getUserId(),
+                function.getFunctionKey(), function.getDisplayName(), resourceState);
+    }
