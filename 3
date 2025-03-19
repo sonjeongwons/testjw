@@ -1,157 +1,111 @@
-특정 태그명을 가진 EC2 인스턴스를 삭제하지 않도록 필터링하는 기능을 추가했다. EXCLUDED_EC2_TAG_KEY와 EXCLUDED_EC2_TAG_VALUE를 정의하고, 해당 태그를 가진 인스턴스는 삭제 대상에서 제외하도록 수정했다.
-
-import boto3
-
-# 제외할 서비스 목록
-EXCLUDED_SERVICES = [
-    "iam", "organizations", "sso", "billing", "cost-explorer", "support",
-    "cloudwatch", "cloudtrail"
-]
-
-# CleanupLambda 함수 정보
-CLEANUP_LAMBDA_NAME = "CleanupLambda"
-CLEANUP_LAMBDA_REGION = "ap-northeast-2"  # 서울 리전
-
-# EC2 삭제 예외 태그 (해당 태그를 가진 인스턴스는 삭제하지 않음)
-EXCLUDED_EC2_TAG_KEY = "DoNotDelete"
-EXCLUDED_EC2_TAG_VALUE = "true"
-
-# 모든 리전 조회
-regions = [region['RegionName'] for region in boto3.client('ec2').describe_regions()['Regions']]
-
-
-def delete_eks_clusters(region, session):
-    eks = session.client('eks')
-    clusters = eks.list_clusters().get("clusters", [])
-    for cluster in clusters:
-        try:
-            print(f"[{region}] EKS 클러스터 삭제 시작: {cluster}")
-
-            # 1️⃣ 노드 그룹 삭제
-            node_groups = eks.list_nodegroups(clusterName=cluster).get("nodegroups", [])
-            for node_group in node_groups:
-                try:
-                    eks.delete_nodegroup(clusterName=cluster, nodegroupName=node_group)
-                    print(f"[{region}] EKS 노드 그룹 삭제: {node_group}")
-                except Exception as e:
-                    print(f"[{region}] EKS 노드 그룹 삭제 실패: {node_group}, {str(e)}")
-
-            waiter = eks.get_waiter('nodegroup_deleted')
-            for node_group in node_groups:
-                try:
-                    waiter.wait(clusterName=cluster, nodegroupName=node_group)
-                    print(f"[{region}] EKS 노드 그룹 삭제 완료: {node_group}")
-                except Exception as e:
-                    print(f"[{region}] EKS 노드 그룹 삭제 대기 오류: {node_group}, {str(e)}")
-
-            # 2️⃣ 클러스터 삭제
-            eks.delete_cluster(name=cluster)
-            print(f"[{region}] EKS 클러스터 삭제 요청 완료: {cluster}")
-
-        except Exception as e:
-            print(f"[{region}] EKS 클러스터 삭제 실패: {cluster}, {str(e)}")
-
-
-def delete_ec2_instances(region, session):
-    ec2 = session.client('ec2')
-    instances = ec2.describe_instances(Filters=[{'Name': 'instance-state-name', 'Values': ['running', 'stopped']}])
-    
-    instance_ids = []
-    for reservation in instances["Reservations"]:
-        for instance in reservation["Instances"]:
-            instance_id = instance["InstanceId"]
-            tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
-
-            # 특정 태그가 있는 경우 삭제 제외
-            if tags.get(EXCLUDED_EC2_TAG_KEY) == EXCLUDED_EC2_TAG_VALUE:
-                print(f"[{region}] EC2 인스턴스 삭제 제외: {instance_id} (태그: {EXCLUDED_EC2_TAG_KEY}={EXCLUDED_EC2_TAG_VALUE})")
-                continue
-
-            instance_ids.append(instance_id)
-
-    if instance_ids:
-        ec2.terminate_instances(InstanceIds=instance_ids)
-        print(f"[{region}] EC2 인스턴스 삭제: {instance_ids}")
-
-
-def delete_resources(region):
-    session = boto3.session.Session(region_name=region)
-
-    # EC2 인스턴스 삭제 (특정 태그 제외)
-    delete_ec2_instances(region, session)
-
-    # S3 버킷 삭제
-    s3 = session.client('s3')
-    buckets = s3.list_buckets().get("Buckets", [])
-    for bucket in buckets:
-        try:
-            s3.delete_bucket(Bucket=bucket["Name"])
-            print(f"[{region}] S3 버킷 삭제: {bucket['Name']}")
-        except:
-            pass  
-
-    # RDS 인스턴스 삭제
-    rds = session.client('rds')
-    rds_instances = rds.describe_db_instances().get("DBInstances", [])
-    for db in rds_instances:
-        try:
-            rds.delete_db_instance(DBInstanceIdentifier=db["DBInstanceIdentifier"], SkipFinalSnapshot=True, DeleteAutomatedBackups=True)
-            print(f"[{region}] RDS 인스턴스 삭제: {db['DBInstanceIdentifier']}")
-        except:
-            pass
-
-    # Lambda 함수 삭제 (CleanupLambda 제외)
-    lambda_client = session.client('lambda')
-    functions = lambda_client.list_functions().get("Functions", [])
-    for function in functions:
-        function_name = function["FunctionName"]
-        if region == CLEANUP_LAMBDA_REGION and function_name == CLEANUP_LAMBDA_NAME:
-            print(f"[{region}] {CLEANUP_LAMBDA_NAME} 함수는 삭제 대상에서 제외됨")
-            continue
-        try:
-            lambda_client.delete_function(FunctionName=function_name)
-            print(f"[{region}] Lambda 삭제: {function_name}")
-        except:
-            pass
-
-    # EKS 클러스터 삭제
-    delete_eks_clusters(region, session)
-
-    # DynamoDB 테이블 삭제
-    dynamodb = session.client('dynamodb')
-    tables = dynamodb.list_tables().get("TableNames", [])
-    for table in tables:
-        try:
-            dynamodb.delete_table(TableName=table)
-            print(f"[{region}] DynamoDB 테이블 삭제: {table}")
-        except:
-            pass
-
-    print(f"[{region}] 모든 과금 리소스 삭제 완료")
-
-
-# 모든 리전에 대해 실행
-for region in regions:
-    delete_resources(region)
-
-변경된 사항
-
-1. EC2 삭제 로직 개선
-
-delete_ec2_instances() 함수 추가.
-
-인스턴스를 조회한 후 특정 태그 (DoNotDelete=true) 가 있는 경우 삭제하지 않음.
-
-태그를 체크한 후 삭제할 인스턴스 리스트를 terminate_instances()로 삭제.
-
-
-
-2. 전체 리소스 삭제 함수에서 EC2 삭제 로직 분리
-
-delete_resources()에서 직접 EC2를 삭제하는 대신 delete_ec2_instances() 호출.
-
-
-
-
-이제 특정 태그 (DoNotDelete=true)가 설정된 EC2 인스턴스는 삭제되지 않는다.
-
+-----BEGIN CERTIFICATE-----
+MIIHaTCCBlGgAwIBAgIRAJqKEoKPeAvjQnqNyuAVKn4wDQYJKoZIhvcNAQELBQAw
+gZUxCzAJBgNVBAYTAkdCMRswGQYDVQQIExJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAO
+BgNVBAcTB1NhbGZvcmQxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDE9MDsGA1UE
+AxM0U2VjdGlnbyBSU0EgT3JnYW5pemF0aW9uIFZhbGlkYXRpb24gU2VjdXJlIFNl
+cnZlciBDQTAeFw0yNTAyMjEwMDAwMDBaFw0yNjAzMjQyMzU5NTlaMHQxCzAJBgNV
+BAYTAktSMQ4wDAYDVQQIEwVTZW91bDEdMBsGA1UEChMUU2Ftc3VuZyBTRFMgQ28u
+LEx0ZC4xNjA0BgNVBAMTLWN2Yy5wcml2YXRlLmtyLXdlc3QxLmRldjIuc2Ftc3Vu
+Z3Nkc2Nsb3VkLmNvbTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAIl6
+bJ8cFkU2NQgLvK9r9A7KdasPYXUQgPeiwPzV0qSF+J90JAEnxRoT8r+7BSWvPEM/
+yXuwJqneFJCpgGMe3C6guwqsQbjHkWVtGw48pNV43JtnhrXBneu3nGp87FR+6yi0
+Tlmu0/uEWq/c51XHB9x9R5idYpaFEK40wlJ9/iaV1S6N79wHtaAtglv/eWTKEuZ2
+GrywIdL7s5HnSJnBCG2NGO3DJAMOIa1+2D9HkuTAEe2HP9cvkZ6bhb7QHtzUicc0
+p6NRhPa5MIyedBU+CMw7DVNqU8bL8HvxXGDE6LlUKKN9JmIDXTL7wQ83Pz30NbuD
+iJC8jjGZfXUswHP4aYcCAwEAAaOCA9IwggPOMB8GA1UdIwQYMBaAFBfZ1iUnZ/kx
+wklD2TA2RIxsqU/rMB0GA1UdDgQWBBQv8p9WbMZPKgmMtl9uqess4rjiWjAOBgNV
+HQ8BAf8EBAMCBaAwDAYDVR0TAQH/BAIwADAdBgNVHSUEFjAUBggrBgEFBQcDAQYI
+KwYBBQUHAwIwSgYDVR0gBEMwQTA1BgwrBgEEAbIxAQIBAwQwJTAjBggrBgEFBQcC
+ARYXaHR0cHM6Ly9zZWN0aWdvLmNvbS9DUFMwCAYGZ4EMAQICMFoGA1UdHwRTMFEw
+T6BNoEuGSWh0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1JTQU9yZ2FuaXph
+dGlvblZhbGlkYXRpb25TZWN1cmVTZXJ2ZXJDQS5jcmwwgYoGCCsGAQUFBwEBBH4w
+fDBVBggrBgEFBQcwAoZJaHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdvUlNB
+T3JnYW5pemF0aW9uVmFsaWRhdGlvblNlY3VyZVNlcnZlckNBLmNydDAjBggrBgEF
+BQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wggF+BgorBgEEAdZ5AgQCBIIB
+bgSCAWoBaAB2AJaXZL9VWJet90OHaDcIQnfp8DrV9qTzNm5GpD8PyqnGAAABlSYv
+OOMAAAQDAEcwRQIhAO7A9rR6gnjyKh/IBVOA91uHJAKT5bJod5sAeS/wYHagAiA/
+TZgMyAc4JmY2kLvITD6gUzDlqIA4FZqPOUMksRlE0QB2ABmG1Mcoqm/+ugNveCpN
+AZGqzi1yMQ+uzl1wQS0lTMfUAAABlSYvOMQAAAQDAEcwRQIhAJdkDHQZkBpic8I3
+xZQV+wA82Pl1KuJsxflbwEY6gErjAiAn+B9YW1qrlkS0ffplhwvs5in/8eJU5PxC
+TVumZDmgkAB2AMs49xWJfIShRF9bwd37yW7ymlnNRwppBYWwyxTDFFjnAAABlSYv
+OPIAAAQDAEcwRQIgR6baC/FGUO9fOZq2A0B49lOJrXs2FJsUnFXIW1wqPJsCIQDx
+zE4hoQ7mRKmV1J/HlOSEGUEbMq7qxoyAxNStSiHWhjCBlwYDVR0RBIGPMIGMgi1j
+dmMucHJpdmF0ZS5rci13ZXN0MS5kZXYyLnNhbXN1bmdzZHNjbG91ZC5jb22CLGN2
+Yy5wcml2YXRlLmtyLXdlc3QxLnFhMi5zYW1zdW5nc2RzY2xvdWQuY29tgi1jdmMu
+cHJpdmF0ZS5rci13ZXN0MS5zdGcyLnNhbXN1bmdzZHNjbG91ZC5jb20wDQYJKoZI
+hvcNAQELBQADggEBAJBQlr5jWJGDfrvbs8H8yPZwvvNoy9nZLpRVpCh4v4W/NS4m
+jkuRutrp104tjJKR1vGdydDNaHBczW+25zkPFZRJZH/dosJ2SFYYziC1jcpgCKe6
+Wu5CauZvn3G5ufDrq4W4RBaUDqPn6LNqiuS4nbJtjwh736nUUXX1yu6+wTCSK9Zx
+QlekYryB9uZLh+UOSRopXBP1sDHokoMqnprd2+Q9nxOXIbjyFLlI+KWqFwSD83n+
+oKldobmhha3Rwmwlmf3+qH+BxKM0YNlTuOLDsbLXlg2Cd1gIQ9Ji2vFL7+SAUkrO
+jeY4yYjd17x10tKAYmpa7RQb5caryqWpNlhtcMc=
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIIGGTCCBAGgAwIBAgIQE31TnKp8MamkM3AZaIR6jTANBgkqhkiG9w0BAQwFADCB
+iDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0pl
+cnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNV
+BAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwHhcNMTgx
+MTAyMDAwMDAwWhcNMzAxMjMxMjM1OTU5WjCBlTELMAkGA1UEBhMCR0IxGzAZBgNV
+BAgTEkdyZWF0ZXIgTWFuY2hlc3RlcjEQMA4GA1UEBxMHU2FsZm9yZDEYMBYGA1UE
+ChMPU2VjdGlnbyBMaW1pdGVkMT0wOwYDVQQDEzRTZWN0aWdvIFJTQSBPcmdhbml6
+YXRpb24gVmFsaWRhdGlvbiBTZWN1cmUgU2VydmVyIENBMIIBIjANBgkqhkiG9w0B
+AQEFAAOCAQ8AMIIBCgKCAQEAnJMCRkVKUkiS/FeN+S3qU76zLNXYqKXsW2kDwB0Q
+9lkz3v4HSKjojHpnSvH1jcM3ZtAykffEnQRgxLVK4oOLp64m1F06XvjRFnG7ir1x
+on3IzqJgJLBSoDpFUd54k2xiYPHkVpy3O/c8Vdjf1XoxfDV/ElFw4Sy+BKzL+k/h
+fGVqwECn2XylY4QZ4ffK76q06Fha2ZnjJt+OErK43DOyNtoUHZZYQkBuCyKFHFEi
+rsTIBkVtkuZntxkj5Ng2a4XQf8dS48+wdQHgibSov4o2TqPgbOuEQc6lL0giE5dQ
+YkUeCaXMn2xXcEAG2yDoG9bzk4unMp63RBUJ16/9fAEc2wIDAQABo4IBbjCCAWow
+HwYDVR0jBBgwFoAUU3m/WqorSs9UgOHYm8Cd8rIDZsswHQYDVR0OBBYEFBfZ1iUn
+Z/kxwklD2TA2RIxsqU/rMA4GA1UdDwEB/wQEAwIBhjASBgNVHRMBAf8ECDAGAQH/
+AgEAMB0GA1UdJQQWMBQGCCsGAQUFBwMBBggrBgEFBQcDAjAbBgNVHSAEFDASMAYG
+BFUdIAAwCAYGZ4EMAQICMFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNl
+cnRydXN0LmNvbS9VU0VSVHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNy
+bDB2BggrBgEFBQcBAQRqMGgwPwYIKwYBBQUHMAKGM2h0dHA6Ly9jcnQudXNlcnRy
+dXN0LmNvbS9VU0VSVHJ1c3RSU0FBZGRUcnVzdENBLmNydDAlBggrBgEFBQcwAYYZ
+aHR0cDovL29jc3AudXNlcnRydXN0LmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAThNA
+lsnD5m5bwOO69Bfhrgkfyb/LDCUW8nNTs3Yat6tIBtbNAHwgRUNFbBZaGxNh10m6
+pAKkrOjOzi3JKnSj3N6uq9BoNviRrzwB93fVC8+Xq+uH5xWo+jBaYXEgscBDxLmP
+bYox6xU2JPti1Qucj+lmveZhUZeTth2HvbC1bP6mESkGYTQxMD0gJ3NR0N6Fg9N3
+OSBGltqnxloWJ4Wyz04PToxcvr44APhL+XJ71PJ616IphdAEutNCLFGIUi7RPSRn
+R+xVzBv0yjTqJsHe3cQhifa6ezIejpZehEU4z4CqN2mLYBd0FUiRnG3wTqN3yhsc
+SPr5z0noX0+FCuKPkBurcEya67emP7SsXaRfz+bYipaQ908mgWB2XQ8kd5GzKjGf
+FlqyXYwcKapInI5v03hAcNt37N3j0VcFcC3mSZiIBYRiBXBWdoY5TtMibx3+bfEO
+s2LEPMvAhblhHrrhFYBZlAyuBbuMf1a+HNJav5fyakywxnB2sJCNwQs2uRHY1ihc
+6k/+JLcYCpsM0MF8XPtpvcyiTcaQvKZN8rG61ppnW5YCUtCC+cQKXA0o4D/I+pWV
+idWkvklsQLI+qGu41SWyxP7x09fn1txDAXYw+zuLXfdKiXyaNb78yvBXAfCNP6CH
+MntHWpdLgtJmwsQt6j8k9Kf5qLnjatkYYaA7jBU=
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIIF3jCCA8agAwIBAgIQAf1tMPyjylGoG7xkDjUDLTANBgkqhkiG9w0BAQwFADCB
+iDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0pl
+cnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNV
+BAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwHhcNMTAw
+MjAxMDAwMDAwWhcNMzgwMTE4MjM1OTU5WjCBiDELMAkGA1UEBhMCVVMxEzARBgNV
+BAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVU
+aGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2Vy
+dGlmaWNhdGlvbiBBdXRob3JpdHkwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIK
+AoICAQCAEmUXNg7D2wiz0KxXDXbtzSfTTK1Qg2HiqiBNCS1kCdzOiZ/MPans9s/B
+3PHTsdZ7NygRK0faOca8Ohm0X6a9fZ2jY0K2dvKpOyuR+OJv0OwWIJAJPuLodMkY
+tJHUYmTbf6MG8YgYapAiPLz+E/CHFHv25B+O1ORRxhFnRghRy4YUVD+8M/5+bJz/
+Fp0YvVGONaanZshyZ9shZrHUm3gDwFA66Mzw3LyeTP6vBZY1H1dat//O+T23LLb2
+VN3I5xI6Ta5MirdcmrS3ID3KfyI0rn47aGYBROcBTkZTmzNg95S+UzeQc0PzMsNT
+79uq/nROacdrjGCT3sTHDN/hMq7MkztReJVni+49Vv4M0GkPGw/zJSZrM233bkf6
+c0Plfg6lZrEpfDKEY1WJxA3Bk1QwGROs0303p+tdOmw1XNtB1xLaqUkL39iAigmT
+Yo61Zs8liM2EuLE/pDkP2QKe6xJMlXzzawWpXhaDzLhn4ugTncxbgtNMs+1b/97l
+c6wjOy0AvzVVdAlJ2ElYGn+SNuZRkg7zJn0cTRe8yexDJtC/QV9AqURE9JnnV4ee
+UB9XVKg+/XRjL7FQZQnmWEIuQxpMtPAlR1n6BB6T1CZGSlCBst6+eLf8ZxXhyVeE
+Hg9j1uliutZfVS7qXMYoCAQlObgOK6nyTJccBz8NUvXt7y+CDwIDAQABo0IwQDAd
+BgNVHQ4EFgQUU3m/WqorSs9UgOHYm8Cd8rIDZsswDgYDVR0PAQH/BAQDAgEGMA8G
+A1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQEMBQADggIBAFzUfA3P9wF9QZllDHPF
+Up/L+M+ZBn8b2kMVn54CVVeWFPFSPCeHlCjtHzoBN6J2/FNQwISbxmtOuowhT6KO
+VWKR82kV2LyI48SqC/3vqOlLVSoGIG1VeCkZ7l8wXEskEVX/JJpuXior7gtNn3/3
+ATiUFJVDBwn7YKnuHKsSjKCaXqeYalltiz8I+8jRRa8YFWSQEg9zKC7F4iRO/Fjs
+8PRF/iKz6y+O0tlFYQXBl2+odnKPi4w2r78NBc5xjeambx9spnFixdjQg3IM8WcR
+iQycE0xyNN+81XHfqnHd4blsjDwSXWXavVcStkNr/+XeTWYRUc+ZruwXtuhxkYze
+Sf7dNXGiFSeUHM9h4ya7b6NnJSFd5t0dCy5oGzuCr+yDZ4XUmFF0sbmZgIn/f3gZ
+XHlKYC6SQK5MNyosycdiyA5d9zZbyuAlJQG03RoHnHcAP9Dc1ew91Pq7P8yF1m9/
+qS3fuQL39ZeatTXaw2ewh0qpKJ4jjv9cJ2vhsE/zB+4ALtRZh8tSQZXq9EfX7mRB
+VXyNWQKV3WKdwrnuWih0hKWbt5DHDAff9Yk2dDLWKMGwsAvgnEzDHNb842m1R0aB
+L6KCq9NjRHDEjf8tM7qtj3u1cIiuPhnPQCjY/MiQu12ZIvVS5ljFH4gxQ+6IHdfG
+jjxDah2nGN59PRbxYvnKkKj9
+-----END CERTIFICATE-----
