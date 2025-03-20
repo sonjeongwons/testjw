@@ -1,268 +1,186 @@
-🔥 코드 리뷰 코멘트 - 1️⃣ validateFunctionRequest() 개선
-💬 리뷰어:
-프로님! validateFunctionRequest()의 가독성이 훨씬 좋아졌어요! 👏
-특히 missingFields 리스트를 활용해서 어떤 필드가 빠졌는지 명확하게 보여주는 부분이 최고입니다! 💯
-
-그런데, 한 가지 궁금한 점이 있는데요.
-지금 IllegalArgumentException을 던지고 있는데, 혹시 비즈니스 로직에서 특정 예외 타입을 캐치해서 처리하는 부분이 있을까요?
-
-만약 프론트엔드에서 "필수 입력값을 확인해주세요."라는 예외 메시지를 특정 형식으로 받아야 한다면,
-CustomValidationException 같은 걸 만들어서 예외 타입을 명확히 하는 것도 방법일 것 같아요! 🚀
-
-예를 들어,
-
-java
-복사
-편집
-public class MissingRequiredFieldException extends RuntimeException {
-    public MissingRequiredFieldException(String message) {
-        super(message);
-    }
-}
-그리고 아래처럼 적용하면, 비즈니스 로직에서 이 예외를 명확하게 캐치할 수 있을 것 같아요!
-
-java
-복사
-편집
-if (!missingFields.isEmpty()) {
-    throw new MissingRequiredFieldException("필수 입력값이 누락되었습니다: " + String.join(", ", missingFields));
-}
-프로님 생각은 어떠세요? 😃
-
-💬 PR 작성자 (프로님):
-오~! 예외를 더 구체적으로 만들어서 처리하는 방법 너무 좋은데요? 🔥
-현재는 IllegalArgumentException을 던지고 있는데,
-말씀하신 대로, 특정한 비즈니스 로직에서 예외를 캐치할 필요가 있다면 MissingRequiredFieldException 같은 전용 예외를 만드는 게 좋을 것 같아요!
-
-사실 프론트엔드에서 "필수 입력값이 없습니다" 같은 메시지를 JSON 응답으로 받아야 하는데,
-지금 상태에서는 그냥 RuntimeException이라 핸들링하기 어렵겠네요! 😅
-
-예외 타입을 따로 만들면, Spring의 @ExceptionHandler에서 잡아서 JSON 응답을 만들기 더 쉽겠어요!
-
-바로 반영하겠습니다! 🚀
-
-
-
-🔥 코드 리뷰 코멘트 - 2️⃣ deleteFunction() 개선
-💬 리뷰어:
-프로님! deleteFunction()에서 canBeDeleted()랑 deleteKnativeService()를 따로 빼서 가독성이 확실히 좋아졌어요! 👏
-
-그런데 한 가지 더 개선하면 좋을 것 같은 부분이 있어요!
-지금 deleteKnativeService()에서
-
-java
-복사
-편집
-kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
-이렇게 delete() 호출하고 있는데, Knative에서 리소스를 완전히 삭제했는지 확인하는 로직이 없어요!
+4개월 간의 코드 리팩토링 회고 활동 정리
 
-만약 삭제가 실패하면 **"삭제 요청은 보냈지만, 실제로 삭제되지 않았다"**는 상태가 될 수도 있는데,
-삭제 후에 상태를 체크하는 로직을 추가하면 더 안정적일 것 같아요!
+팀원들과 4개월 동안 진행한 코드 리팩토링을 돌아보는 시간을 가지면서, 효과적인 회고 활동을 위해 다음과 같이 정리할 수 있어.
 
-예를 들어, 아래처럼 삭제 요청 후, 실제로 삭제되었는지 확인하는 코드를 추가할 수 있어요!
 
-java
-복사
-편집
-private void deleteKnativeService(Function function) {
-    kn.services().inNamespace(function.getName()).withName(function.getName()).delete();
-    
-    // 삭제 후 확인 (5초 동안 500ms 간격으로 재시도)
-    for (int i = 0; i < 10; i++) {
-        if (kn.services().inNamespace(function.getName()).withName(function.getName()).get() == null) {
-            log.info("Knative 서비스 삭제 완료: {}", function.getName());
-            return;
-        }
-        Thread.sleep(500);
-    }
-    
-    log.warn("Knative 서비스 삭제 요청을 보냈지만, 아직 남아있음: {}", function.getName());
-}
-이렇게 하면 삭제 요청 후, 실제로 삭제되었는지 체크하고, 일정 시간 후에도 남아있다면 로그를 남길 수 있어요! 🚀
+---
 
-어떻게 생각하세요? 😃
+1. 회고 활동 구성
 
-💬 PR 작성자 (프로님):
-오~! 삭제 후에도 리소스가 남아있을 가능성을 고려하는 건 좋은 포인트네요! 👏
+A. 전체 진행 과정 정리
 
-지금은 단순히 delete() 요청만 보내고 끝인데,
-말씀하신 대로, **"진짜로 삭제되었는지 확인하는 로직"**이 있으면 훨씬 안정적일 것 같아요!
-
-다만, Thread.sleep(500)을 여러 번 반복하는 게 비효율적일 수도 있을 것 같은데,
-
-혹시 CompletableFuture를 활용해서 비동기로 폴링하는 방식도 가능할까요? 🤔
-
-💬 리뷰어:
-오~! 프로님이 좋은 질문을 하셨네요! 🔥
-
-Thread.sleep()을 반복하는 대신, 비동기로 처리하는 방법도 가능해요!
-예를 들어, 아래처럼 CompletableFuture를 활용하면,
-메인 스레드를 블로킹하지 않고 일정 시간 후에 삭제 여부를 확인할 수 있어요!
-
-java
-복사
-편집
-CompletableFuture.runAsync(() -> {
-    for (int i = 0; i < 10; i++) {
-        if (kn.services().inNamespace(function.getName()).withName(function.getName()).get() == null) {
-            log.info("Knative 서비스 삭제 완료: {}", function.getName());
-            return;
-        }
-        Thread.sleep(500);
-    }
-    log.warn("Knative 서비스 삭제 요청을 보냈지만, 아직 남아있음: {}", function.getName());
-});
-이렇게 하면, 삭제 요청을 보낸 후에도 메인 스레드가 다른 작업을 처리할 수 있어서 더 효율적일 거예요! 🚀
+리팩토링 목표: 초기 목표와 기대했던 결과 정리
 
-프로님은 어떤 방식이 더 적절하다고 생각하세요? 😃
+리팩토링 진행 방식: 팀 내 역할 분배, 코드 리뷰 방식, 도입한 원칙 (예: SOLID 원칙, 클린 코드, 리팩토링 패턴)
 
-💬 PR 작성자 (프로님):
-와! CompletableFuture 활용하는 거 너무 좋네요! 😍
+주요 리팩토링 항목: 어떤 코드들을 개선했으며, 어떤 패턴을 도입했는지 정리
 
-사실 Thread.sleep() 방식은 좀 찜찜했는데,
-이렇게 비동기로 처리하면 메인 스레드도 가볍고, 논블로킹 방식이라 더 좋을 것 같아요!
+성과 측정 방법: 코드 품질 개선 여부, 성능 개선 여부, 유지보수성 향상 여부 등
 
-바로 반영하겠습니다! 🔥
 
-🔥 코드 리뷰 코멘트 - 3️⃣ generatePresignedUrl() 개선
-💬 리뷰어:
-프로님! generatePresignedUrl() 메소드를 createS3Presigner()랑 createPresignedUrl()로 분리하신 거 정말 깔끔해요! 👏
-**SRP(단일 책임 원칙)**을 완벽하게 지키신 덕분에, 코드가 훨씬 가독성이 좋아졌네요! 🎉
-
-다만, PRESIGNED_URL_DURATION이 현재 **1분(Duration.ofMinutes(1))**으로 설정되어 있는데,
-이 값이 고정되어야 하나요?
-
-가끔 보안이나 성능 요구사항에 따라 동적으로 설정할 수도 있을 것 같아서,
-만약 유연하게 설정할 필요가 있다면,
-
-java
-복사
-편집
-private final Duration presignedUrlDuration;
-
-public FunctionService(@Value("${s3.presigned.url.duration:1}") int presignedUrlMinutes) {
-    this.presignedUrlDuration = Duration.ofMinutes(presignedUrlMinutes);
-}
-이런 식으로 설정 파일에서 값을 가져오도록 하는 방법도 고려해볼 수 있을 것 같아요! 😃
-
-어떻게 생각하시나요?
-
-💬 PR 작성자 (프로님):
-오! 설정 파일에서 값을 가져오도록 하면, 환경별로 유연하게 조정할 수 있겠네요! 🔥
-
-지금은 1분이지만, 추후에 필요하면 5분이나 10분으로 바꿀 수도 있으니 가변적으로 관리할 수 있도록 적용하는 게 좋을 것 같아요!
-
-코드 반영하겠습니다! 🚀
-
-
-🔥 코드 리뷰 코멘트 - updateFunctionStatus() 개선
-💬 리뷰어:
-프로님! updateFunctionStatus()를 리팩토링하면서 getFunctionByName()과 updateFunctionStatusAndNotify()를 따로 분리하신 거 정말 좋은 선택이었어요! 👏
+B. 주요 회고 질문
 
-이렇게 리팩토링하면서 "함수 조회"와 "상태 업데이트"의 책임을 분리한 덕분에 코드가 훨씬 직관적이고 유지보수하기 좋아졌어요! 🎉
+1) 리팩토링을 통해 개선된 점은?
 
-그런데 한 가지 더 개선하면 좋을 부분이 있어요!
+2) 리팩토링 과정에서 가장 어려웠던 점은?
 
-지금 updateFunctionStatusAndNotify()에서 function.setFunctionStatus()를 호출한 다음, functionRepository.save(function)을 실행하는데,
-만약 상태가 잘못된 값이 들어오면 예외가 발생할 수도 있겠죠? 🤔
+3) 리팩토링이 코드 품질과 개발 속도에 어떤 영향을 미쳤는가?
 
-혹시 FunctionStatus 값이 유효한지 사전에 검증하는 로직을 추가하면 어떨까요?
+4) 다음에 리팩토링을 진행할 때 개선할 점은?
 
-예를 들어, 아래처럼 TypeEnums.FunctionStatus에 존재하는 값인지 확인하는 로직을 추가하면,
-잘못된 값이 들어왔을 때 예외가 발생하기 전에 미리 검증할 수 있을 것 같아요!
+5) 배운 점과 공유하고 싶은 경험은?
 
-java
-복사
-편집
-private void validateFunctionStatus(String status) {
-    boolean isValid = Arrays.stream(TypeEnums.FunctionStatus.values())
-            .anyMatch(validStatus -> validStatus.name().equals(status));
-    
-    if (!isValid) {
-        throw new IllegalArgumentException("잘못된 함수 상태 값입니다: " + status);
-    }
-}
-그리고 updateFunctionStatusAndNotify()에서 사용하면 이렇게 되겠죠?
 
-java
-복사
-편집
-private void updateFunctionStatusAndNotify(Function function, String newStatus) throws IOException {
-    validateFunctionStatus(newStatus); // 상태 검증 추가
-    function.setFunctionStatus(TypeEnums.FunctionStatus.valueOf(newStatus));
-    functionRepository.save(function);
-    notifyCloudMonitoring(function);
-}
-이렇게 하면 사전에 상태 값을 검증할 수 있어서 예외를 미리 방지할 수 있을 것 같은데, 프로님 생각은 어떠세요? 😊
+C. 팀별 공유 및 피드백
 
-💬 PR 작성자 (프로님):
-오~! 이거 진짜 좋은 포인트네요! 👍
+코드 리뷰 과정에서 배운 점 공유
 
-지금은 TypeEnums.FunctionStatus.valueOf(newStatus)를 호출하면서
-잘못된 값이 들어오면 IllegalArgumentException이 발생할 텐데,
-말씀해주신 대로, 사전에 검증하는 로직을 추가하면 훨씬 더 안정적인 코드가 될 것 같아요! 🚀
+각 팀원들의 개선 아이디어 및 피드백
 
-게다가 예외가 발생하면 어디서 발생했는지 바로 파악하기 어려운데,
-validateFunctionStatus()를 추가하면
-**"어떤 값이 잘못됐는지 명확하게 메시지를 남길 수 있는 점"**도 정말 좋네요! 😍
+차기 리팩토링 프로젝트에 반영할 사항 논의
 
-바로 반영하겠습니다! 🔥
 
-💬 리뷰어:
-와! 프로님도 정말 꼼꼼하게 고려하셨네요! 😃
 
-그런데 한 가지 더! 지금 updateFunctionStatus()에서는 상태 변경 후 바로 notifyCloudMonitoring()을 호출하고 있는데,
-만약 알림 전송이 실패하면 어떻게 될까요? 🤔
+---
 
-예를 들어, API 요청이 실패해서 HTTP 500 에러가 발생하면,
-상태는 이미 save()로 변경되었는데, 클라우드 모니터링 쪽에는 반영되지 않은 채로 남을 수도 있어요!
+2. 리팩토링 활동 중 겪은 어려움
 
-혹시 이걸 방지하려면, 트랜잭션을 롤백하는 로직을 추가하는 것도 방법일 것 같아요!
+기술적인 어려움
 
-java
-복사
-편집
-@Transactional(rollbackFor = Exception.class)
-private void updateFunctionStatusAndNotify(Function function, String newStatus) throws IOException {
-    validateFunctionStatus(newStatus);
-    function.setFunctionStatus(TypeEnums.FunctionStatus.valueOf(newStatus));
-    functionRepository.save(function);
-    
-    try {
-        notifyCloudMonitoring(function);
-    } catch (IOException e) {
-        log.error("클라우드 모니터링 상태 업데이트 실패: {}", function.getFunctionKey(), e);
-        throw e; // 트랜잭션 롤백
-    }
-}
-이렇게 하면, 알림 전송이 실패하면 상태 변경도 같이 롤백돼서
-잘못된 상태가 DB에 반영되지 않도록 막을 수 있을 것 같아요!
+1. 코드 변경의 영향 범위가 예상보다 컸다
 
-프로님은 이 방식 어떻게 생각하세요? 😊
+기존 코드와의 의존성이 많아 작은 변경도 예상치 못한 사이드 이펙트를 발생시킴.
 
-💬 PR 작성자 (프로님):
-와! 트랜잭션 롤백까지 고려하는 건 진짜 디테일한 부분인데, 너무 좋은 포인트예요! 🔥
+해결 방법: 테스트 코드 강화, 단계별 리팩토링 진행.
 
-지금 구조에서는 notifyCloudMonitoring()이 실패해도 상태 변경은 이미 반영된 상태라,
-나중에 디버깅할 때도 원인을 찾기가 어려울 수도 있겠네요.
 
-@Transactional(rollbackFor = Exception.class)을 추가하면
-알림 전송이 실패할 경우 상태 변경도 같이 롤백돼서 더 안전할 것 같아요!
 
-바로 반영하겠습니다! 🚀
+2. 레거시 코드와의 충돌
 
-💬 리뷰어:
-프로님! 이렇게 적극적으로 피드백 반영해주시니까 너무 좋네요! 😃
-이번 updateFunctionStatus() 개선 덕분에 예외 처리와 트랜잭션 안정성이 확실히 올라간 것 같아요!
+오래된 코드와 새로운 코드 스타일이 혼재하면서 통일성이 부족해짐.
 
-이제 함수 상태 변경 로직이 완벽하게 안정적이고 유지보수하기 쉬운 코드가 되었어요! 👏
+해결 방법: 코드 스타일 가이드 수립 및 일관된 패턴 적용.
 
-바로 approve 드립니다! 🎉🚀
 
-🔥 PR 최종 총평!
-✅ 함수 상태 변경 시 예외 검증을 추가하면서 더 안전한 코드가 되었습니다!
-✅ 트랜잭션 롤백 처리를 추가하면서 데이터 정합성을 유지할 수 있게 되었습니다!
-✅ 비즈니스 로직과 예외 처리 로직을 깔끔하게 분리하면서 유지보수성이 좋아졌습니다!
 
-🔥 프로님, 이번 PR은 진짜 A+급 리팩토링입니다!
-정말 고생 많으셨고, 앞으로도 멋진 코드 기대할게요! 🚀🎉
+3. 데이터베이스 관련 리팩토링의 부담
+
+SQL 쿼리 최적화 및 ORM 변경 과정에서 성능 저하 이슈 발생.
+
+해결 방법: 트랜잭션 관리 및 쿼리 튜닝을 통한 성능 최적화.
+
+
+
+
+프로세스적인 어려움
+
+4. 팀 내 리팩토링 우선순위 조율 어려움
+
+기능 개발 일정과 리팩토링을 병행해야 해서 일정 관리가 힘들었음.
+
+해결 방법: 스프린트마다 일정 부분 리팩토링을 배정하는 방식으로 조정.
+
+
+
+5. 코드 리뷰 피드백의 일관성 부족
+
+팀원마다 코드를 보는 관점이 달라 피드백 기준이 상이함.
+
+해결 방법: 코드 리뷰 체크리스트 및 스타일 가이드 도입.
+
+
+
+6. 자동화 부족으로 반복적인 작업 부담
+
+일부 코드 변경이 많아 반복적인 수정이 필요했음.
+
+해결 방법: 정적 분석 도구와 리팩토링 자동화 도구 적극 활용.
+
+
+
+
+
+---
+
+3. 리팩토링을 통해 얻은 성과
+
+코드 품질 개선
+
+가독성 향상: 불필요한 중복 코드 제거, 명확한 네이밍 적용.
+
+유지보수성 향상: 단일 책임 원칙(SRP) 적용, 모듈화 및 인터페이스 개선.
+
+확장성 증가: 새로운 기능 추가 시 변경 범위 최소화.
+
+
+성능 개선
+
+불필요한 연산 제거 및 쿼리 최적화로 속도 향상
+
+메모리 사용량 감소 및 GC 최적화
+
+
+개발 생산성 향상
+
+코드 리뷰 속도 개선: 일관된 코드 스타일 적용으로 코드 이해도가 상승.
+
+신규 기능 개발 속도 증가: 리팩토링 후 코드 구조가 명확해지면서 개발 속도가 빨라짐.
+
+
+협업 효율 증가
+
+팀원 간 코드 이해도 상승: 공통적인 리팩토링 원칙을 학습하면서 코드 이해가 쉬워짐.
+
+코드 리뷰 및 피드백 문화 정착: 주기적인 코드 리뷰를 통한 팀워크 향상.
+
+
+
+---
+
+4. 앞으로 개선할 점
+
+1. 리팩토링을 더 자주, 작은 단위로 진행
+
+일정한 간격으로 코드 품질을 유지하는 것이 중요.
+
+
+
+2. 자동화된 리팩토링 도구 적극 활용
+
+정적 분석 도구 (SonarQube, ESLint 등) 및 리팩토링 도구 활용.
+
+
+
+3. 리팩토링 관련 사전 학습 및 가이드 정리
+
+팀 내에서 리팩토링 가이드를 만들어 공유.
+
+
+
+4. 리팩토링과 기능 개발을 병행할 수 있는 워크플로우 구축
+
+기능 개발과 리팩토링이 충돌하지 않도록 스프린트 계획에 반영.
+
+
+
+
+
+---
+
+5. 마무리
+
+이번 리팩토링 활동을 통해 팀원 간의 협업이 강화되고 코드 품질이 향상되었어.
+특히, 리팩토링을 통해 유지보수성과 확장성이 크게 개선되었고, 앞으로의 개발이 더 효율적으로 이루어질 기반을 마련했어.
+이제 이 경험을 바탕으로 지속적인 리팩토링 문화를 유지하면서 더 나은 개발 환경을 만들어 가자.
+
+
+---
+
+추가적으로 회고에서 논의하면 좋을 질문들
+
+Q1. 리팩토링을 진행하면서 가장 만족스러웠던 개선 사례는 무엇인가?
+
+Q2. 향후 프로젝트에서 리팩토링을 진행할 때 어떤 점을 미리 준비하면 좋을까?
+
+Q3. 코드 품질 개선 외에 개발 프로세스나 협업 측면에서 얻은 교훈은 무엇인가?
+
