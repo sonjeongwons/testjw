@@ -20,4 +20,19 @@ root@j1-son002:~# cat .docker/config.json
                                                       }
                                                         }
 }
-root@j1-son002:~#
+root@j1-son002:~# vi /etc/systemd/system/docker.service.d/http-proxy.conf
+root@j1-son002:~# systemctl show --property=Environment docker
+Environment=HTTP_PROXY=http://70.10.15.10:8080 HTTPS_PROXY=http://70.10.15.10:8080 NO_PROXY=code.sdsdev.co.kr,sds.redii.net,localhost,127.0.0.1,scr-dev.comm.scp-in.com,172.28.128.11,172.28.128.12,172.28.128.13
+root@j1-son002:~# vi /etc/systemd/system/docker.service.d/http-proxy.conf
+root@j1-son002:~# systemctl show --property=Environment docker
+Environment=HTTP_PROXY=http://70.10.15.10:8080 HTTPS_PROXY=http://70.10.15.10:8080 NO_PROXY=code.sdsdev.co.kr,sds.redii.net,localhost,127.0.0.1,scr-dev.comm.scp-in.com,172.28.128.11,172.28.128.12,172.28.128.13
+root@j1-son002:~# cat /etc/systemd/system/docker.service.d/http-proxy.conf
+[Service]
+Environment="HTTP_PROXY=http://70.10.15.10:8080"
+Environment="HTTPS_PROXY=http://70.10.15.10:8080"
+Environment="NO_PROXY=code.sdsdev.co.kr,sds.redii.net,localhost,127.0.0.1,scr-dev.comm.scp-in.com,172.28.128.11,172.28.128.12,172.28.128.13,harbor-paasdev.samsungsdscloud.com"
+root@j1-son002:~# systemctl daemon-reexec
+root@j1-son002:~# systemctl daemon-reload
+root@j1-son002:~# systemctl restart docker
+root@j1-son002:~# systemctl show --property=Environment docker
+Environment=HTTP_PROXY=http://70.10.15.10:8080 HTTPS_PROXY=http://70.10.15.10:8080 NO_PROXY=code.sdsdev.co.kr,sds.redii.net,localhost,127.0.0.1,scr-dev.comm.scp-in.com,172.28.128.11,172.28.128.12,172.28.128.13
