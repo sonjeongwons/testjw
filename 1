@@ -1,16 +1,5 @@
-A problem occurred configuring root project 'cvc-scanner'.
-> Could not resolve all artifacts for configuration 'classpath'.
-   > Could not resolve org.springframework.boot:spring-boot-gradle-plugin:3.4.1.
-     Required by:
-         root project : > org.springframework.boot:org.springframework.boot.gradle.plugin:3.4.1
-      > Dependency requires at least JVM runtime version 17. This build uses a Java 8 JVM.
-
-* Try:
-> Run this build using a Java 17 or newer JVM.
-> Run with --stacktrace option to get the stack trace.
-> Run with --info or --debug option to get more log output.
-> Run with --scan to get full insights.
-> Get more help at https://help.gradle.org.
-Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
-You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
-For more on this, please refer to https://docs.gradle.org/8.11.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+root@j1-son002:~# cat .docker/config.json
+{"credStore":"desktop.exe","proxies":{"default":{"httpProxy":"http://70.10.15.10:8080","httpsProxy":"http://70.10.15.10:8080","noProxy":"code.sdsdev.co.kr,sds.redii.net,localhost,127.0.0.1,scr-dev.comm.scp-in.com,harbor-paasdev.samsungsdscloud.com"}}
+root@j1-son002:~# docker push harbor-paasdev.samsungsdscloud.com/scf/scf-package-repo:0.1
+WARNING: Error loading config file: /root/.docker/config.json: unexpected EOF
+The push refers to repository [harbor-paasdev.samsungsdscloud.com/scf/scf-package-repo]
