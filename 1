@@ -1,47 +1,23 @@
-[이규승] 2025-04-21 16:05
-Apr 21 14:38:11 pg-kre1-mb-scf-manager-01 systemd[1]: ds_agent.service: Succeeded.
-Apr 21 14:38:11 pg-kre1-mb-scf-manager-01 systemd[1]: Stopped Trend Micro Deep Security Agent.
-Apr 21 14:38:15 pg-kre1-mb-scf-manager-01 systemd[1]: Reloading.
-Apr 21 14:38:15 pg-kre1-mb-scf-manager-01 systemd[1]: Configuration file /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
-Apr 21 14:38:15 pg-kre1-mb-scf-manager-01 systemd[1]: Reloading.
-Apr 21 14:38:15 pg-kre1-mb-scf-manager-01 systemd[1]: Configuration file /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
-Apr 21 14:38:15 pg-kre1-mb-scf-manager-01 systemd[1]: Reloading.
-Apr 21 14:38:15 pg-kre1-mb-scf-manager-01 systemd[1]: Configuration file /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: ds_agent.service: Found left-over process 624198 (sh) in control group while starting unit. Ignoring.
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: This usually indicates unclean termination of a previous run, or service implementation deficiencies.
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: ds_agent.service: Found left-over process 624199 (rpm) in control group while starting unit. Ignoring.
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: This usually indicates unclean termination of a previous run, or service implementation deficiencies.
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: ds_agent.service: Found left-over process 624519 (sh) in control group while starting unit. Ignoring.
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: This usually indicates unclean termination of a previous run, or service implementation deficiencies.
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: ds_agent.service: Found left-over process 624520 (systemctl) in control group while starting unit. Ignoring.
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: This usually indicates unclean termination of a previous run, or service implementation deficiencies.
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: Starting Trend Micro Deep Security Agent...
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 ds_agent.init[624521]: Starting ds_agent: [  OK  ]
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: Started Trend Micro Deep Security Agent.
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: Reloading.
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: Configuration file /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
-Apr 21 14:38:17 pg-kre1-mb-scf-manager-01 systemd[1]: Reloading.
+root@j1-son002:~# docker push harbor-paasdev.samsungsdscloud.com/scf/scf-package-repo:0.1
+The push refers to repository [harbor-paasdev.samsungsdscloud.com/scf/scf-package-repo]
+Get "https://harbor-paasdev.samsungsdscloud.com/v2/": net/http: TLS handshake timeout
+root@j1-son002:~# ^C
+root@j1-son002:~# telnet harbor-paasdev.samsungsdscloud.com 443
+Trying 182.197.136.253...
+Connected to harbor-paasdev.samsungsdscloud.com.
+Escape character is '^]'.
+^]
+telnet> Connection closed.
+root@j1-son002:~# cat .docker/config.json
 
-[이규승] 2025-04-21 16:05
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: Reloading.
-Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: Configuration file /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
-Apr 21 14:38:17 pg-kre1-mb-scf-manager-01 systemd[1]: Reloading.
-Apr 21 14:38:17 pg-kre1-mb-scf-manager-01 systemd[1]: Configuration file /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa_filter_hook: loading out-of-tree module taints kernel.
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa_filter_hook: loading out-of-tree module taints kernel.
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa_filter_hook: module verification failed: signature and/or required key missing - tainting kernel
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa_filter_hook: module verification failed: signature and/or required key missing - tainting kernel
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa_filter: module license 'Proprietary' taints kernel.
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: Disabling lock debugging due to kernel taint
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: loading filter 12.6.0.5592
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: registered on device 10:122
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: registered on ssl device 10:121
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: filter loaded OK
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa_filter: module license 'Proprietary' taints kernel.
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: Disabling lock debugging due to kernel taint
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: loading filter 12.6.0.5592
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: registered on device 10:122
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: registered on ssl device 10:121
-Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: filter loaded OK
-Apr 21 14:38:23 pg-kre1-mb-scf-manager-01 kernel: Adding Red Hat flag eBPF/event.
-Apr 21 14:38:23 pg-kre1-mb-scf-manager-01 kernel: Adding Red Hat flag eBPF/event.
+{
+          "credStore": "desktop.exe",
+            "proxies": {
+                        "default": {
+                                      "httpProxy": "http://70.10.15.10:8080",
+                                            "httpsProxy": "http://70.10.15.10:8080",
+                                                  "noProxy": "code.sdsdev.co.kr,sds.redii.net,localhost,127.0.0.1,scr-dev.comm.scp-in.com,harbor-paasdev.samsungsdscloud.com"
+                                                      }
+                                                        }
+}
+root@j1-son002:~#
