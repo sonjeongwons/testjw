@@ -1,88 +1,136 @@
-root@j1-son002:~# docker push harbor-paasdev.samsungsdscloud.com/scf/scf-package-repo
-Using default tag: latest
-The push refers to repository [harbor-paasdev.samsungsdscloud.com/scf/scf-package-repo]
-Get "https://harbor-paasdev.samsungsdscloud.com/v2/": net/http: TLS handshake timeout
-root@j1-son002:~# curl -v https://harbor-paasdev.samsungsdscloud.com
-* Uses proxy env variable no_proxy == '{{본인컴퓨터ip}},{{k8s클러스터 ip}},localhost,127.0.0.1,172.28.128.11,172.28.128.12,172.28.128.13,10.96.0.1,code.sdsdev.co.kr,scr-dev.comm.scp-in.com,paas-dssqlxhe.scr.skr-west.scp-in.com,harbor-paasdev.samsungsdscloud.com'
-*   Trying 182.197.136.253:443...
-* Connected to harbor-paasdev.samsungsdscloud.com (182.197.136.253) port 443 (#0)
-* ALPN, offering h2
-* ALPN, offering http/1.1
-*  CAfile: /etc/ssl/certs/ca-certificates.crt
-*  CApath: /etc/ssl/certs
-* TLSv1.0 (OUT), TLS header, Certificate Status (22):
-* TLSv1.3 (OUT), TLS handshake, Client hello (1):
-* TLSv1.2 (IN), TLS header, Certificate Status (22):
-* TLSv1.3 (IN), TLS handshake, Server hello (2):
-* TLSv1.2 (IN), TLS header, Finished (20):
-* TLSv1.2 (IN), TLS header, Supplemental data (23):
-* TLSv1.3 (IN), TLS handshake, Encrypted Extensions (8):
-* TLSv1.2 (IN), TLS header, Supplemental data (23):
-* TLSv1.3 (IN), TLS handshake, Certificate (11):
-* TLSv1.2 (IN), TLS header, Supplemental data (23):
-* TLSv1.3 (IN), TLS handshake, CERT verify (15):
-* TLSv1.2 (IN), TLS header, Supplemental data (23):
-* TLSv1.3 (IN), TLS handshake, Finished (20):
-* TLSv1.2 (OUT), TLS header, Finished (20):
-* TLSv1.3 (OUT), TLS change cipher, Change cipher spec (1):
-* TLSv1.2 (OUT), TLS header, Supplemental data (23):
-* TLSv1.3 (OUT), TLS handshake, Finished (20):
-* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384
-* ALPN, server accepted to use h2
-* Server certificate:
-*  subject: C=KR; ST=Seoul; O=Samsung SDS Co.,Ltd.; CN=*.samsungsdscloud.com
-*  start date: Apr  4 00:00:00 2024 GMT
-*  expire date: May  5 23:59:59 2025 GMT
-*  subjectAltName: host "harbor-paasdev.samsungsdscloud.com" matched cert's "*.samsungsdscloud.com"
-*  issuer: C=GB; ST=Greater Manchester; L=Salford; O=Sectigo Limited; CN=Sectigo RSA Organization Validation Secure Server CA
-*  SSL certificate verify ok.
-* Using HTTP2, server supports multiplexing
-* Connection state changed (HTTP/2 confirmed)
-* Copying HTTP/2 data in stream buffer to connection buffer after upgrade: len=0
-* TLSv1.2 (OUT), TLS header, Supplemental data (23):
-* TLSv1.2 (OUT), TLS header, Supplemental data (23):
-* TLSv1.2 (OUT), TLS header, Supplemental data (23):
-* Using Stream ID: 1 (easy handle 0x55e091627eb0)
-* TLSv1.2 (OUT), TLS header, Supplemental data (23):
-> GET / HTTP/2
-> Host: harbor-paasdev.samsungsdscloud.com
-> user-agent: curl/7.81.0
-> accept: */*
->
-* TLSv1.2 (IN), TLS header, Supplemental data (23):
-* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
-* TLSv1.2 (IN), TLS header, Supplemental data (23):
-* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
-* old SSL session ID is stale, removing
-* TLSv1.2 (IN), TLS header, Supplemental data (23):
-* Connection state changed (MAX_CONCURRENT_STREAMS == 128)!
-* TLSv1.2 (OUT), TLS header, Supplemental data (23):
-* TLSv1.2 (IN), TLS header, Supplemental data (23):
-* TLSv1.2 (IN), TLS header, Supplemental data (23):
-< HTTP/2 200
-< date: Mon, 21 Apr 2025 05:32:34 GMT
-< content-type: text/html
-< content-length: 785
-< last-modified: Thu, 16 Jan 2025 14:03:23 GMT
-< etag: "678911ab-311"
-< cache-control: no-store, no-cache, must-revalidate
-< accept-ranges: bytes
-<
-<!DOCTYPE html>
+<!DOCTYPE html
+	PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html>
-    <head>
-        <meta charset="utf-8"/>
-        <title>Harbor</title>
-        <base href="/"/>
-        <meta name="viewport" content="width=device-width, initial-scale=1"/>
-        <link rel="icon" type="image/x-icon" href="favicon.ico?v=2"/>
-    <link rel="stylesheet" href="styles.ac415221c96d2bef.css"></head>
-    <body>
-        <harbor-app>
-            <div class="spinner spinner-lg app-loading app-loading-fixed">
-                Loading...
-            </div>
-        </harbor-app>
-    <script src="runtime.91e26be486c2d932.js" type="module"></script><script src="polyfills.d87db3092ff69ed9.js" type="module"></script><script src="scripts.3846d86d42cdb753.js" defer></script><script src="main.72868ed174e550be.js" type="module"></script></body>
+<!-- FileName: index.html
+     Language: [en]
+-->
+<!--Head-->
+
+<head>
+	<meta content="text/html; charset=UTF-8" http-equiv="Content-Type">
+	<meta http-equiv="X-UA-Compatible" content="IE=7" />
+	<title>McAfee Web Gateway - Notification</title>
+	<script src="/mwg-internal/de5fs23hu73ds/files/javascript/sw.js" type="text/javascript"></script>
+	<link rel="stylesheet" href="/mwg-internal/de5fs23hu73ds/files/default/stylesheet.css" />
+</head>
+<!--/Head-->
+<!--Body-->
+
+<body onload="swOnLoad();">
+	<table class='bodyTable'>
+		<tr>
+			<td class='bodyData' background='/mwg-internal/de5fs23hu73ds/files/default/img/bg_body.gif'>
+				<!--Logo-->
+				<table class='logoTable'>
+					<tr>
+						<td class='logoData'>
+							<a href='http://www.mcafee.com'>
+								<img src='/mwg-internal/de5fs23hu73ds/files/default/img/logo_mwg.png'></a>
+						</td>
+					</tr>
+				</table>
+				<!--/Logo-->
+				<!--Contents-->
+				<!-- FileName: badgateway.html
+     Language: [en]
+-->
+
+				<!DOCTYPE html
+					PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+				<html>
+
+				<head>
+					<meta content="text/html; charset=UTF-8" http-equiv="Content-Type">
+					<meta http-equiv="X-UA-Compatible" content="IE=7" />
+					<title>Bad Response</title>
+					<script src="/mwg-internal/de5fs23hu73ds/files/javascript/sw.js" type="text/javascript"></script>
+					<link rel="stylesheet" href="/mwg-internal/de5fs23hu73ds/files/default/style.css" />
+				</head>
+				<!--Content-->
+				<table class="contentTable2">
+					<tr>
+						<td class="contentData2">
+							Bad Response : No response from the web site. (502 Bad Gateway)
+						</td>
+					</tr>
+				</table>
+				<!--/Content-->
+
+				</html>
+
+				<!--Title-->
+				<table class='titleTable' background='/mwg-internal/de5fs23hu73ds/files/default/img/bg_navbar.jpg'>
+					<tr>
+						<td class='titleData'>
+							Bad Response
+						</td>
+					</tr>
+				</table>
+				<!--/Title-->
+
+				<!--Content-->
+				<table class="contentTable">
+					<tr>
+						<td class="contentData">
+							The proxy did not receive a valid response in time.
+						</td>
+					</tr>
+				</table>
+				<!--/Content-->
+
+				<!--Info-->
+				<table class="infoTable">
+					<tr>
+						<td class="infoData">
+							<b>URL: </b>
+							<script type="text/javascript">
+								break_line("http://cvc.private.kr-west1.dev2.samsungsdscloud.com/api/v1/scanner/status");
+							</script><br />
+							<p class="proxyErrorData">Failure Description: :state 9:Application response 502 badgateway
+							</p>
+						</td>
+					</tr>
+				</table>
+				<!--/Info-->
+
+				<!--/Contents-->
+				<!--Policy-->
+				<table class='policyTable'>
+					<tr>
+						<td class='policyHeading'>
+							<hr>
+							Company Acceptable Use Policy
+						</td>
+					</tr>
+					<tr>
+						<td class='policyData'>
+							This is an optional acceptable use disclaimer that appears on every page. You may change the
+							wording or remove this section entirely in index.html.
+						</td>
+					</tr>
+				</table>
+				<!--/Policy-->
+				<!--Foot-->
+				<table class='footTable'>
+					<tr>
+						<td class='helpDeskData'
+							background='/mwg-internal/de5fs23hu73ds/files/default/img/bg_navbar.jpg'>
+							For assistance, please contact your system administrator.
+						</td>
+					</tr>
+					<tr>
+						<td class='footData'>
+							generated <span id="time">2025-04-21 15:49:23</span> by McAfee Web Gateway
+							<br />
+      PostmanRuntime/7.29.3
+    </td>
+					</tr>
+				</table>
+				<!--/Foot-->
+			</td>
+		</tr>
+	</table>
+</body>
+<!--/Body-->
+
 </html>
-* Connection #0 to host harbor-paasdev.samsungsdscloud.com left intact
