@@ -1,24 +1,47 @@
-[sdspaas@d2-krw1a-cp-scf-manager-01 ~]$ curl -v https://cvc.private.kr-west1.dev2.samsungsdscloud.com/api/v1/scanner/status
-*   Trying 198.19.8.13...
-* TCP_NODELAY set
-* Connected to cvc.private.kr-west1.dev2.samsungsdscloud.com (198.19.8.13) port 443 (#0)
-* ALPN, offering h2
-* ALPN, offering http/1.1
-* successfully set certificate verify locations:
-*   CAfile: /etc/pki/tls/certs/ca-bundle.crt
-  CApath: none
-* TLSv1.3 (OUT), TLS handshake, Client hello (1):
-* TLSv1.3 (IN), TLS handshake, Server hello (2):
-* TLSv1.3 (IN), TLS handshake, [no content] (0):
-* TLSv1.3 (IN), TLS handshake, Encrypted Extensions (8):
-* TLSv1.3 (IN), TLS handshake, [no content] (0):
-* TLSv1.3 (IN), TLS handshake, Certificate (11):
-* TLSv1.3 (OUT), TLS alert, unknown CA (560):
-* SSL certificate problem: unable to get local issuer certificate
-* Closing connection 0
-curl: (60) SSL certificate problem: unable to get local issuer certificate
-More details here: https://curl.haxx.se/docs/sslcerts.html
+[이규승] 2025-04-21 16:05
+Apr 21 14:38:11 pg-kre1-mb-scf-manager-01 systemd[1]: ds_agent.service: Succeeded.
+Apr 21 14:38:11 pg-kre1-mb-scf-manager-01 systemd[1]: Stopped Trend Micro Deep Security Agent.
+Apr 21 14:38:15 pg-kre1-mb-scf-manager-01 systemd[1]: Reloading.
+Apr 21 14:38:15 pg-kre1-mb-scf-manager-01 systemd[1]: Configuration file /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Apr 21 14:38:15 pg-kre1-mb-scf-manager-01 systemd[1]: Reloading.
+Apr 21 14:38:15 pg-kre1-mb-scf-manager-01 systemd[1]: Configuration file /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Apr 21 14:38:15 pg-kre1-mb-scf-manager-01 systemd[1]: Reloading.
+Apr 21 14:38:15 pg-kre1-mb-scf-manager-01 systemd[1]: Configuration file /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: ds_agent.service: Found left-over process 624198 (sh) in control group while starting unit. Ignoring.
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: This usually indicates unclean termination of a previous run, or service implementation deficiencies.
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: ds_agent.service: Found left-over process 624199 (rpm) in control group while starting unit. Ignoring.
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: This usually indicates unclean termination of a previous run, or service implementation deficiencies.
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: ds_agent.service: Found left-over process 624519 (sh) in control group while starting unit. Ignoring.
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: This usually indicates unclean termination of a previous run, or service implementation deficiencies.
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: ds_agent.service: Found left-over process 624520 (systemctl) in control group while starting unit. Ignoring.
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: This usually indicates unclean termination of a previous run, or service implementation deficiencies.
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: Starting Trend Micro Deep Security Agent...
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 ds_agent.init[624521]: Starting ds_agent: [  OK  ]
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: Started Trend Micro Deep Security Agent.
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: Reloading.
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: Configuration file /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Apr 21 14:38:17 pg-kre1-mb-scf-manager-01 systemd[1]: Reloading.
 
-curl failed to verify the legitimacy of the server and therefore could not
-establish a secure connection to it. To learn more about this situation and
-how to fix it, please visit the web page mentioned above.
+[이규승] 2025-04-21 16:05
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: Reloading.
+Apr 21 14:38:16 pg-kre1-mb-scf-manager-01 systemd[1]: Configuration file /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Apr 21 14:38:17 pg-kre1-mb-scf-manager-01 systemd[1]: Reloading.
+Apr 21 14:38:17 pg-kre1-mb-scf-manager-01 systemd[1]: Configuration file /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa_filter_hook: loading out-of-tree module taints kernel.
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa_filter_hook: loading out-of-tree module taints kernel.
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa_filter_hook: module verification failed: signature and/or required key missing - tainting kernel
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa_filter_hook: module verification failed: signature and/or required key missing - tainting kernel
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa_filter: module license 'Proprietary' taints kernel.
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: Disabling lock debugging due to kernel taint
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: loading filter 12.6.0.5592
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: registered on device 10:122
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: registered on ssl device 10:121
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: filter loaded OK
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa_filter: module license 'Proprietary' taints kernel.
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: Disabling lock debugging due to kernel taint
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: loading filter 12.6.0.5592
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: registered on device 10:122
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: registered on ssl device 10:121
+Apr 21 14:38:18 pg-kre1-mb-scf-manager-01 kernel: dsa: filter loaded OK
+Apr 21 14:38:23 pg-kre1-mb-scf-manager-01 kernel: Adding Red Hat flag eBPF/event.
+Apr 21 14:38:23 pg-kre1-mb-scf-manager-01 kernel: Adding Red Hat flag eBPF/event.
