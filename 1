@@ -1,5 +1,10 @@
-root@j1-son002:~# cat .docker/config.json
-{"credStore":"desktop.exe","proxies":{"default":{"httpProxy":"http://70.10.15.10:8080","httpsProxy":"http://70.10.15.10:8080","noProxy":"code.sdsdev.co.kr,sds.redii.net,localhost,127.0.0.1,scr-dev.comm.scp-in.com,harbor-paasdev.samsungsdscloud.com"}}
-root@j1-son002:~# docker push harbor-paasdev.samsungsdscloud.com/scf/scf-package-repo:0.1
-WARNING: Error loading config file: /root/.docker/config.json: unexpected EOF
-The push refers to repository [harbor-paasdev.samsungsdscloud.com/scf/scf-package-repo]
+{
+  "credStore": "desktop.exe",
+  "proxies": {
+    "default": {
+      "httpProxy": "http://70.10.15.10:8080",
+      "httpsProxy": "http://70.10.15.10:8080",
+      "noProxy": "code.sdsdev.co.kr,sds.redii.net,localhost,127.0.0.1,scr-dev.comm.scp-in.com,harbor-paasdev.samsungsdscloud.com"
+    }
+  }
+}
