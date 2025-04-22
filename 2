@@ -1,196 +1,186 @@
-import boto3
+extensions:
+  basicauth/otel:
+    client_auth:
+      username: 'dbq_data' # PARAM : connection.env value update
+      password: '!DBQ_PW123' # PARAM : connection.env value update
+  file_storage/logs:
+    create_directory: true
+    directory: /var/lib/otelcol/file_storage/gateway
+    timeout: 1s
+    compaction:
+      on_rebound: true
+      rebound_needed_threshold_mib: 100
+      rebound_trigger_threshold_mib: 10
+      check_interval: 5s
+      cleanup_on_start: true
+      directory: /var/lib/otelcol/file_storage/gateway/tmp
 
-# 제외할 서비스 목록
-EXCLUDED_SERVICES = [
-    "iam", "organizations", "sso", "billing", "cost-explorer", "support",
-    "cloudwatch", "cloudtrail"
-]
+processors:
+  batch: {}
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 462
+    limit_percentage: 80
+    spike_limit_mib: 92
+    spike_limit_percentage: 25
+  resourcedetection/system:
+    detectors: ["system"]
+    system:
+      hostname_sources: ["os"]
+  resource:
+    attributes:
+      - key: "lma-tenant"
+        value: "dbq"  # PARAM :: vmdb1
+        action: insert
+      - key: "node.ip"
+        value: '${env:HOSTNAME}'
+        action: insert
+  transform:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["host.name"], resource.attributes["host.name"])
+          - set(attributes["node.ip"], resource.attributes["node.ip"])
+          - set(attributes["process.command"], resource.attributes["process.command"])
+          - set(attributes["process.command_line"], resource.attributes["process.command_line"])
+          - set(attributes["process.executable.name"], resource.attributes["process.executable.name"])
+          - set(attributes["process.executable.path"], resource.attributes["process.executable.path"])
+          - set(attributes["process.owner"], resource.attributes["process.owner"])
+          - set(attributes["process.parent_pid"], resource.attributes["process.parent_pid"])
+          - set(attributes["process.pid"], resource.attributes["process.pid"])
 
-# 모든 리전 조회
-regions = [region['RegionName'] for region in boto3.client('ec2').describe_regions()['Regions']]
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: '127.0.0.1:4317'
+      http:
+        endpoint: '127.0.0.1:4318'
 
-def delete_resources(region):
-    session = boto3.session.Session(region_name=region)
+  # METRIC Reciever START
+  hostmetrics:
+    collection_interval: 30s
+    root_path:
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.logical.count:
+            enabled: true
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+          system.memory.limit:
+            enabled: true
+      load:
+      disk:
+      filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+      network:
+      paging:
+      processes:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'otel-collector-${env:HOSTNAME}'  # PARAM :: -db1 
+          scrape_interval: 30s # default 5s
+          static_configs:
+            - targets: ['0.0.0.0:8888']
+  # METRIC Reciever END
 
-    # EC2 인스턴스 삭제
-    ec2 = session.client('ec2')
-    instances = ec2.describe_instances(Filters=[{'Name': 'instance-state-name', 'Values': ['running', 'stopped']}])
-    instance_ids = [i["InstanceId"] for r in instances["Reservations"] for i in r["Instances"]]
-    if instance_ids:
-        ec2.terminate_instances(InstanceIds=instance_ids)
-        print(f"[{region}] EC2 인스턴스 삭제: {instance_ids}")
+  # LOG Reciever START
+  filelog:
+    exclude:
+    - /var/log/pods/lma_agent-opentelemetry-collector*_*/opentelemetry-collector/*.log
+    include:
+    - /var/log/pods/*/*/*.log
+    include_file_name: false
+    include_file_path: true
+    retry_on_failure:
+      enabled: true
+    start_at: end
+  # LOG Reciever END
 
-    # S3 버킷 삭제
-    s3 = session.client('s3')
-    buckets = s3.list_buckets().get("Buckets", [])
-    for bucket in buckets:
-        try:
-            s3.delete_bucket(Bucket=bucket["Name"])
-            print(f"[{region}] S3 버킷 삭제: {bucket['Name']}")
-        except:
-            pass  # 버킷이 비어있지 않으면 실패함
-
-    # RDS 인스턴스 삭제
-    rds = session.client('rds')
-    rds_instances = rds.describe_db_instances().get("DBInstances", [])
-    for db in rds_instances:
-        try:
-            rds.delete_db_instance(DBInstanceIdentifier=db["DBInstanceIdentifier"], SkipFinalSnapshot=True, DeleteAutomatedBackups=True)
-            print(f"[{region}] RDS 인스턴스 삭제: {db['DBInstanceIdentifier']}")
-        except:
-            pass
-
-    # Lambda 함수 삭제
-    lambda_client = session.client('lambda')
-    functions = lambda_client.list_functions().get("Functions", [])
-    for function in functions:
-        try:
-            lambda_client.delete_function(FunctionName=function["FunctionName"])
-            print(f"[{region}] Lambda 삭제: {function['FunctionName']}")
-        except:
-            pass
-
-    # EKS 클러스터 삭제
-    eks = session.client('eks')
-    clusters = eks.list_clusters().get("clusters", [])
-    for cluster in clusters:
-        try:
-            eks.delete_cluster(name=cluster)
-            print(f"[{region}] EKS 클러스터 삭제: {cluster}")
-        except:
-            pass
-
-    # DynamoDB 테이블 삭제
-    dynamodb = session.client('dynamodb')
-    tables = dynamodb.list_tables().get("TableNames", [])
-    for table in tables:
-        try:
-            dynamodb.delete_table(TableName=table)
-            print(f"[{region}] DynamoDB 테이블 삭제: {table}")
-        except:
-            pass
-
-    # Load Balancer 삭제
-    elb = session.client('elbv2')
-    load_balancers = elb.describe_load_balancers().get("LoadBalancers", [])
-    for lb in load_balancers:
-        try:
-            elb.delete_load_balancer(LoadBalancerArn=lb["LoadBalancerArn"])
-            print(f"[{region}] Load Balancer 삭제: {lb['LoadBalancerName']}")
-        except:
-            pass
-
-    # SNS 토픽 삭제
-    sns = session.client('sns')
-    topics = sns.list_topics().get("Topics", [])
-    for topic in topics:
-        try:
-            sns.delete_topic(TopicArn=topic["TopicArn"])
-            print(f"[{region}] SNS 토픽 삭제: {topic['TopicArn']}")
-        except:
-            pass
-
-    # SQS 큐 삭제
-    sqs = session.client('sqs')
-    queues = sqs.list_queues().get("QueueUrls", [])
-    for queue in queues:
-        try:
-            sqs.delete_queue(QueueUrl=queue)
-            print(f"[{region}] SQS 큐 삭제: {queue}")
-        except:
-            pass
-
-    # API Gateway 삭제
-    apigw = session.client('apigateway')
-    apis = apigw.get_rest_apis().get("items", [])
-    for api in apis:
-        try:
-            apigw.delete_rest_api(restApiId=api["id"])
-            print(f"[{region}] API Gateway 삭제: {api['name']}")
-        except:
-            pass
-
-    # **ECR 리포지토리 삭제**
-    ecr = session.client('ecr')
-    repositories = ecr.describe_repositories().get("repositories", [])
-    for repo in repositories:
-        try:
-            ecr.delete_repository(repositoryName=repo["repositoryName"], force=True)
-            print(f"[{region}] ECR 리포지토리 삭제: {repo['repositoryName']}")
-        except:
-            pass
-
-    # **KMS 키 삭제 (예약 삭제)**
-    kms = session.client('kms')
-    keys = kms.list_keys().get("Keys", [])
-    for key in keys:
-        try:
-            kms.schedule_key_deletion(KeyId=key["KeyId"], PendingWindowInDays=7)
-            print(f"[{region}] KMS 키 삭제 예약: {key['KeyId']}")
-        except:
-            pass
-
-    print(f"[{region}] 모든 과금 리소스 삭제 완료")
-
-# 모든 리전에 대해 실행
-for region in regions:
-    delete_resources(region)
-
-
-
-
-
-주요 작업 흐름:
-
-모든 리전 조회 (describe_regions API 사용)
-각 리전의 모든 과금 자원 조회 (list_*, describe_* API 사용)
-과금 자원 삭제 (delete_*, terminate_*, detach_* API 사용)
-검증 후 CloudWatch 로그 남기기
-
-
-
-Lambda에서 실행될 수 있도록 IAM, S3, Organizations, SSO, Billing, Cost Explorer, Support, CloudWatch, CloudTrail을 제외한 모든 과금되는 AWS 리소스를 제거하는 코드를 수정했어.
-
-수정된 코드
-제외할 서비스 목록 확장: EXCLUDED_SERVICES에 cloudwatch, cloudtrail 추가
-리소스 삭제 기능 확장:
-EC2, S3 외에도 RDS, Lambda, EKS, DynamoDB, Load Balancer, SNS, SQS, API Gateway 등 주요 과금 서비스 삭제
-예외 처리 강화: 일부 서비스는 삭제에 제약이 있으므로 예외 처리 추가
-
-
-
-
-📌 주요 업데이트 사항
-EC2, RDS, Lambda, EKS, DynamoDB, Load Balancer, SNS, SQS, API Gateway까지 삭제하도록 확장
-버킷이 비어 있지 않을 경우 S3 삭제 예외 처리 추가
-리소스 삭제 로그 출력
-✅ ECR 리포지토리 삭제 추가
-✅ KMS 키 삭제 추가 (7일 후 예약 삭제)
-✅ 기존 리소스 삭제 코드 최적화
-
-
-
-🚀 Lambda + EventBridge 설정
-Lambda 함수 생성
-AWS Lambda 콘솔에서 새 Python Lambda 함수를 만들고 위 코드를 업로드
-
-IAM 역할 추가
-
-AdministratorAccess 또는 필요한 서비스 삭제 권한을 포함한 역할을 부여
-EventBridge 스케줄러 설정 (매일 자정 실행)
-
-
-
-
-
-
-aws events put-rule --name "DailyResourceCleanup" --schedule-expression "cron(0 0 * * ? *)"
-aws lambda add-permission --function-name CleanupLambda --statement-id daily-delete --action "lambda:InvokeFunction" --principal events.amazonaws.com
-aws events put-targets --rule "DailyResourceCleanup" --targets "Id"="1","Arn"="LAMBDA_ARN"
-
-
-🔥 최종 기대 효과
-✅ 모든 AWS 리전의 과금되는 서비스 자동 삭제
-✅ IAM, Organizations, SSO, Billing, Cost Explorer, Support, CloudWatch, CloudTrail은 제외
-✅ ECR, KMS까지 삭제하여 완벽한 비용 절감
-✅ 매일 자정 자동 실행하여 AWS 비용 최소화
+exporters:
+  debug: {}
+  # if you need to debug log on pod, use this exporters on piplines
+  prometheusremotewrite/otel:
+    endpoint: "https://cortex-paas.kr-west1.dev2.samsungsdscloud.com/api/v1/push" # vmware cortex remote write url
+    tls:
+      insecure: true
+    external_labels:
+      otel_collector: server
+      node_name: '${env:HOSTNAME}'
+      node_ip: '${env:HOSTNAME}'
+    headers:
+      X-Scope-OrgID: 'dbq' # PARAM :: cortex tenant id.
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 24h
+    remote_write_queue:
+      enabled: true
+      queue_size: 10000
+    # timeout: 5s
+  opensearch/otel:
+    # Index Pattern will be : ss4o_{type}-{dataset}-{namespace}
+    #dataset: apps
+    #namespace: otel
+    # If use this, pattern will be {logs_index}
+    logs_index: dbq-logs
+    http:
+      tls:
+        insecure_skip_verify: true
+      endpoint: https://opensearch-paas.kr-west1.dev2.samsungsdscloud.com
+      timeout: 2m
+      headers:
+        #Content-Type: "application/json"
+      auth:
+        authenticator: basicauth/otel
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 24h
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 100000
+      storage: file_storage/logs
+    # timeout: 5s
+  awss3/otel:
+    s3uploader:
+      region: 'kr-west1'
+      s3_bucket: 'paas-lma-logs'
+      s3_prefix: 'dbq'
+      s3_partition: 'hour'
+      s3_force_path_style: true
+      disable_ssl: true
+      endpoint: 'https://object-store.private.kr-west1.dev2.samsungsdscloud.com'
+    sending_queue:
+      enabled: true
+      num_consumers: 1
+      queue_size: 100000
+      storage: file_storage/logs
+service:
+  extensions:
+    - basicauth/otel
+    - file_storage/logs
+  telemetry:
+    metrics:
+      address: 0.0.0.0:8888
+      level: detailed
+  pipelines:
+    logs:
+      exporters: [opensearch/otel, awss3/otel]
+      processors: [resource, transform, memory_limiter, batch]
+      receivers: [otlp, filelog]
+    metrics:
+      exporters: [prometheusremotewrite/otel]
+      processors: [resourcedetection/system, resource, transform, memory_limiter, batch]
+      receivers: [otlp, hostmetrics, prometheus]
