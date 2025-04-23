@@ -1,203 +1,147 @@
-create table TBL_ALLOW_IP (
-       allow_ip_seq  bigserial not null,
-        create_at timestamp,
-        creator_seq int8,
-        modifier_seq int8,
-        modify_at timestamp,
-        name varchar(255),
-        function_seq int8,
-        primary key (allow_ip_seq)
-)
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.4.1'
+	id 'io.spring.dependency-management' version '1.1.7'
+	id "com.google.cloud.tools.jib" version "3.3.0"
+}
 
-create table TBL_BASE_IMAGE (
-       baseImageSeq  bigserial not null,
-        create_at timestamp,
-        creator_seq int8,
-        modifier_seq int8,
-        modify_at timestamp,
-        name varchar(255),
-        repository varchar(255),
-        version varchar(255),
-        primary key (baseImageSeq)
-)
+group = 'com.cvc'
+version = '1.0-SNAPSHOT'
 
-create table TBL_FUNCTION (
-       function_seq  bigserial not null,
-        create_at timestamp,
-        creator_seq int8,
-        modifier_seq int8,
-        modify_at timestamp,
-        content TEXT,
-        del_yn varchar(255),
-        display_name varchar(255),
-        end_point_type varchar(255),
-        function_key varchar(255),
-        function_status varchar(255),
-        limit_time varchar(1000),
-        name varchar(255),
-        project_id varchar(255),
-        public_access_acl_yn varchar(255),
-        log_enable_yn varchar(255),
-        region varchar(255),
-        runtime varchar(255),
-        token varchar(1000),
-        user_id varchar(255),
-        member_seq int8,
-        primary key (function_seq)
-)
+repositories {
+	maven {
+		url 'http://nexus.sdsdev.co.kr:8081/repository/maven-public/'
+		allowInsecureProtocol = true
+	}
 
-create table TBL_FUNCTION_ENVIRONMENT (
-       function_environment_seq  bigserial not null,
-        create_at timestamp,
-        creator_seq int8,
-        modifier_seq int8,
-        modify_at timestamp,
-        key varchar(1000),
-        type varchar(255),
-        value varchar(255),
-        function_seq int8,
-        primary key (function_environment_seq)
-)
+	// SDS 사내망 시스템은 아래 repo 를 사용하실수 있습니다.
+	// You can use the following repo for the sds internal network system.
+	maven {
+		url 'http://70.121.224.52:8081/nexus/content/repositories/public'
+		allowInsecureProtocol = true
+	}
+	maven {
+		url 'http://70.121.224.52:8081/repository/maven-google'
+		allowInsecureProtocol = true
+	}
+	maven {
+		url 'http://70.121.224.52:8081/repository/maven-central'
+		allowInsecureProtocol = true
+	}
+	maven {
+		url 'http://70.121.224.52:8081/repository/jcenter'
+		allowInsecureProtocol = true
+	}
+	maven {
+		url 'http://70.121.224.52:8081/repository/anyframe-java-opensource'
+		allowInsecureProtocol = true
+	}
+	maven {
+		url 'http://70.121.224.52:8081/repository/lego'
+		allowInsecureProtocol = true
+	}
 
-create table TBL_KEY_MANAGER (
-       key_seq  bigserial not null,
-        create_at timestamp,
-        creator_seq int8,
-        modifier_seq int8,
-        modify_at timestamp,
-        del_yn varchar(255),
-        function_status varchar(255),
-        jwk jsonb,
-        function_seq int8,
-        primary key (key_seq)
-)
+	maven {
+		url 'http://70.121.224.52:8081/repository/jcenter/'
+		allowInsecureProtocol = true
+	}
+	maven {
+		url 'http://70.121.224.52:8081/repository/redhat-ea-all/'
+		allowInsecureProtocol = true
+	}
+	maven {
+		url 'http://70.121.224.52:8081/repository/gradle-plugin/'
+		allowInsecureProtocol = true
+	}
+}
 
-create table TBL_MEMBER (
-       member_seq  bigserial not null,
-        create_at timestamp,
-        creator_seq int8,
-        modifier_seq int8,
-        modify_at timestamp,
-        del_yn varchar(255),
-        name varchar(255),
-        password varchar(255),
-        role_type varchar(255),
-        primary key (member_seq)
-)
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
 
-create table TBL_FUNCTION_CODE (
-       function_code_seq  bigserial not null,
-        create_at timestamp,
-        creator_seq int8,
-        modifier_seq int8,
-        modify_at timestamp,
-        code_name varchar(255),
-        runtime varchar(255),
-        version varchar(255),
-        code_content TEXT,
-        code_description varchar(255),
-        default_yn varchar(255) not null default 'N',
-        primary key (function_code_seq)
-)
+sourceCompatibility = JavaVersion.VERSION_17
+targetCompatibility = JavaVersion.VERSION_17
 
-create table TBL_TRIGGER
-(
-        trigger_seq bigserial not null,
-        create_at timestamp,
-        creator_seq int8,
-        modifier_seq int8,
-        modify_at timestamp,
-        trigger_type varchar(255),
-        function_seq int8,
-        primary key (trigger_seq)
-)
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
 
-create table TBL_TRIGGER_CRON
-(
-        trigger_cron_seq bigserial not null,
-        create_at timestamp,
-        creator_seq int8,
-        modifier_seq int8,
-        modify_at timestamp,
-        timezone varchar(255),
-        schedule varchar(255),
-        content_type varchar(255),
-        content_data varchar(255),
-        trigger_seq int8,
-        primary key (trigger_cron_seq)
-)
+repositories {
+	mavenCentral()
+}
 
-create table TBL_TRIGGER_HTTP
-(
-        trigger_http_seq bigserial not null,
-        create_at timestamp,
-        creator_seq int8,
-        modifier_seq int8,
-        modify_at timestamp,
-        end_point_type varchar(255),
-        trigger_seq int8,
-        primary key (trigger_http_seq)
-)
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-aop'
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	implementation files('libs/ahnlab_v3engine.jar')
 
-create table TBL_TRIGGER_APIGW
-(
-        trigger_apigw_seq bigserial not null,
-        create_at timestamp,
-        creator_seq int8,
-        modifier_seq int8,
-        modify_at timestamp,
-        apigw_name varchar(255),
-        api_name varchar(255),
-        api_http_endpoint varchar(255),
-        api_https_endpoint varchar(255),
-        trigger_seq int8,
-        primary key (triggerAPIGWSeq)
-)
+	// Validation (javax -> jakarta)
+	implementation 'jakarta.validation:jakarta.validation-api:3.0.2'
+	implementation 'org.hibernate.validator:hibernate-validator:7.0.1.Final'
 
-   alter table TBL_FUNCTION 
-       add constraint unique_idx_function_key unique (function_key)
+	// Lombok (이미 추가되어 있을 가능성 높음)
+	compileOnly 'org.projectlombok:lombok:1.18.28'
+	annotationProcessor 'org.projectlombok:lombok:1.18.28'
 
- alter table TBL_ALLOW_IP 
-       add constraint FKe31o01chv63m7kw7psm9s14ed 
-       foreign key (function_seq) 
-       references TBL_FUNCTION
+	// Spring Boot Starter Web (기본적으로 포함되어야 함)
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+}
 
 
-   alter table TBL_FUNCTION 
-       add constraint FKfhyjdu573jc7oa81omhgix4yh 
-       foreign key (member_seq) 
-       references TBL_MEMBER
-
-alter table TBL_FUNCTION_ENVIRONMENT 
-       add constraint FK7vmmxga36hkuv2sgsnx6ooeqj 
-       foreign key (function_seq) 
-       references TBL_FUNCTION
-
-   alter table TBL_FUNCTION_TOKEN 
-       add constraint FKhwm5j7lorybs3tek5j79wu9ie 
-       foreign key (function_seq) 
-       references TBL_FUNCTION
 
 
-alter table TBL_TRIGGER 
-       add constraint fk_trigger_function 
-       foreign key (function_seq) 
-       references TBL_FUNCTION
+나는 위와 같이 build.gradle 파일을 작성했지만, 젠킨스를 실행하면 아래와 같은 에러가 발생해. 왜그러는걸까?
 
-alter table TBL_TRIGGER_CRON
-       add constraint fk_cron_trigger 
-       foreign key (trigger_seq) 
-       references TBL_TRIGGER
 
-alter table TBL_TRIGGER_HTTP
-       add constraint fk_http_trigger 
-       foreign key (trigger_seq) 
-       references TBL_TRIGGER
 
-       
-alter table TBL_TRIGGER_APIGW
-       add constraint fk_apigw_trigger 
-       foreign key (trigger_seq) 
-       references TBL_TRIGGER
 
-       
+
+
+Warning: A secret was passed to "sh" using Groovy String interpolation, which is insecure.
+		 Affected argument(s) used the following variable(s): [HARBOR_CREDENTIAL_PSW]
+		 See https://jenkins.io/redirect/groovy-string-interpolation for details.
++ gradle jib --no-daemon -Djib.console=plain -Djib.from.image=harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian -Djib.from.auth.username=harbor@cvc+cvc-robot -Djib.from.auth.password=**** -Djib.to.image=harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner:latest -Djib.to.auth.username=harbor@cvc+cvc-robot -Djib.to.auth.password=**** --build-cache
+
+Welcome to Gradle 7.6.4!
+
+Here are the highlights of this release:
+ - Added support for Java 19.
+ - Introduced `--rerun` flag for individual task rerun.
+ - Improved dependency block for test suites to be strongly typed.
+ - Added a pluggable system for Java toolchains provisioning.
+
+For more details see https://docs.gradle.org/7.6.4/release-notes.html
+
+To honour the JVM settings for this build a single-use Daemon process will be forked. See https://docs.gradle.org/7.6.4/userguide/gradle_daemon.html#sec:disabling_the_daemon.
+Daemon will be stopped at the end of the build 
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Could not determine the dependencies of task ':jib'.
+> Could not resolve all dependencies for configuration ':runtimeClasspath'.
+   > The new Java toolchain feature cannot be used at the project level in combination with source and/or target compatibility
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+
+* Get more help at https://help.gradle.org
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 8.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+See https://docs.gradle.org/7.6.4/userguide/command_line_interface.html#sec:command_line_warnings
+
+BUILD FAILED in 22s
