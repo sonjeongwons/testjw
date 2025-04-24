@@ -1,219 +1,42 @@
 너말처럼 권한조정해서 에러 해결했지만 새로운 에러가 발생했어.
 
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker-compose up -d
+[+] Running 3/3
+ ✔ Network cvc_default             Created                                                                                                                                                                                        0.2s 
+ ✔ Container cvc-otel-collector-1  Started                                                                                                                                                                                        0.5s 
+ ✔ Container cvc-scanner-1         Started                                                                                                                                                                                        0.6s 
 [root@d2-krw1a-dp-cvc-engine-01 cvc]# docker ps -a
-CONTAINER ID   IMAGE                                                                                                           COMMAND                  CREATED         STATUS                     PORTS                               
-          NAMES
-893cd275cbcd   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest                        "java -cp @/app/jib-…"   3 seconds ago   Up 3 seconds               0.0.0.0:8081->8081/tcp, [::]:8081->8
-081/tcp   cvc-scanner-1
-895172fa24b2   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0   "/otelcol-contrib --…"   3 seconds ago   Exited (1) 2 seconds ago                                       
-          cvc-otel-collector-1
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker ps -a
-CONTAINER ID   IMAGE                                                                                                           COMMAND                  CREATED         STATUS                     PORTS                               
-          NAMES
-893cd275cbcd   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest                        "java -cp @/app/jib-…"   4 seconds ago   Up 4 seconds               0.0.0.0:8081->8081/tcp, [::]:8081->8
-081/tcp   cvc-scanner-1
-895172fa24b2   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0   "/otelcol-contrib --…"   4 seconds ago   Exited (1) 3 seconds ago                                       
-          cvc-otel-collector-1
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker logs 895172fa24b2
-2025-04-24T07:18:00.088Zinfoservice@v0.118.0/service.go:164Setting up own telemetry...
-2025-04-24T07:18:00.088Zwarnservice@v0.118.0/service.go:213service::telemetry::metrics::address is being deprecated in favor of service::telemetry::metrics::readers
-2025-04-24T07:18:00.088Zinfotelemetry/metrics.go:70Serving metrics{"address": "0.0.0.0:8888", "metrics level": "Detailed"}
-2025-04-24T07:18:00.088Zinfomemorylimiter@v0.118.0/memorylimiter.go:75Memory limiter configured{"kind": "processor", "name": "memory_limiter", "pipeline": "metrics", "limit_mib": 462, "spike_limit_mib": 92,
- "check_interval": 1}
-2025-04-24T07:18:00.089Zinfobuilders/builders.go:26Unmaintained component. Actively looking for contributors. Component will become deprecated after 3 months of remaining unmaintained.{"kind": "exporter", "data_type
+CONTAINER ID   IMAGE                                                                                                           COMMAND                  CREATED         STATUS                    PORTS                                
+         NAMES
+230edb5acba9   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0   "/otelcol-contrib --…"   2 seconds ago   Exited (1) 1 second ago                                        
+         cvc-otel-collector-1
+2214cebd95d4   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest                        "java -cp @/app/jib-…"   2 seconds ago   Up 2 seconds              0.0.0.0:8081->8081/tcp, [::]:8081->80
+81/tcp   cvc-scanner-1
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker logs 230edb5acba9 
+2025-04-24T07:35:37.251Zinfoservice@v0.118.0/service.go:164Setting up own telemetry...
+2025-04-24T07:35:37.251Zwarnservice@v0.118.0/service.go:213service::telemetry::metrics::address is being deprecated in favor of service::telemetry::metrics::readers
+2025-04-24T07:35:37.251Zinfotelemetry/metrics.go:70Serving metrics{"address": "0.0.0.0:8888", "metrics level": "Detailed"}
+2025-04-24T07:35:37.252Zinfobuilders/builders.go:26Unmaintained component. Actively looking for contributors. Component will become deprecated after 3 months of remaining unmaintained.{"kind": "exporter", "data_type
 ": "logs", "name": "opensearch/otel"}
-2025-04-24T07:18:00.090Zwarnfilesystemscraper/factory.go:48No `root_path` config set when running in docker environment, will report container filesystem stats. See https://github.com/open-telemetry/opentelemetry-colle
+2025-04-24T07:35:37.252Zinfomemorylimiter@v0.118.0/memorylimiter.go:75Memory limiter configured{"kind": "processor", "name": "memory_limiter", "pipeline": "logs", "limit_mib": 462, "spike_limit_mib": 92, "c
+heck_interval": 1}
+2025-04-24T07:35:37.253Zwarnfilesystemscraper/factory.go:48No `root_path` config set when running in docker environment, will report container filesystem stats. See https://github.com/open-telemetry/opentelemetry-colle
 ctor-contrib/tree/main/receiver/hostmetricsreceiver#collecting-host-metrics-from-inside-a-container-linux-only{"kind": "receiver", "name": "hostmetrics", "data_type": "metrics"}
-Error: failed to build extensions: failed to create extension "file_storage/logs": mkdir /var/lib/otelcol/file_storage/gateway/tmp: permission denied
-2025/04/24 07:18:00 collector server run finished with error: failed to build extensions: failed to create extension "file_storage/logs": mkdir /var/lib/otelcol/file_storage/gateway/tmp: permission denied
-
-
-
-참고로 otelcol-0.118.0.yaml 파일 내용은 아래와 같아.
-
-extensions:
-  basicauth/otel:
-    client_auth:
-      username: 'cvc_data' # PARAM : connection.env value update
-      password: '!CVC_PW123' # PARAM : connection.env value update
-  file_storage/logs:
-    create_directory: true
-    directory: /var/lib/otelcol/file_storage/gateway
-    timeout: 1s
-    compaction:
-      on_rebound: true
-      rebound_needed_threshold_mib: 100
-      rebound_trigger_threshold_mib: 10
-      check_interval: 5s
-      cleanup_on_start: true
-      directory: /var/lib/otelcol/file_storage/gateway/tmp
-
-processors:
-  batch: {}
-  memory_limiter:
-    check_interval: 1s
-    limit_mib: 462
-    limit_percentage: 80
-    spike_limit_mib: 92
-    spike_limit_percentage: 25
-  resourcedetection/system:
-    detectors: ["system"]
-    system:
-      hostname_sources: ["os"]
-  resource:
-    attributes:
-      - key: "lma-tenant"
-        value: "cvc"  # PARAM :: vmdb1
-        action: insert
-      - key: "node.ip"
-        value: '${env:HOSTNAME}'
-        action: insert
-  transform:
-    metric_statements:
-      - context: datapoint
-        statements:
-          - set(attributes["host.name"], resource.attributes["host.name"])
-          - set(attributes["node.ip"], resource.attributes["node.ip"])
-          - set(attributes["process.command"], resource.attributes["process.command"])
-          - set(attributes["process.command_line"], resource.attributes["process.command_line"])
-          - set(attributes["process.executable.name"], resource.attributes["process.executable.name"])
-          - set(attributes["process.executable.path"], resource.attributes["process.executable.path"])
-          - set(attributes["process.owner"], resource.attributes["process.owner"])
-          - set(attributes["process.parent_pid"], resource.attributes["process.parent_pid"])
-          - set(attributes["process.pid"], resource.attributes["process.pid"])
-
-receivers:
-  otlp:
-    protocols:
-      grpc:
-        endpoint: '127.0.0.1:4317'
-      http:
-        endpoint: '127.0.0.1:4318'
-
-  # METRIC Reciever START
-  hostmetrics:
-    collection_interval: 30s
-    root_path:
-    scrapers:
-      cpu:
-        metrics:
-          system.cpu.logical.count:
-            enabled: true
-          system.cpu.utilization:
-            enabled: true
-      memory:
-        metrics:
-          system.memory.utilization:
-            enabled: true
-          system.memory.limit:
-            enabled: true
-      load:
-      disk:
-      filesystem:
-        metrics:
-          system.filesystem.utilization:
-            enabled: true
-      network:
-      paging:
-      processes:
-  prometheus:
-    config:
-      scrape_configs:
-        - job_name: 'otel-collector-${env:HOSTNAME}'  # PARAM :: -db1 
-          scrape_interval: 30s # default 5s
-          static_configs:
-            - targets: ['0.0.0.0:8888']
-  # METRIC Reciever END
-
-  # LOG Reciever START
-  filelog:
-    exclude:
-    - /var/log/pods/lma_agent-opentelemetry-collector*_*/opentelemetry-collector/*.log
-    include:
-    - /var/log/scanner*.log
-    include_file_name: false
-    include_file_path: true
-    retry_on_failure:
-      enabled: true
-    start_at: end
-  # LOG Reciever END
-
-exporters:
-  debug: {}
-  # if you need to debug log on pod, use this exporters on piplines
-  prometheusremotewrite/otel:
-    endpoint: "https://cortex-paas.kr-west1.dev2.samsungsdscloud.com/api/v1/push" # vmware cortex remote write url
-    tls:
-      insecure: true
-    external_labels:
-      otel_collector: server
-      node_name: '${env:HOSTNAME}'
-      node_ip: '${env:HOSTNAME}'
-    headers:
-      X-Scope-OrgID: 'cvc' # PARAM :: cortex tenant id.
-    retry_on_failure:
-      enabled: true
-      initial_interval: 5s
-      max_interval: 30s
-      max_elapsed_time: 24h
-    remote_write_queue:
-      enabled: true
-      queue_size: 10000
-    # timeout: 5s
-  opensearch/otel:
-    # Index Pattern will be : ss4o_{type}-{dataset}-{namespace}
-    #dataset: apps
-    #namespace: otel
-    # If use this, pattern will be {logs_index}
-    logs_index: cvc-logs
-    http:
-      tls:
-        insecure_skip_verify: true
-      endpoint: https://opensearch-paas.kr-west1.dev2.samsungsdscloud.com
-      timeout: 2m
-      headers:
-        #Content-Type: "application/json"
-      auth:
-        authenticator: basicauth/otel
-    retry_on_failure:
-      enabled: true
-      initial_interval: 5s
-      max_interval: 30s
-      max_elapsed_time: 24h
-    sending_queue:
-      enabled: true
-      num_consumers: 10
-      queue_size: 100000
-      storage: file_storage/logs
-    # timeout: 5s
-  awss3/otel:
-    s3uploader:
-      region: 'kr-west1'
-      s3_bucket: 'paas-lma-logs'
-      s3_prefix: 'cvc'
-      s3_partition: 'hour'
-      s3_force_path_style: true
-      disable_ssl: true
-      endpoint: 'https://object-store.private.kr-west1.dev2.samsungsdscloud.com'
-    sending_queue:
-      enabled: true
-      num_consumers: 1
-      queue_size: 100000
-      storage: file_storage/logs
-service:
-  extensions:
-    - basicauth/otel
-    - file_storage/logs
-  telemetry:
-    metrics:
-      address: 0.0.0.0:8888
-      level: detailed
-  pipelines:
-    logs:
-      exporters: [opensearch/otel, awss3/otel]
-      processors: [resource, transform, memory_limiter, batch]
-      receivers: [otlp, filelog]
-    metrics:
-      exporters: [prometheusremotewrite/otel]
+2025-04-24T07:35:37.254Zinfoservice@v0.118.0/service.go:230Starting otelcol-contrib...{"Version": "0.118.0", "NumCPU": 4}
+2025-04-24T07:35:37.254Zinfoextensions/extensions.go:39Starting extensions...
+2025-04-24T07:35:37.254Zinfoextensions/extensions.go:42Extension is starting...{"kind": "extension", "name": "file_storage/logs"}
+2025-04-24T07:35:37.254Zinfoextensions/extensions.go:59Extension started.{"kind": "extension", "name": "file_storage/logs"}
+2025-04-24T07:35:37.254Zinfoextensions/extensions.go:42Extension is starting...{"kind": "extension", "name": "basicauth/otel"}
+2025-04-24T07:35:37.254Zinfoextensions/extensions.go:59Extension started.{"kind": "extension", "name": "basicauth/otel"}
+2025-04-24T07:35:37.254Zerrorgraph/graph.go:426Failed to start component{"error": "open /var/lib/otelcol/file_storage/gateway/exporter_opensearch_otel_logs: permission denied", "type": "Exporter", "id": "ope
+nsearch/otel"}
+2025-04-24T07:35:37.254Zinfoservice@v0.118.0/service.go:295Starting shutdown...
+2025-04-24T07:35:37.254Zinfoadapter/receiver.go:68Stopping stanza receiver{"kind": "receiver", "name": "filelog", "data_type": "logs"}
+2025-04-24T07:35:37.254Zinfoextensions/extensions.go:66Stopping extensions...
+2025-04-24T07:35:37.254Zinfoservice@v0.118.0/service.go:309Shutdown complete.
+Error: cannot start pipelines: open /var/lib/otelcol/file_storage/gateway/exporter_opensearch_otel_logs: permission denied; failed to shutdown pipelines: no existing monitoring routine is running; no existing monitoring routine is 
+running
+2025/04/24 07:35:37 collector server run finished with error: cannot start pipelines: open /var/lib/otelcol/file_storage/gateway/exporter_opensearch_otel_logs: permission denied; failed to shutdown pipelines: no existing monitoring
+ routine is running; no existing monitoring routine is running
       processors: [resourcedetection/system, resource, transform, memory_limiter, batch]
       receivers: [otlp, hostmetrics, prometheus]
