@@ -1,52 +1,141 @@
-주요 회고 질문에 대한 팀원별 답변
+package com.scf.manager.mvc.repository;
+
+import com.querydsl.core.types.OrderSpecifier;
+import com.querydsl.core.types.Projections;
+import com.querydsl.core.types.dsl.BooleanExpression;
+import com.querydsl.jpa.JPQLQuery;
+import com.scf.manager.base.domain.RetrieveClauseBuilder;
+import com.scf.manager.common.exception.ResourceNotFoundException;
+import com.scf.manager.mvc.domain.Function;
+import com.scf.manager.mvc.domain.QFunction;
+import com.scf.manager.mvc.domain.QTrigger;
+import com.scf.manager.mvc.dto.FunctionDTO;
+import io.micrometer.core.instrument.util.StringUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.repository.support.QuerydslRepositorySupport;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import java.util.List;
+
+import static com.scf.manager.mvc.domain.QFunction.function;
+
+public class FunctionRepositoryImpl extends QuerydslRepositorySupport implements FunctionRepositoryCustom {
+
+    @PersistenceContext
+    private EntityManager em;
+
+    public FunctionRepositoryImpl() {
+        super(Function.class);
+    }
+
+//    @Override
+//    public Page<FunctionDTO.Response> searchAllBoard(FunctionDTO.Search reqDto){
+//		JPQLQuery<BoardDTO.Response> query = getQuerydsl().createQuery();
+////		QFun board = QBoard.board;
+////		query.select(Projections.fields(
+////                        BoardDTO.Response.class
+////						, board.boardSeq
+////						, board.title
+////						, board.content
+////						, board.delYn
+////						, board.useYn
+////						, board.notiAt
+////						, board.recommendCnt
+////						))
+////                .from(board)
+////                .where(
+////                        likeSearchText(reqDto)
+////                )
+////                .orderBy(board.boardSeq.desc());
+////
+////        PageRequest pageable = RetrieveClauseBuilder.setOffsetLimit(query, reqDto);
+////        List<BoardDTO.Response> resultList = query.fetch();
+////        long total = query.fetchCount();
+////        return new PageImpl<>(resultList, pageable, total);
+//        return null;
+//    }
+
+    public BooleanExpression eqSearchText(FunctionDTO.Search reqDto) {
+
+        if (StringUtils.isEmpty(reqDto.getAccountId()) && StringUtils.isEmpty(reqDto.getUserId())) {
+            throw new ResourceNotFoundException("어카운트 아이디 또는 유저 아이디를 확인해주십시오");
+        }
+        if (StringUtils.isEmpty(reqDto.getUserId())) {
+            return function.accountId.eq(reqDto.getAccountId());
+        } else {
+            return function.userId.eq(reqDto.getUserId()).and(function.accountId.eq(reqDto.getAccountId()));
+        }
+    }
+
+    @Override
+    public Page<FunctionDTO.Response> searchAllFunction(FunctionDTO.Search reqDto) {
+        JPQLQuery<FunctionDTO.Response> query = getQuerydsl().createQuery();
+        QFunction function = QFunction.function;
+
+        query.select(Projections.fields(
+                        FunctionDTO.Response.class
+                        , function.displayName
+                        , function.runtime
+                        , function.region
+                        , function.functionStatus
+                        , function.functionKey
+                        , function.functionSeq
+                        , function.accountId
+                        , function.userId
+                        , function.createAt
+                        , function.modifyAt
+                )).from(function)
+                .where(
+                        function.region.eq(reqDto.getRegion())
+                        , eqSearchText(reqDto)
+                        , likeSearchDisplayName(reqDto)
+                        , function.delYn.eq("N")
+                ).orderBy(
+                        orderSearchText(reqDto)
+                );
+        PageRequest pageable = RetrieveClauseBuilder.setOffsetLimit(query, reqDto);
+        List<FunctionDTO.Response> resultList = query.fetch();
+//        log.info("resultList = " + resultList);
+        long total = query.fetchCount();
+//        log.info("total = " + total);
+        return new PageImpl<>(resultList, pageable, total);
+
+    }
+
+    private OrderSpecifier<?> orderSearchText(FunctionDTO.Search reqDto) {
+//        log.info("reqDto = " + reqDto);
+        if ("name,desc".equals(reqDto.getOrderBy())) {
+            return function.displayName.desc();
+        } else if ("name,asc".equals(reqDto.getOrderBy())) {
+            return function.displayName.asc();
+        } else if ("createAt,desc".equals(reqDto.getOrderBy())) {
+            return function.createAt.desc();
+        } else if ("createAt,asc".equals(reqDto.getOrderBy())) {
+            return function.createAt.asc();
+        } else if ("region,desc".equals(reqDto.getOrderBy())) {
+            return function.region.desc();
+        } else if ("region,asc".equals(reqDto.getOrderBy())) {
+            return function.region.asc();
+        } else {
+            return function.functionSeq.desc();
+        }
 
 
----
+    }
 
-Q1. 리팩토링을 통해 개선된 점은?
+    public BooleanExpression likeSearchDisplayName(FunctionDTO.Search reqDto) {
 
-🟢 팀원 A: "코드 가독성이 정말 많이 좋아졌고, 새로 온 팀원도 빠르게 적응할 수 있을 것 같아요."
-🟠 팀원 B: "중복 로직을 제거하면서 함수 분리가 잘되어 유지보수할 때 훨씬 편리해졌어요."
-🔵 팀원 C: "ORM 쿼리를 최적화해서 API 응답 속도가 눈에 띄게 개선된 게 가장 큰 성과라고 생각해요."
-
-
----
-
-Q2. 리팩토링 과정에서 가장 어려웠던 점은?
-
-🟢 팀원 A: "레거시 코드가 너무 많아서 수정할 때 어디까지 손대야 할지 범위를 정하는 게 힘들었어요."
-🟠 팀원 B: "리팩토링 중간에 기능 추가 요청이 들어와서 일정 조율하는 게 가장 어려웠던 부분이었어요."
-🔵 팀원 C: "코드를 리팩토링하다 보니 기존 로직에서 예상치 못한 버그가 발생해서 디버깅하는 데 시간이 걸렸어요."
+        if (!StringUtils.isEmpty(reqDto.getSearchValue())) {
+            return function.displayName.like("%" + reqDto.getSearchValue() + "%");
+        } else {
+            return null;
+        }
+    }
+}
 
 
----
 
-Q3. 리팩토링이 코드 품질과 개발 속도에 어떤 영향을 미쳤는가?
-
-🟢 팀원 A: "코드가 일관성 있어지면서 리뷰 속도가 빨라졌고, 신규 개발 속도도 향상된 것 같아요."
-🟠 팀원 B: "기존 코드에서는 같은 로직을 중복 작성해야 했는데, 리팩토링 이후 재사용성이 높아져서 작업이 훨씬 수월해졌어요."
-🔵 팀원 C: "처음에는 리팩토링하느라 시간이 많이 걸렸지만, 이후에는 버그 수정이나 기능 추가가 훨씬 쉬워졌어요."
-
-
----
-
-Q4. 다음에 리팩토링을 진행할 때 개선할 점은?
-
-🟢 팀원 A: "단계별로 리팩토링을 진행해서 기능 개발과 충돌이 없도록 더 세밀하게 계획했으면 좋겠어요."
-🟠 팀원 B: "리팩토링 자동화 도구를 적극적으로 활용해서 반복적인 수정 작업을 줄이면 좋을 것 같아요."
-🔵 팀원 C: "리팩토링 전에 충분한 테스트 코드가 준비되어 있으면, 예상치 못한 사이드 이펙트가 줄어들 것 같아요."
-
-
----
-
-Q5. 배운 점과 공유하고 싶은 경험은?
-
-🟢 팀원 A: "리팩토링을 통해 코드 스타일을 통일하는 게 유지보수에 얼마나 중요한지 깨달았어요."
-🟠 팀원 B: "리팩토링하면서 코드 리뷰가 정말 중요하다는 걸 다시 한번 느꼈어요. 서로의 피드백이 많은 도움이 됐어요."
-🔵 팀원 C: "리팩토링은 단순히 코드 개선이 아니라 협업 효율도 높여준다는 걸 경험했어요."
-
-
----
-
-이렇게 다양한 시각에서 회고를 정리하면 좀 더 풍부한 논의가 가능할 거야!
-
+/api/v1/function?userId=10360&searchValue=1&orderBy=name,asc&region=KR-EAST-1&projectId=PROJECT-LamgKhixt0mTgSO3-F6l4a
