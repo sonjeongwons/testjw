@@ -1,3 +1,42 @@
+현재 아래와 같이 FunctionRepositoryImpl.java 내에서 QueryDSL 사용 중이야. 나는 아래 코드처럼 where 절 중 likeSearchDisplayName이 reqDto객체인 경우에 대해서만 조회하는 것이 아닌, FunctionDTO 내 검색어(searchValue)가 String이 아닌 2개 이상 String값으로 들어왔을때에 대해 or조건으로 쿼리 검색하고싶어.
+
+    @Override
+    public Page<FunctionDTO.Response> searchAllFunction(FunctionDTO.Search reqDto) {
+        JPQLQuery<FunctionDTO.Response> query = getQuerydsl().createQuery();
+        QFunction function = QFunction.function;
+
+        query.select(Projections.fields(
+                        FunctionDTO.Response.class
+                        , function.displayName
+                        , function.runtime
+                        , function.region
+                        , function.functionStatus
+                        , function.functionKey
+                        , function.functionSeq
+                        , function.accountId
+                        , function.userId
+                        , function.createAt
+                        , function.modifyAt
+                )).from(function)
+                .where(
+                        function.region.eq(reqDto.getRegion())
+                        , eqSearchText(reqDto)
+                        , likeSearchDisplayName(reqDto)
+                        , function.delYn.eq("N")
+                ).orderBy(
+                        orderSearchText(reqDto)
+                );
+        PageRequest pageable = RetrieveClauseBuilder.setOffsetLimit(query, reqDto);
+        List<FunctionDTO.Response> resultList = query.fetch();
+//        log.info("resultList = " + resultList);
+        long total = query.fetchCount();
+//        log.info("total = " + total);
+        return new PageImpl<>(resultList, pageable, total);
+
+    }
+
+참고로 FunctionRepositoryImpl.java에 대한 전체 코드 내용은 아래와 같아.
+
 package com.scf.manager.mvc.repository;
 
 import com.querydsl.core.types.OrderSpecifier;
@@ -137,5 +176,220 @@ public class FunctionRepositoryImpl extends QuerydslRepositorySupport implements
 }
 
 
+작성되어있는 현재 FunctionDTO.java 내용은 아래와 같아.
 
+package com.scf.manager.mvc.dto;
+
+import com.scf.manager.base.dto.SearchParamDTO;
+import com.scf.manager.common.enums.TypeEnums;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.*;
+
+import jakarta.persistence.Column;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+public class FunctionDTO {
+
+	private Long functionSeq; //게시판 일련번호_PK
+	private String title; //제목
+	private String content; //내용
+	private String token; //토큰
+	private Boolean delYn; //삭제 여부
+
+	@Data
+	@EqualsAndHashCode(callSuper = false)
+	@AllArgsConstructor
+	@NoArgsConstructor
+	@Builder
+	public static class Search extends SearchParamDTO {
+		@Schema(description = "어카운트아이디")
+		private String accountId;
+		@Schema(description = "유저아이디")
+		private String userId;
+		@Schema(description = "지역")
+		private String region;
+		@Schema(description = "검색어")
+		private String searchValue;
+		@Schema(description = "정렬")
+		private String orderBy;
+	}
+
+	@Data
+	@EqualsAndHashCode(callSuper = false)
+	@AllArgsConstructor
+	@NoArgsConstructor
+	@Builder
+	public static class Duplicate {
+		@Schema(description = "어카운트아이디")
+		private String accountId;
+		@Schema(description = "디스플레이 이름")
+		private String displayName;
+	}
+
+	@Data
+	@AllArgsConstructor
+	@NoArgsConstructor
+	@Builder
+	public static class Register {
+		@Schema(description = "펑션seq")
+		private Long functionSeq;
+		@Schema(description = "디스플레이 이름")
+		private String displayName;
+		@Schema(description = "펑션키")
+		private String functionKey;
+		@Schema(description = "어카운트아이디")
+		private String accountId;
+		@Schema(description = "유저아이디")
+		private String userId;
+		@Schema(description = "지역명")
+		private String region;
+		@Schema(description = "런타임")
+		private String runtime;
+		@Schema(description = "코드 내용")
+		private String content;
+		@Schema(description = "삭제 여부")
+		private String delYn;
+		@Schema(description = "펑션상태")
+		private String functionStatus;
+
+		/* 펑션 설정 관리용 */
+		@Schema(description = "memory")
+		private String memory;
+
+		@Schema(description = "limit")
+		//private String limitTimeMinute;
+		private String limitTimeSecond;
+
+		@Schema(description = "scale")
+		private String minScale;
+		private String maxScale;
+	}
+	@Data
+	@AllArgsConstructor
+	@NoArgsConstructor
+	@Builder
+	public static class Modify {
+		@Schema(description = "펑션seq")
+		private Long functionSeq;
+		@Schema(description = "디스플레이 이름")
+		private String displayName;
+		@Schema(description = "펑션키")
+		private String functionKey;
+		@Schema(description = "어카운트아이디")
+		@Column(name = "accountId")
+		private String accountId;
+		@Schema(description = "유저아이디")
+		@Column(name = "userId")
+		private String userId;
+		@Schema(description = "지역명")
+		@Column(name = "region")
+		private String region;
+		@Schema(description = "런타임")
+		private String runtime;
+		@Schema(description = "삭제 여부")
+		@Column(name = "del_yn")
+		private String delYn;
+		@Schema(description = "펑션상태")
+		private String functionStatus;
+
+
+	}
+	@Data
+	@AllArgsConstructor
+	@NoArgsConstructor
+	@Builder
+	public static class Response {
+		@Schema(description = "펑션seq")
+		private Long functionSeq;
+		@NotBlank(message = "디스플레이 이름 입력해주세요")
+		@Schema(description = "디스플레이 이름")
+		private String displayName;
+		@NotBlank(message = "펑션키를 입력해주세요")
+		@Schema(description = "펑션키")
+		private String functionKey;
+		@Schema(description = "어카운트아이디")
+		@Column(name = "accountId")
+		private String accountId;
+		@Schema(description = "지역명")
+		@Column(name = "region")
+		private String region;
+		@Schema(description = "펑션상태")
+		private TypeEnums.FunctionStatus functionStatus;
+		@Schema(description = "런타임")
+		private String runtime;
+		@Schema(description = "함수URL")
+		private String functionUrl;
+		@Schema(description = "유저아이디")
+		private String userId;
+		@Schema(description = "생성일시")
+		private LocalDateTime modifyAt;
+		@Schema(description = "생성일시")
+		private LocalDateTime createAt;
+	}
+	@Data
+	@AllArgsConstructor
+	@NoArgsConstructor
+	@Builder
+	public static class ServiceListResponse {
+		private Map<String, String> annotations;
+		private String clusterName;
+		private String creationTimestamp;
+		private Long deletionGracePeriodSeconds;
+		private String deletionTimestamp;
+		private List<String> finalizers;
+		private String generateName;
+		private Long generation;
+		private Map<String, String> labels;
+		//		private List<ManagedFieldsEntry> managedFields = new ArrayList<ManagedFieldsEntry>();
+		private String name;
+		private String namespace;
+		//		private List<OwnerReference> ownerReferences = new ArrayList<OwnerReference>();
+		private String resourceVersion;
+		private String selfLink;
+		private String uid;
+
+	}
+	@Data
+	@AllArgsConstructor
+	@NoArgsConstructor
+	@Builder
+	public static class DuplicateResponse {
+		String duplicateYn;
+	}
+
+}
+
+위 내용에 대한 API Controller 내용과 Service 내용은 아래와 같이 작성되어있어.
+
+
+    @GetMapping("")
+    @Operation(summary = "펑션 리스트 조회", description = "사용자별 펑션 전체 목록을 조회합니다")
+    public ResponseEntity<Page<FunctionDTO.Response>> searchAllFunctionProject(FunctionDTO.Search reqDto) {
+        Page<FunctionDTO.Response> response = functionService.searchAllFunction(reqDto);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<FunctionDTO.Response> searchAllFunction(FunctionDTO.Search reqDto) {
+        //if (reqDto.getTriggerType() == null) {
+        //    return this.functionRepository.searchAllFunction(reqDto);
+        //}
+        //return this.functionRepository.searchTriggerFunction(reqDto);
+        return this.functionRepository.searchAllFunction(reqDto);
+    }
+
+
+그리고 위 API를 호출할땐 아래와 같은 쿼리파라미터를 전달하고있어. 나는 앞으로 searchValue를 0개 이상 보낼거야. 복수개가 될 수도 있어.
 /api/v1/function?userId=10360&searchValue=1&orderBy=name,asc&region=KR-EAST-1&projectId=PROJECT-LamgKhixt0mTgSO3-F6l4a
+
+내 요구사항들을 전부파악해서 적절하게 0개 이상의 searchValue값 요청이 들어왔을때 or조건으로 쿼리를 보내고 반환할 수 있도록 코드를 수정해서 전체 코드를 알려주고, 변경사항을 알려줘.
