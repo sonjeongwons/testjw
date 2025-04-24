@@ -1,49 +1,11 @@
-파일 아래와 같이 docker-compose를 통해 컨테이너를 실행하는데에 에러를 마주쳤어. 에러 원인을 알려주고 해결방법도 알려줘.
-
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker-compose up
-WARN[0000] /cvc/docker-compose.yaml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
-[+] Running 3/3
- ✔ Network cvc_default             Created                                                                                                                                                                                        0.2s 
- ✔ Container cvc-scanner-1         Created                                                                                                                                                                                        0.0s 
- ✔ Container cvc-otel-collector-1  Created                                                                                                                                                                                        0.0s 
-Attaching to otel-collector-1, scanner-1
-Gracefully stopping... (press Ctrl+C again to force)
-Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: error mounting "/cvc/otelco
-l/otelcol-0.118.0.yaml" to rootfs at "/etc/otelcol-contrib/config.yaml": create mountpoint for /etc/otelcol-contrib/config.yaml mount: cannot create subdirectories in "/var/lib/docker/overlay2/efae7e45d8499b342ba312cec73d75e1288b0a
-9262700cd7dd2d926f5581b00c/merged/etc/otelcol-contrib/config.yaml": not a directory: unknown: Are you trying to mount a directory onto a file (or vice-versa)? Check if the specified host path exists and is the expected type
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker ps -a
-CONTAINER ID   IMAGE                                                                                                           COMMAND                  CREATED          STATUS          PORTS                                         
-NAMES
-51fc1e95b04b   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0   "/otelcol-contrib --…"   55 seconds ago   Created                                                       
-cvc-otel-collector-1
-11cb9bf58438   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest                        "java -cp @/app/jib-…"   55 seconds ago   Up 54 seconds   0.0.0.0:8081->8081/tcp, [::]:8081->8081/tcp   
-cvc-scanner-1
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker logs
-docker: 'docker logs' requires 1 argument
-
-Usage:  docker logs [OPTIONS] CONTAINER
-
-Run 'docker logs --help' for more information
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker logs 51fc1e95b04b
-
-
-
-
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# pwd
-/cvc
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# ls
-docker-compose.yaml  log  otelcol  otelcol-0.118.0.yaml
-
-
-docker-compose.yaml 파일 내용은 아래와 같아.
+아래와 같이 docker-compose.yaml 파일 수정하였지만, 여전히 에러가 발생해. 이유를 알려줘
 
 [root@d2-krw1a-dp-cvc-engine-01 cvc]# cat docker-compose.yaml 
-version: '3.9'
 services:
   otel-collector:
     image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0
     volumes:
-      - /cvc/otelcol/otelcol-0.118.0.yaml:/etc/otelcol-contrib/config.yaml
+      - /cvc/otelcol:/etc/otelcol-contrib
       - /cvc/otelcol/file_storage/gateway:/var/lib/otelcol/file_storage/gateway
     ports:
       - 1888:1888 # pprof extension
@@ -59,197 +21,25 @@ services:
       - 8081:8081
     volumes:
       - /cvc/log:/app/logs
-
-
-otelcol-0.118.0.yaml 파일 내용은 아래와 같아.
-
-extensions:
-  basicauth/otel:
-    client_auth:
-      username: 'cvc_data' # PARAM : connection.env value update
-      password: '!CVC_PW123' # PARAM : connection.env value update
-  file_storage/logs:
-    create_directory: true
-    directory: /var/lib/otelcol/file_storage/gateway
-    timeout: 1s
-    compaction:
-      on_rebound: true
-      rebound_needed_threshold_mib: 100
-      rebound_trigger_threshold_mib: 10
-      check_interval: 5s
-      cleanup_on_start: true
-      directory: /var/lib/otelcol/file_storage/gateway/tmp
-
-processors:
-  batch: {}
-  memory_limiter:
-    check_interval: 1s
-    limit_mib: 462
-    limit_percentage: 80
-    spike_limit_mib: 92
-    spike_limit_percentage: 25
-  resourcedetection/system:
-    detectors: ["system"]
-    system:
-      hostname_sources: ["os"]
-  resource:
-    attributes:
-      - key: "lma-tenant"
-        value: "cvc"  # PARAM :: vmdb1
-        action: insert
-      - key: "node.ip"
-        value: '${env:HOSTNAME}'
-        action: insert
-  transform:
-    metric_statements:
-      - context: datapoint
-        statements:
-          - set(attributes["host.name"], resource.attributes["host.name"])
-          - set(attributes["node.ip"], resource.attributes["node.ip"])
-          - set(attributes["process.command"], resource.attributes["process.command"])
-          - set(attributes["process.command_line"], resource.attributes["process.command_line"])
-          - set(attributes["process.executable.name"], resource.attributes["process.executable.name"])
-          - set(attributes["process.executable.path"], resource.attributes["process.executable.path"])
-          - set(attributes["process.owner"], resource.attributes["process.owner"])
-          - set(attributes["process.parent_pid"], resource.attributes["process.parent_pid"])
-          - set(attributes["process.pid"], resource.attributes["process.pid"])
-
-receivers:
-  otlp:
-    protocols:
-      grpc:
-        endpoint: '127.0.0.1:4317'
-      http:
-        endpoint: '127.0.0.1:4318'
-
-  # METRIC Reciever START
-  hostmetrics:
-    collection_interval: 30s
-    root_path:
-    scrapers:
-      cpu:
-        metrics:
-          system.cpu.logical.count:
-            enabled: true
-          system.cpu.utilization:
-            enabled: true
-      memory:
-        metrics:
-          system.memory.utilization:
-            enabled: true
-          system.memory.limit:
-            enabled: true
-      load:
-      disk:
-      filesystem:
-        metrics:
-          system.filesystem.utilization:
-            enabled: true
-      network:
-      paging:
-      processes:
-  prometheus:
-    config:
-      scrape_configs:
-        - job_name: 'otel-collector-${env:HOSTNAME}'  # PARAM :: -db1 
-          scrape_interval: 30s # default 5s
-          static_configs:
-            - targets: ['0.0.0.0:8888']
-  # METRIC Reciever END
-
-  # LOG Reciever START
-  filelog:
-    exclude:
-    - /var/log/pods/lma_agent-opentelemetry-collector*_*/opentelemetry-collector/*.log
-    include:
-    - /var/log/scanner*.log
-    include_file_name: false
-    include_file_path: true
-    retry_on_failure:
-      enabled: true
-    start_at: end
-  # LOG Reciever END
-
-exporters:
-  debug: {}
-  # if you need to debug log on pod, use this exporters on piplines
-  prometheusremotewrite/otel:
-    endpoint: "https://cortex-paas.kr-west1.dev2.samsungsdscloud.com/api/v1/push" # vmware cortex remote write url
-    tls:
-      insecure: true
-    external_labels:
-      otel_collector: server
-      node_name: '${env:HOSTNAME}'
-      node_ip: '${env:HOSTNAME}'
-    headers:
-      X-Scope-OrgID: 'cvc' # PARAM :: cortex tenant id.
-    retry_on_failure:
-      enabled: true
-      initial_interval: 5s
-      max_interval: 30s
-      max_elapsed_time: 24h
-    remote_write_queue:
-      enabled: true
-      queue_size: 10000
-    # timeout: 5s
-  opensearch/otel:
-    # Index Pattern will be : ss4o_{type}-{dataset}-{namespace}
-    #dataset: apps
-    #namespace: otel
-    # If use this, pattern will be {logs_index}
-    logs_index: cvc-logs
-    http:
-      tls:
-        insecure_skip_verify: true
-      endpoint: https://opensearch-paas.kr-west1.dev2.samsungsdscloud.com
-      timeout: 2m
-      headers:
-        #Content-Type: "application/json"
-      auth:
-        authenticator: basicauth/otel
-    retry_on_failure:
-      enabled: true
-      initial_interval: 5s
-      max_interval: 30s
-      max_elapsed_time: 24h
-    sending_queue:
-      enabled: true
-      num_consumers: 10
-      queue_size: 100000
-      storage: file_storage/logs
-    # timeout: 5s
-  awss3/otel:
-    s3uploader:
-      region: 'kr-west1'
-      s3_bucket: 'paas-lma-logs'
-      s3_prefix: 'cvc'
-      s3_partition: 'hour'
-      s3_force_path_style: true
-      disable_ssl: true
-      endpoint: 'https://object-store.private.kr-west1.dev2.samsungsdscloud.com'
-    sending_queue:
-      enabled: true
-      num_consumers: 1
-      queue_size: 100000
-      storage: file_storage/logs
-service:
-  extensions:
-    - basicauth/otel
-    - file_storage/logs
-  telemetry:
-    metrics:
-      address: 0.0.0.0:8888
-      level: detailed
-  pipelines:
-    logs:
-      exporters: [opensearch/otel, awss3/otel]
-      processors: [resource, transform, memory_limiter, batch]
-      receivers: [otlp, filelog]
-    metrics:
-      exporters: [prometheusremotewrite/otel]
-      processors: [resourcedetection/system, resource, transform, memory_limiter, batch]
-      receivers: [otlp, hostmetrics, prometheus]
-
-
-
-      
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker ps -a
+CONTAINER ID   IMAGE                                                                                                           COMMAND                  CREATED          STATUS         PORTS                                         N
+AMES
+51fc1e95b04b   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0   "/otelcol-contrib --…"   11 minutes ago   Created                                                      c
+vc-otel-collector-1
+11cb9bf58438   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest                        "java -cp @/app/jib-…"   11 minutes ago   Up 3 minutes   0.0.0.0:8081->8081/tcp, [::]:8081->8081/tcp   c
+vc-scanner-1
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker-compose restart
+[+] Restarting 1/2
+ ⠼ Container cvc-otel-collector-1  Restarting                                                                                                                                                                                     0.5s 
+ ✔ Container cvc-scanner-1         Started                                                                                                                                                                                        0.5s 
+Error response from daemon: Cannot restart container 51fc1e95b04b3d9b1a16edb59d7a1bf706ced7b3ff0a5928bc4fd5ed2f626376: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: 
+unable to start container process: error during container init: error mounting "/cvc/otelcol/otelcol-0.118.0.yaml" to rootfs at "/etc/otelcol-contrib/config.yaml": create mountpoint for /etc/otelcol-contrib/config.yaml mount: canno
+t create subdirectories in "/var/lib/docker/overlay2/efae7e45d8499b342ba312cec73d75e1288b0a9262700cd7dd2d926f5581b00c/merged/etc/otelcol-contrib/config.yaml": not a directory: unknown: Are you trying to mount a directory onto a fil
+e (or vice-versa)? Check if the specified host path exists and is the expected type
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker ps -a
+CONTAINER ID   IMAGE                                                                                                           COMMAND                  CREATED          STATUS          PORTS                                         
+NAMES
+51fc1e95b04b   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0   "/otelcol-contrib --…"   12 minutes ago   Created                                                       
+cvc-otel-collector-1
+11cb9bf58438   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest                        "java -cp @/app/jib-…"   12 minutes ago   Up 14 seconds   0.0.0.0:8081->8081/tcp, [::]:8081->8081/tcp   
+cvc-scanner-1
