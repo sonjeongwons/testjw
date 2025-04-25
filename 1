@@ -1,34 +1,47 @@
-[root@d2-krw1a-cp-scf-manager-01 sdspaas]# dnf install python3
-Updating Subscription Management repositories.
-Unable to read consumer identity
+spring.application.name=demo
+server.port=8081
+api.key=CVCKEY
+# log level for root logger
+logging.level.root=INFO
+# log level for com.example package
+logging.level.com.cvc.scanner=DEBUG
+# log pattern for console handler
+logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n
+# log pattern for file handler
+logging.pattern.file=%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n
+# log file location and name
+logging.file.name=/app/logs/scanner.log
+logging.logback.rollingpolicy.file-name-pattern=scanner-%d{yyyy-MM-dd}.log.gz
+logging.logback.rollingpolicy.max-file-size=10MB
+logging.logback.rollingpolicy.max-history=365
+spring.servlet.multipart.max-file-size=1GB
+spring.servlet.multipart.max-request-size=1GB
 
-This system is not registered with an entitlement server. You can use subscription-manager to register.
 
-Last metadata expiration check: 1:17:54 ago on Fri 25 Apr 2025 02:19:55 PM KST.
-Dependencies resolved.
-======================================================================================================================================================================================================================================
- Package                                                Architecture                              Version                                                                   Repository                                           Size
-======================================================================================================================================================================================================================================
-Installing:
- python36                                               x86_64                                    3.6.8-38.module+el8.9.0+20976+d3c38525                                    ske-package-repo                                     19 k
-Upgrading:
- platform-python-pip                                    noarch                                    9.0.3-23.el8_9.1                                                          ske-package-repo                                    1.6 M
-Installing dependencies:
- python3-pip                                            noarch                                    9.0.3-23.el8_9.1                                                          ske-package-repo                                     20 k
 
-Transaction Summary
-======================================================================================================================================================================================================================================
-Install  2 Packages
-Upgrade  1 Package
 
-Total size: 1.6 M
-Is this ok [y/N]: y
-Downloading Packages:
-[SKIPPED] python3-pip-9.0.3-23.el8_9.1.noarch.rpm: Already downloaded                                                                                                                                                                
-[SKIPPED] python36-3.6.8-38.module+el8.9.0+20976+d3c38525.x86_64.rpm: Already downloaded                                                                                                                                             
-[SKIPPED] platform-python-pip-9.0.3-23.el8_9.1.noarch.rpm: Already downloaded                                                                                                                                                        
-Running transaction check
-No available modular metadata for modular package 'python36-3.6.8-38.module+el8.9.0+20976+d3c38525.x86_64', it cannot be installed on the system
-The downloaded packages were saved in cache until the next successful transaction.
-You can remove cached packages by executing 'dnf clean packages'.
-Error: No available modular metadata for modular package
+services:
+  otel-collector:
+    user: "0:0"
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0
+    volumes:
+- /cvc/otelcol-0.118.0.yaml:/etc/otelcol-contrib/config.yaml
+- /var/lib/otelcol/file_storage/gateway:/var/lib/otelcol/file_storage/gateway
+    ports:
+- 1888:1888 # pprof extension
+- 8888:8888 # Prometheus metrics exposed by the Collector
+- 8889:8889 # Prometheus exporter metrics
+- 13133:13133 # health_check extension
+- 4317:4317 # OTLP gRPC receiver
+- 4318:4318 # OTLP http receiver
+- 55679:55679 # zpages extension
+    extra_hosts:
+- "cortex-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+- "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+- "object-store.private.kr-west1.dev2.samsungsdscloud.com:198.18.1.29"
+  scanner:
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest
+    ports:
+- 8081:8081
+    volumes:
+- /cvc/log:/app/logs
