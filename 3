@@ -28,3 +28,5 @@ services:
       - 8081:8081
     volumes:
       - /cvc/log:/app/logs
+      
+위와 같이 d2-krw1a-dp-cvc-engine-01 VM서버에 docker-compose로 서비스를 실행시키고있어. 이와 똑같이 d2-krw1a-dp-cvc-engine-02 VM서버에도 docker-compose를 통해 서비스를 실행시켰어. 나는 이 두 서버를 LB로 묶어서 실제로 서비스를 제공하고있어. 나는 VM서버가 재시작됐을때, 서비스가 자동으로 시작되길 원해. 방법을 알려줘.
