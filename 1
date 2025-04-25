@@ -1,3 +1,132 @@
+@Library('paas-common-shared-library') _
+def convertTag(Map args) {
+    def tagPattern = args.tagPattern ?: "{YYYYMMDD}.{HHMMSS}"
+    def now = new Date()
+    def sdf = new java.text.SimpleDateFormat("yyyyMMdd.HHmmss")
+    sdf.setTimeZone(TimeZone.getTimeZone("Asia/Seoul")) // 한국 시간대 지정
+    def formattedDate = sdf.format(now)
+
+    return tagPattern.replace("{YYYYMMDD}.{HHMMSS}", formattedDate)
+}
+
+def getMailReceivers(Map args) {
+    def recipients_list = []
+
+    // 환경에 따른 메일 주소 매핑
+    def recipients_email = [
+        '박운한': 'cloud.park@samsung.com',
+        '최경열': 'chl4651.choi@samsung.com',
+        '손정원': 'j1.son@samsung.com',
+    ]
+    def recipients = args.recipients
+
+    if (recipients){
+        if (recipients.trim() == 'SCF_ALL') {
+            recipients_list.addAll(recipients_email.values())
+        } else {
+            if (recipients_email.containsKey(recipients)){
+                recipients_list.add(recipients_email[recipients])
+            }
+
+        }
+    }
+
+    return recipients_list.unique().join(', ')
+}
+
+pipeline {
+    agent {
+        label  'java-image'
+    }
+
+	parameters {
+	    string(name: 'branch', defaultValue: 'develop', description: 'branch')
+	    string(name: 'image_tag', defaultValue: 'latest', description: 'image_tag')
+	    string(name: 'vm_tag', defaultValue: '{YYYYMMDD}.{HHMMSS}', description: 'tag')
+	    choice(
+            name: 'build_alert_recipients',
+            choices: ['최경열','박운한','손정원','SCF_ALL'],
+            description: '빌드 결과에 대한 메일을 받습니다.'
+        )
+	}
+
+	environment {
+
+	    PROJECT_ID = 'dev'
+	    GIT_CREDENTIAL_ID = 'github-token'
+        GIT_REPO = 'https://code.sdsdev.co.kr/sdspaas/cvc-scanner.git/'
+        HARBOR_CREDENTIAL = credentials('harbor@cvc+cvc-robot')
+
+        IMAGE_HARBOR_URL = 'harbor-paasdev.samsungsdscloud.com'
+        IMAGE_REPO = 'cvc'
+        IMAGE_NAME = 'cvc-scanner'
+        IMAGE_LOC = "${IMAGE_HARBOR_URL}/${IMAGE_REPO}/${IMAGE_NAME}:${params.image_tag}"
+        BASE_IMAGE_LOC = "${IMAGE_HARBOR_URL}/${IMAGE_REPO}/${IMAGE_REPO}-scanner-base:17-debian"
+
+
+
+
+
+
+	}
+
+    stages {
+
+		// Checkout Stage : Checkout from Git Repository
+		stage('Checkout') {
+		    steps {
+		        git(branch: params.branch, credentialsId:"${GIT_CREDENTIAL_ID}", url:"${GIT_REPO}")
+		    }
+		}
+
+
+		// Build Stage : Build application
+		stage('Build') {
+		    tools {
+			    jdk 'JDK17'
+			    gradle 'GRADLE7.6'
+			}
+
+		    steps {
+		        container('java') {
+                  sh "gradle jib --no-daemon \
+                    -Djib.console=plain \
+                    -Djib.from.image=${BASE_IMAGE_LOC} \
+                    -Djib.from.auth.username=${HARBOR_CREDENTIAL_USR} \
+                    -Djib.from.auth.password=${HARBOR_CREDENTIAL_PSW} \
+                    -Djib.to.image=${IMAGE_LOC} \
+                    -Djib.to.auth.username=${HARBOR_CREDENTIAL_USR} \
+                    -Djib.to.auth.password=${HARBOR_CREDENTIAL_PSW} \
+                    --build-cache"
+                    }
+            }
+		}
+
+
+
+    } //end stages
+
+
+
+	post {
+	    always {
+	        script {
+	            def mailRecipients = getMailReceivers(recipients: params.build_alert_recipients)
+                    echo "선택된 발송대상자: ${params.build_alert_recipients}"
+                    echo "발송 대상 이메일: ${mailRecipients}"
+                sendPaasMail (
+	                    to: mailRecipients
+	                )
+	            }
+
+	    }
+
+	}
+
+}
+
+
+
 spring.application.name=demo
 server.port=8081
 api.key=CVCKEY
