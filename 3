@@ -77,28 +77,14 @@ func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// 2. 관련된 Knative Service 가져오기
+	// 2-1 관련된 Knative Service 가져오기
 	var ksvc servingv1.Service
 	if err := r.Get(ctx, client.ObjectKey{Namespace: scfWatcher.Spec.KsvcNamespace, Name: scfWatcher.Spec.KsvcName}, &ksvc); err != nil {
 		logger.Error(err, "Unable to fetch Knative Service")
 		return ctrl.Result{}, err
 	}
 
-	// 3. 현재 상태와 이전 상태를 비교합니다.
-	currentStatus := getStatusFromKsvc(ksvc)
-	logger.Info("기존상태 : " + scfWatcher.Status.LastKsvcStatus)
-	logger.Info("신규상태" + currentStatus)
-
-	// Function URL 기능 활성화 여부 검사
-	functionUrlEnabled := scfWatcher.Spec.FunctionUrlEnabled
-
-	if scfWatcher.Status.LastKsvcStatus == currentStatus {
-		// 상태에 변화가 없으면 Reconcile을 반복하지 않음
-		return ctrl.Result{}, nil
-	}
-	logger.Info("상태비교 끝")
-
-	// LB Health 상태 조회
+	// 2-2 LB Health 상태 조회
 	lbId := scfWatcher.Spec.LoadbalancerId
 	lbHealthStatus, err := getLBHealthStatus(lbId)
 	if err != nil {
@@ -107,13 +93,30 @@ func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	logger.Info("LB 헬스체크 상태 값 : " + lbHealthStatus)
 
-	// LB DNS연결 여부 조회
+	// 2-3 LB DNS연결 여부 조회
 	lbDnsConnectivity, err := checkLBDnsConnectivity("cp-scf-manager.scf-manager-cp")
 	if err != nil {
 		logger.Error(err, "Error getting DNS Connectivity: %v")
 		return ctrl.Result{}, err
 	}
 	logger.Info("DNS 연결 여부 : " + lbDnsConnectivity)
+
+	// 3. 현재 상태와 이전 상태를 비교합니다.
+	currentStatus := getStatusFromKsvc(ksvc)
+	logger.Info("기존상태 : " + scfWatcher.Status.LastKsvcStatus)
+	logger.Info("신규상태" + currentStatus)
+
+	// LB헬스체크 및 DNS연결 관련 ScfWatcher의 상태를 업데이트
+	scfWatcher.Status.LoadBalancerHealthStatus = lbHealthStatus
+	scfWatcher.Status.LoadBalancerEndpointDnsConnectivity = lbDnsConnectivity
+	logger.Info("ScfWatcher CR Status 업데이트 완료")
+	logger.Info("ScfWatcher CR Status 업데이트 값 : " + "LB헬스체크 " + lbHealthStatus + "DNS연결 " + lbDnsConnectivity)
+
+	if scfWatcher.Status.LastKsvcStatus == "True" && currentStatus == "True" && lbHealthStatus == "Active" && lbDnsConnectivity == "Success" {
+		// 상태에 변화가 없으면 Reconcile을 반복하지 않음
+		return ctrl.Result{}, nil
+	}
+	logger.Info("상태비교 끝")
 
 	// 4. Watcher ConfigMap 정보 불러오기
 	//var configMap corev1.ConfigMap
@@ -133,6 +136,9 @@ func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// 6. scf-manager에게 상태 업데이트 전송
 	returnStatus := "DEPLOYING"
+
+	// Function URL 기능 활성화 여부 검사
+	functionUrlEnabled := scfWatcher.Spec.FunctionUrlEnabled
 	if functionUrlEnabled {
 		if currentStatus == "True" && lbHealthStatus == "Active" && lbDnsConnectivity == "Success" {
 			returnStatus = "READY"
@@ -155,7 +161,7 @@ func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	logger.Info("ScfWatcher -> Manager 상태전송 완료")
 	logger.Info("ScfWatcher -> Manager 상태전송 값 : " + returnStatus)
 
-	// 6. ScfWatcher의 상태를 업데이트
+	// 6. ksvc 상태 관련 ScfWatcher의 상태를 업데이트
 	scfWatcher.Status.LastKsvcStatus = currentStatus
 	scfWatcher.Status.LastReportedTime = metav1.Now()
 	logger.Info("ScfWatcher CR Status 업데이트 완료")
