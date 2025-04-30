@@ -14,6 +14,92 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+package v1
+
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// ScfWatcherSpec defines the desired state of ScfWatcher
+type ScfWatcherSpec struct {
+	// ksvcName은 감시할 Knative 서비스의 이름
+	// KsvcName is the name of the Knative Service to watch
+	KsvcName string `json:"ksvcName,omitempty"`
+
+	// ksvcNamespace는 해당 Knative 서비스가 속한 네임스페이스
+	// KsvcNamespace is the namespace of the Knative Service
+	KsvcNamespace string `json:"ksvcNamespace,omitempty"`
+
+	// 추가: 함수 URL 기능 활성화 여부
+	FunctionUrlEnabled bool `json:"functionUrlEnabled,omitempty"`
+
+	// 추가: LB ID
+	LoadbalancerId string `json:"lodadbalancerId,omitempty"`
+}
+
+// ScfWatcherStatus defines the observed state of ScfWatcher
+type ScfWatcherStatus struct {
+	// lastKsvcStatus는 마지막으로 감지된 Knative 서비스의 상태
+	// KsvcStatus represents the current status of the watched Knative Service
+	LastKsvcStatus string `json:"lastKsvcStatus,omitempty"`
+
+	// lastReportedTime은 마지막으로 상태가 보고된 시간
+	// LastUpdated is the timestamp of the last status update
+	LastReportedTime metav1.Time `json:"lastReportedTime,omitempty"`
+
+	// 추가: LB 헬스 상태 (Active, Pending 등)
+	LoadBalancerHealthStatus string `json:"loadBalancerHealthStatus,omitempty"`
+
+	// 추가: LB 엔드포인트 연결 성공 여부 (Success, Fail)
+	LoadBalancerEndpointDnsConnectivity string `json:"loadBalancerEndpointDnsConnectivity,omitempty"`
+}
+
+//+kubebuilder:object:root=true
+//+kubebuilder:subresource:status
+
+// ScfWatcher is the Schema for the scfwatchers API
+type ScfWatcher struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   ScfWatcherSpec   `json:"spec,omitempty"`
+	Status ScfWatcherStatus `json:"status,omitempty"`
+}
+
+//+kubebuilder:object:root=true
+
+// ScfWatcherList contains a list of ScfWatcher
+type ScfWatcherList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []ScfWatcher `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&ScfWatcher{}, &ScfWatcherList{})
+}
+
+
+
+
+
+
+/*
+Copyright 2024.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package controller
 
 import (
