@@ -14,98 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1
-
-import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-)
-
-// ScfWatcherSpec defines the desired state of ScfWatcher
-type ScfWatcherSpec struct {
-	// ksvcName은 감시할 Knative 서비스의 이름
-	// KsvcName is the name of the Knative Service to watch
-	KsvcName string `json:"ksvcName,omitempty"`
-
-	// ksvcNamespace는 해당 Knative 서비스가 속한 네임스페이스
-	// KsvcNamespace is the namespace of the Knative Service
-	KsvcNamespace string `json:"ksvcNamespace,omitempty"`
-
-	// 추가: 함수 URL 기능 활성화 여부
-	FunctionUrlEnabled bool `json:"functionUrlEnabled,omitempty"`
-
-	// 추가: LB ID
-	LoadbalancerId string `json:"lodadbalancerId,omitempty"`
-}
-
-// ScfWatcherStatus defines the observed state of ScfWatcher
-type ScfWatcherStatus struct {
-	// lastKsvcStatus는 마지막으로 감지된 Knative 서비스의 상태
-	// KsvcStatus represents the current status of the watched Knative Service
-	LastKsvcStatus string `json:"lastKsvcStatus,omitempty"`
-
-	// lastReportedTime은 마지막으로 상태가 보고된 시간
-	// LastUpdated is the timestamp of the last status update
-	LastReportedTime metav1.Time `json:"lastReportedTime,omitempty"`
-
-	// 추가: LB 헬스 상태 (Active, Creating, Error 등)
-	LoadBalancerHealthStatus string `json:"loadBalancerHealthStatus,omitempty"`
-
-	// 추가: LB 엔드포인트 DNS통신 연결 성공 여부 (Success, Fail)
-	LoadBalancerEndpointDnsConnectivity string `json:"loadBalancerEndpointDnsConnectivity,omitempty"`
-}
-
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-
-// ScfWatcher is the Schema for the scfwatchers API
-type ScfWatcher struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	Spec   ScfWatcherSpec   `json:"spec,omitempty"`
-	Status ScfWatcherStatus `json:"status,omitempty"`
-}
-
-//+kubebuilder:object:root=true
-
-// ScfWatcherList contains a list of ScfWatcher
-type ScfWatcherList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []ScfWatcher `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&ScfWatcher{}, &ScfWatcherList{})
-}
-
-
-
-
-
-
-
-
-
-
-
-
-/*
-Copyright 2024.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package controller
 
 import (
@@ -142,7 +50,7 @@ type ScfWatcherReconciler struct {
 type FunctionStatusData struct {
 	functionStatus string
 }
-type functionStatus string
+
 const (
 	StatusTrue      = "True"
 	StatusFalse     = "False"
@@ -154,6 +62,7 @@ const (
 	StatusNotReady  = "NOT_READY"
 	StatusDeploying = "DEPLOYING"
 )
+const MaxRetryCount = 3
 
 //+kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers/status,verbs=get;update;patch
@@ -194,16 +103,52 @@ func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	lbHealthStatus, err := getLBHealthStatus(ctx, lbId)
 	if err != nil {
 		logger.Error(err, "Error getting LB health status: %v")
+
+		// 재시도 횟수 초과 확인
+		if scfWatcher.Status.RetryCount >= MaxRetryCount {
+			logger.Info("최대 재시도 횟수 초과. Requeue 중지")
+			return ctrl.Result{}, nil
+		}
+
+		// 재시도 횟수 증가
+		scfWatcher.Status.RetryCount++
+		_=r.Status().Update(ctx, &scfWatcher)
+
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
+
+		// 정상 동작 시 재시도 횟수 초기화
+		if scfWatcher.Status.RetryCount > 0 {
+			scfWatcher.Status.RetryCount = 0
+			_=r.Status().Update(ctx, &scfWatcher)
+		}
+
 	logger.Info("LB 헬스체크 상태 값 : " + lbHealthStatus)
 
 	// 2-3 LB DNS연결 여부 조회
 	lbDnsConnectivity, err := checkLBDnsConnectivity(ctx, "cp-scf-manager.scf-manager-cp")
 	if err != nil {
 		logger.Error(err, "Error getting DNS Connectivity: %v")
+
+		// 재시도 횟수 초과 확인
+		if scfWatcher.Status.RetryCount >= MaxRetryCount {
+			logger.Info("최대 재시도 횟수 초과. Requeue 중지")
+			return ctrl.Result{}, nil
+		}
+
+		// 재시도 횟수 증가
+		scfWatcher.Status.RetryCount++
+		_=r.Status().Update(ctx, &scfWatcher)
+
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
+
+	// 정상 동작 시 재시도 횟수 초기화
+	if scfWatcher.Status.RetryCount > 0 {
+		scfWatcher.Status.RetryCount = 0
+		_=r.Status().Update(ctx, &scfWatcher)
+	}
+
 	logger.Info("DNS 연결 여부 : " + lbDnsConnectivity)
 
 	// 3. 현재 상태와 이전 상태를 비교합니다.
@@ -223,6 +168,7 @@ func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	if scfWatcher.Status.LastKsvcStatus == StatusTrue && currentStatus == StatusTrue && lbHealthStatus == StatusActive && lbDnsConnectivity == StatusSuccess {
 		// 상태에 변화가 없으면 Reconcile을 반복하지 않음
+		logger.Info("Knative상태, LB헬스체크 상태, DNS Lookup 이상없음")
 		return ctrl.Result{}, nil
 	}
 	logger.Info("상태비교 끝")
@@ -278,7 +224,7 @@ func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	logger.Info("ScfWatcher CR Status 업데이트 완료")
 	logger.Info("ScfWatcher CR Status 업데이트 값 : " + currentStatus)
-	return ctrl.Result{}, err
+	return ctrl.Result{}, nil
 }
 
 // getStatusFromKsvc 함수는 Knative 서비스의 현재 상태를 확인
