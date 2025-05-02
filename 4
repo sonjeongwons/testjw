@@ -1,51 +1,64 @@
 root@j1-son002:~# docker build --tag harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian-otelagent .
-[+] Building 3.8s (6/9)                                                                                                                                                                                                       docker:default
+[+] Building 16.9s (7/9)                                                                                                                                                                                                      docker:default
  => [internal] load build definition from Dockerfile                                                                                                                                                                                    0.1s
- => => transferring dockerfile: 1.02kB                                                                                                                                                                                                  0.0s
- => [internal] load .dockerignore                                                                                                                                                                                                       0.0s
- => => transferring context: 2B                                                                                                                                                                                                         0.0s
- => [internal] load metadata for harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian                                                                                                                                      0.0s
- => CACHED [1/5] FROM harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian                                                                                                                                                 0.0s
- => [internal] load build context                                                                                                                                                                                                       0.3s
- => => transferring context: 51B                                                                                                                                                                                                        0.3s
- => ERROR [2/5] RUN dnf install -y curl &&     rm -rf /var/cache/dnf                                                                                                                                                                    3.4s
-------
- > [2/5] RUN dnf install -y curl &&     rm -rf /var/cache/dnf:
-3.284 /bin/sh: 1: dnf: not found
-------
-Dockerfile:7
---------------------
-   6 |
-   7 | >>> RUN dnf install -y curl && \
-   8 | >>>     rm -rf /var/cache/dnf
-   9 |
---------------------
-ERROR: failed to solve: process "/bin/sh -c dnf install -y curl &&     rm -rf /var/cache/dnf" did not complete successfully: exit code: 127
-root@j1-son002:~# vi Dockerfile
-root@j1-son002:~# docker build --tag harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian-otelagent .
-[+] Building 3.0s (6/9)                                                                                                                                                                                                       docker:default
- => [internal] load build definition from Dockerfile                                                                                                                                                                                    0.1s
- => => transferring dockerfile: 990B                                                                                                                                                                                                    0.0s
+ => => transferring dockerfile: 1.05kB                                                                                                                                                                                                  0.0s
  => [internal] load .dockerignore                                                                                                                                                                                                       0.0s
  => => transferring context: 2B                                                                                                                                                                                                         0.0s
  => [internal] load metadata for harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian                                                                                                                                      0.0s
  => CACHED [1/5] FROM harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian                                                                                                                                                 0.0s
  => [internal] load build context                                                                                                                                                                                                       0.2s
  => => transferring context: 51B                                                                                                                                                                                                        0.2s
- => ERROR [2/5] RUN apt-get install -y curl                                                                                                                                                                                             2.8s
+ => [2/5] RUN apt-get update &&     apt-get install -y curl &&     rm -rf /var/lib/apt/lists/*                                                                                                                                          8.7s
+ => ERROR [3/5] RUN curl -L -o /opentelemetry-javaagent.jar     https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v1.33.2/opentelemetry-javaagent.jar                                              7.8s
 ------
- > [2/5] RUN apt-get install -y curl:
-2.660 Reading package lists...
-2.675 Building dependency tree...
-2.675 Reading state information...
-2.678 E: Unable to locate package curl
+ > [3/5] RUN curl -L -o /opentelemetry-javaagent.jar     https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v1.33.2/opentelemetry-javaagent.jar:
+7.479   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+7.479                                  Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+7.691 curl: (60) SSL certificate problem: unable to get local issuer certificate
+7.691 More details here: https://curl.se/docs/sslcerts.html
+7.691
+7.691 curl failed to verify the legitimacy of the server and therefore could not
+7.691 establish a secure connection to it. To learn more about this situation and
+7.691 how to fix it, please visit the web page mentioned above.
 ------
-Dockerfile:7
+Dockerfile:13
 --------------------
-   5 |     ARG https_proxy=http://70.10.15.10:8080
-   6 |
-   7 | >>> RUN apt-get install -y curl
-   8 |
-   9 |     # OpenTelemetry Java Agent 다운로드
+  12 |     ENV OTEL_AGENT_VERSION=1.33.2
+  13 | >>> RUN curl -L -o /opentelemetry-javaagent.jar \
+  14 | >>>     https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar
+  15 |
 --------------------
-ERROR: failed to solve: process "/bin/sh -c apt-get install -y curl" did not complete successfully: exit code: 100
+ERROR: failed to solve: process "/bin/sh -c curl -L -o /opentelemetry-javaagent.jar     https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar" did not complete successfully: exit code: 60
+root@j1-son002:~# cat Dockerfile
+FROM harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian
+
+# Proxy 설정
+ARG http_proxy=http://70.10.15.10:8080
+ARG https_proxy=http://70.10.15.10:8080
+
+RUN apt-get update && \
+    apt-get install -y curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# OpenTelemetry Java Agent 다운로드
+ENV OTEL_AGENT_VERSION=1.33.2
+RUN curl -L -o /opentelemetry-javaagent.jar \
+    https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar
+
+
+# 작업 디렉토리 설정
+WORKDIR /app
+
+
+# OpenTelemetry Java Agent 복사
+COPY opentelemetry-javaagent.jar /app/opentelemetry-javaagent.jar
+
+# 환경변수 설정
+ENV JAVA_TOOL_OPTIONS="-javaagent:/app/opentelemetry-javaagent.jar"
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+ENV OTEL_METRICS_EXPORTER=otlp
+ENV OTEL_SERVICE_NAME=cvc-otel-agent
+# 트레이스, 로그도 추가 수집하려면 다음도 설정 가능:
+ENV OTEL_TRACES_EXPORTER=otlp
+ENV OTEL_LOGS_EXPORTER=otlp
