@@ -1,41 +1,53 @@
-[root@d2-krw1a-dp-cvc-engine-01 ~]# docker ps -a
-CONTAINER ID   IMAGE                                                                                                           COMMAND                  CREATED      STATUS      PORTS                                                 
-                                                                                                                                                                                                                                       
-NAMES
-71c90822e9ae   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest                        "java -cp @/app/jib-…"   6 days ago   Up 6 days   0.0.0.0:8081->8081/tcp, [::]:8081->8081/tcp           
-                                                                                                                                                                                                                                       
-cvc-scanner-1
-04d604a2a5ad   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0   "/otelcol-contrib --…"   6 days ago   Up 6 days   0.0.0.0:1888->1888/tcp, [::]:1888->1888/tcp, 0.0.0.0:4
-317-4318->4317-4318/tcp, [::]:4317-4318->4317-4318/tcp, 0.0.0.0:8888-8889->8888-8889/tcp, [::]:8888-8889->8888-8889/tcp, 0.0.0.0:13133->13133/tcp, [::]:13133->13133/tcp, 0.0.0.0:55679->55679/tcp, [::]:55679->55679/tcp, 55678/tcp   
-cvc-otel-collector-1
-[root@d2-krw1a-dp-cvc-engine-01 ~]# 
+root@j1-son002:~# docker build --tag harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian-otelagent .
+[+] Building 4.2s (6/8)                                                                                                                                                                                                       docker:default
+ => [internal] load build definition from Dockerfile                                                                                                                                                                                    0.2s
+ => => transferring dockerfile: 961B                                                                                                                                                                                                    0.2s
+ => [internal] load .dockerignore                                                                                                                                                                                                       0.2s
+ => => transferring context: 2B                                                                                                                                                                                                         0.2s
+ => [internal] load metadata for harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian                                                                                                                                      0.0s
+ => [1/4] FROM harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian                                                                                                                                                        0.1s
+ => [internal] load build context                                                                                                                                                                                                       3.1s
+ => => transferring context: 20.64MB                                                                                                                                                                                                    3.1s
+ => ERROR [2/4] RUN curl -L -o /opentelemetry-javaagent.jar     https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v1.33.2/opentelemetry-javaagent.jar                                              3.5s
+------
+ > [2/4] RUN curl -L -o /opentelemetry-javaagent.jar     https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v1.33.2/opentelemetry-javaagent.jar:
+3.005 /bin/sh: 1: curl: not found
+------
+Dockerfile:9
+--------------------
+   8 |     ENV OTEL_AGENT_VERSION=1.33.2
+   9 | >>> RUN curl -L -o /opentelemetry-javaagent.jar \
+  10 | >>>     https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar
+  11 |
+--------------------
+ERROR: failed to solve: process "/bin/sh -c curl -L -o /opentelemetry-javaagent.jar     https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar" did not complete successfully: exit code: 127
+root@j1-son002:~# history |grep build^C
+root@j1-son002:~# vi Dockerfile
+root@j1-son002:~# cat Dockerfile
+FROM harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian
+
+# Proxy 설정
+ARG http_proxy=http://70.10.15.10:8080
+ARG https_proxy=http://70.10.15.10:8080
+
+# OpenTelemetry Java Agent 다운로드
+ENV OTEL_AGENT_VERSION=1.33.2
+RUN curl -L -o /opentelemetry-javaagent.jar \
+    https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar
 
 
+# 작업 디렉토리 설정
+WORKDIR /app
 
-vi docker-compose.yaml
- 
-services:
-  otel-collector:
-    user: "0:0"
-    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0
-    volumes:
-- /cvc/otelcol-0.118.0.yaml:/etc/otelcol-contrib/config.yaml
-- /var/lib/otelcol/file_storage/gateway:/var/lib/otelcol/file_storage/gateway
-    ports:
-- 1888:1888 # pprof extension
-- 8888:8888 # Prometheus metrics exposed by the Collector
-- 8889:8889 # Prometheus exporter metrics
-- 13133:13133 # health_check extension
-- 4317:4317 # OTLP gRPC receiver
-- 4318:4318 # OTLP http receiver
-- 55679:55679 # zpages extension
-    extra_hosts:
-- "cortex-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
-- "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
-- "object-store.private.kr-west1.dev2.samsungsdscloud.com:198.18.1.29"
-  scanner:
-    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest
-    ports:
-- 8081:8081
-    volumes:
-- /cvc/log:/app/logs
+
+# OpenTelemetry Java Agent 복사
+COPY opentelemetry-javaagent.jar /app/opentelemetry-javaagent.jar
+
+# 환경변수 설정
+ENV JAVA_TOOL_OPTIONS="-javaagent:/app/opentelemetry-javaagent.jar"
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+ENV OTEL_METRICS_EXPORTER=otlp
+ENV OTEL_SERVICE_NAME=cvc-otel-agent
+# 트레이스, 로그도 추가 수집하려면 다음도 설정 가능:
+ENV OTEL_TRACES_EXPORTER=otlp
+ENV OTEL_LOGS_EXPORTER=otlp
