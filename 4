@@ -1,99 +1,27 @@
-[root@d2-krw1a-cp-scf-manager-01 ~]# curl -vs -X GET -H "X-Auth-Token: gAAAAABoFDpBEI8l7CVzHj6Qei_1FiDX7gRFe4lItPNB97LZmTO99Ia8Wt0EGAL6MUfLvVvDVCSTDGoxJg0kaOZ8bU0cv0sY2w9K5HQFbiBafP6f1OsfR7kst48fdvjMy36r7dRhLF5ckASezb2CD5f8pvd1gt9n
-8znKnppQrYCPkYyQXFbWZxY" -H "X-Subject-Token: gAAAAABoFDoxx5gYMEZWtGlhSpV3wpTFrXyRkAAW8wVHb8kTk8PQxt4DOrZTJ2WhSbRimJtY-iLrcjhSz3l4xnETyrSgGsmqBj-H-3E_DJX5tB9ni2hunw7Groaxmh5lbiKSfH-btd3MgFsIw4A9Vp-AqZ1NugCcXUePqj8zf0D8WxS0R-mr78A" 
-"https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null" 1> /dev/null|grep GET
-*   Trying 198.18.2.52...
-* TCP_NODELAY set
-* Connected to identity-i.kr-west1.dev2.samsungsdscloud.com (198.18.2.52) port 443 (#0)
-* ALPN, offering h2
-* ALPN, offering http/1.1
-* successfully set certificate verify locations:
-*   CAfile: /etc/pki/tls/certs/ca-bundle.crt
-  CApath: none
-} [5 bytes data]
-* TLSv1.3 (OUT), TLS handshake, Client hello (1):
-} [512 bytes data]
-* TLSv1.3 (IN), TLS handshake, Server hello (2):
-{ [122 bytes data]
-* TLSv1.3 (IN), TLS handshake, [no content] (0):
-{ [1 bytes data]
-* TLSv1.3 (IN), TLS handshake, Encrypted Extensions (8):
-{ [19 bytes data]
-* TLSv1.3 (IN), TLS handshake, [no content] (0):
-{ [1 bytes data]
-* TLSv1.3 (IN), TLS handshake, Certificate (11):
-{ [5902 bytes data]
-* TLSv1.3 (IN), TLS handshake, [no content] (0):
-{ [1 bytes data]
-* TLSv1.3 (IN), TLS handshake, CERT verify (15):
-{ [264 bytes data]
-* TLSv1.3 (IN), TLS handshake, [no content] (0):
-{ [1 bytes data]
-* TLSv1.3 (IN), TLS handshake, Finished (20):
-{ [52 bytes data]
-* TLSv1.3 (OUT), TLS change cipher, Change cipher spec (1):
-} [1 bytes data]
-* TLSv1.3 (OUT), TLS handshake, [no content] (0):
-} [1 bytes data]
-* TLSv1.3 (OUT), TLS handshake, Finished (20):
-} [52 bytes data]
-* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384
-* ALPN, server accepted to use h2
-* Server certificate:
-*  subject: C=KR; ST=Seoul; O=Samsung SDS Co.,Ltd.; CN=*.kr-west1.dev2.samsungsdscloud.com
-*  start date: Aug  2 00:00:00 2024 GMT
-*  expire date: Sep  2 23:59:59 2025 GMT
-*  subjectAltName: host "identity-i.kr-west1.dev2.samsungsdscloud.com" matched cert's "*.kr-west1.dev2.samsungsdscloud.com"
-*  issuer: C=GB; ST=Greater Manchester; L=Salford; O=Sectigo Limited; CN=Sectigo RSA Organization Validation Secure Server CA
-*  SSL certificate verify ok.
-* Using HTTP2, server supports multi-use
-* Connection state changed (HTTP/2 confirmed)
-* Copying HTTP/2 data in stream buffer to connection buffer after upgrade: len=0
-} [5 bytes data]
-* TLSv1.3 (OUT), TLS app data, [no content] (0):
-} [1 bytes data]
-* TLSv1.3 (OUT), TLS app data, [no content] (0):
-} [1 bytes data]
-* TLSv1.3 (OUT), TLS app data, [no content] (0):
-} [1 bytes data]
-* Using Stream ID: 1 (easy handle 0x55f8e1dcb6b0)
-} [5 bytes data]
-* TLSv1.3 (OUT), TLS app data, [no content] (0):
-} [1 bytes data]
-> GET /v3/auth/tokens?nocatalog=null HTTP/2
-> Host: identity-i.kr-west1.dev2.samsungsdscloud.com
-> User-Agent: curl/7.61.1
-> Accept: */*
-> X-Auth-Token: gAAAAABoFDpBEI8l7CVzHj6Qei_1FiDX7gRFe4lItPNB97LZmTO99Ia8Wt0EGAL6MUfLvVvDVCSTDGoxJg0kaOZ8bU0cv0sY2w9K5HQFbiBafP6f1OsfR7kst48fdvjMy36r7dRhLF5ckASezb2CD5f8pvd1gt9n8znKnppQrYCPkYyQXFbWZxY
-> X-Subject-Token: gAAAAABoFDoxx5gYMEZWtGlhSpV3wpTFrXyRkAAW8wVHb8kTk8PQxt4DOrZTJ2WhSbRimJtY-iLrcjhSz3l4xnETyrSgGsmqBj-H-3E_DJX5tB9ni2hunw7Groaxmh5lbiKSfH-btd3MgFsIw4A9Vp-AqZ1NugCcXUePqj8zf0D8WxS0R-mr78A
-> 
-{ [5 bytes data]
-* TLSv1.3 (IN), TLS handshake, [no content] (0):
-{ [1 bytes data]
-* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
-{ [57 bytes data]
-* TLSv1.3 (IN), TLS handshake, [no content] (0):
-{ [1 bytes data]
-* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
-{ [57 bytes data]
-* TLSv1.3 (IN), TLS app data, [no content] (0):
-{ [1 bytes data]
-* Connection state changed (MAX_CONCURRENT_STREAMS == 128)!
-} [5 bytes data]
-* TLSv1.3 (OUT), TLS app data, [no content] (0):
-} [1 bytes data]
-* TLSv1.3 (IN), TLS app data, [no content] (0):
-{ [1 bytes data]
-< HTTP/2 200 
-< date: Fri, 02 May 2025 03:26:42 GMT
-< content-type: application/json
-< content-length: 776
-< set-cookie: scp-session=1746156403.083.2452302.817211|ea36d40165ecd08fc85f7eda8b76c8dc; Expires=Fri, 02-May-25 03:56:42 GMT; Max-Age=1800; Path=/; Secure; HttpOnly
-< x-subject-token: gAAAAABoFDoxx5gYMEZWtGlhSpV3wpTFrXyRkAAW8wVHb8kTk8PQxt4DOrZTJ2WhSbRimJtY-iLrcjhSz3l4xnETyrSgGsmqBj-H-3E_DJX5tB9ni2hunw7Groaxmh5lbiKSfH-btd3MgFsIw4A9Vp-AqZ1NugCcXUePqj8zf0D8WxS0R-mr78A
-< vary: X-Auth-Token
-< x-openstack-request-id: req-04364fe3-2323-46a7-9485-da4f1b9e1aa6
-< 
-{ [776 bytes data]
-* TLSv1.3 (IN), TLS app data, [no content] (0):
-{ [1 bytes data]
-* Connection #0 to host identity-i.kr-west1.dev2.samsungsdscloud.com left intact
-[root@d2-krw1a-cp-scf-manager-01 ~]# 
+vi docker-compose.yaml
+ 
+services:
+  otel-collector:
+    user: "0:0"
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0
+    volumes:
+- /cvc/otelcol-0.118.0.yaml:/etc/otelcol-contrib/config.yaml
+- /var/lib/otelcol/file_storage/gateway:/var/lib/otelcol/file_storage/gateway
+    ports:
+- 1888:1888 # pprof extension
+- 8888:8888 # Prometheus metrics exposed by the Collector
+- 8889:8889 # Prometheus exporter metrics
+- 13133:13133 # health_check extension
+- 4317:4317 # OTLP gRPC receiver
+- 4318:4318 # OTLP http receiver
+- 55679:55679 # zpages extension
+    extra_hosts:
+- "cortex-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+- "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+- "object-store.private.kr-west1.dev2.samsungsdscloud.com:198.18.1.29"
+  scanner:
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest
+    ports:
+- 8081:8081
+    volumes:
+- /cvc/log:/app/logs
