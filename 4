@@ -1,64 +1,274 @@
-root@j1-son002:~# docker build --tag harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian-otelagent .
-[+] Building 16.9s (7/9)                                                                                                                                                                                                      docker:default
- => [internal] load build definition from Dockerfile                                                                                                                                                                                    0.1s
- => => transferring dockerfile: 1.05kB                                                                                                                                                                                                  0.0s
- => [internal] load .dockerignore                                                                                                                                                                                                       0.0s
- => => transferring context: 2B                                                                                                                                                                                                         0.0s
- => [internal] load metadata for harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian                                                                                                                                      0.0s
- => CACHED [1/5] FROM harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian                                                                                                                                                 0.0s
- => [internal] load build context                                                                                                                                                                                                       0.2s
- => => transferring context: 51B                                                                                                                                                                                                        0.2s
- => [2/5] RUN apt-get update &&     apt-get install -y curl &&     rm -rf /var/lib/apt/lists/*                                                                                                                                          8.7s
- => ERROR [3/5] RUN curl -L -o /opentelemetry-javaagent.jar     https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v1.33.2/opentelemetry-javaagent.jar                                              7.8s
-------
- > [3/5] RUN curl -L -o /opentelemetry-javaagent.jar     https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v1.33.2/opentelemetry-javaagent.jar:
-7.479   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
-7.479                                  Dload  Upload   Total   Spent    Left  Speed
-  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
-7.691 curl: (60) SSL certificate problem: unable to get local issuer certificate
-7.691 More details here: https://curl.se/docs/sslcerts.html
-7.691
-7.691 curl failed to verify the legitimacy of the server and therefore could not
-7.691 establish a secure connection to it. To learn more about this situation and
-7.691 how to fix it, please visit the web page mentioned above.
-------
-Dockerfile:13
---------------------
-  12 |     ENV OTEL_AGENT_VERSION=1.33.2
-  13 | >>> RUN curl -L -o /opentelemetry-javaagent.jar \
-  14 | >>>     https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar
-  15 |
---------------------
-ERROR: failed to solve: process "/bin/sh -c curl -L -o /opentelemetry-javaagent.jar     https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar" did not complete successfully: exit code: 60
-root@j1-son002:~# cat Dockerfile
+# Java 이미지 기반 paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest 이미지의 Dockerfile 내용
 FROM harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian
-
-# Proxy 설정
+ 
 ARG http_proxy=http://70.10.15.10:8080
 ARG https_proxy=http://70.10.15.10:8080
-
+ 
+ADD sds.crt /usr/local/share/ca-certificates/
+RUN update-ca-certificates
+RUN sed 's/SECLEVEL=2/SECLEVEL=1/' -i /etc/ssl/openssl.cnf
+ 
+RUN echo "Acquire::http::proxy \"http://70.10.15.10:8080/\";" >> /etc/apt/apt.conf.d/90proxy
+RUN echo "Acquire::https::proxy\"http://70.10.15.10:8080/\";" >> /etc/apt/apt.conf.d/90proxy
+ 
+ 
 RUN apt-get update && \
-    apt-get install -y curl && \
+    apt-get install -y curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
-
-# OpenTelemetry Java Agent 다운로드
+ 
 ENV OTEL_AGENT_VERSION=1.33.2
 RUN curl -L -o /opentelemetry-javaagent.jar \
     https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar
-
-
-# 작업 디렉토리 설정
+ 
 WORKDIR /app
-
-
-# OpenTelemetry Java Agent 복사
+ 
+ 
 COPY opentelemetry-javaagent.jar /app/opentelemetry-javaagent.jar
-
-# 환경변수 설정
+ 
 ENV JAVA_TOOL_OPTIONS="-javaagent:/app/opentelemetry-javaagent.jar"
 ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 ENV OTEL_METRICS_EXPORTER=otlp
 ENV OTEL_SERVICE_NAME=cvc-otel-agent
-# 트레이스, 로그도 추가 수집하려면 다음도 설정 가능:
+
 ENV OTEL_TRACES_EXPORTER=otlp
 ENV OTEL_LOGS_EXPORTER=otlp
+
+RUN rm /etc/apt/apt.conf.d/90proxy
+RUN rm /usr/local/share/ca-certificates/sds.crt
+RUN update-ca-certificates --fresh
+RUN sed 's/SECLEVEL=1/SECLEVEL=2/' -i /etc/ssl/openssl.cnf
+
+
+# docker-compose 파일 작성
+services:
+  otel-collector:
+    user: "0:0"
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0
+    volumes:
+- /cvc/otelcol-0.118.0.yaml:/etc/otelcol-contrib/config.yaml
+- /var/lib/otelcol/file_storage/gateway:/var/lib/otelcol/file_storage/gateway
+    ports:
+- 1888:1888 # pprof extension
+- 8888:8888 # Prometheus metrics exposed by the Collector
+- 8889:8889 # Prometheus exporter metrics
+- 13133:13133 # health_check extension
+- 4317:4317 # OTLP gRPC receiver
+- 4318:4318 # OTLP http receiver
+- 55679:55679 # zpages extension
+    extra_hosts:
+- "cortex-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+- "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+- "object-store.private.kr-west1.dev2.samsungsdscloud.com:198.18.1.29"
+  scanner:
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest
+    ports:
+- 8081:8081
+    volumes:
+- /cvc/log:/app/logs
+
+# otelcol-0.118.0.yaml 파일 작성
+extensions:
+  basicauth/otel:
+    client_auth:
+      username: 'cvc_data' # PARAM : connection.env value update
+      password: '!CVC_PW123' # PARAM : connection.env value update
+  file_storage/logs:
+    create_directory: true
+    directory: /var/lib/otelcol/file_storage/gateway
+    timeout: 1s
+    compaction:
+      on_rebound: true
+      rebound_needed_threshold_mib: 100
+      rebound_trigger_threshold_mib: 10
+      check_interval: 5s
+      cleanup_on_start: true
+      directory: /var/lib/otelcol/file_storage/gateway/tmp
+ 
+processors:
+  batch: {}
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 462
+    limit_percentage: 80
+    spike_limit_mib: 92
+    spike_limit_percentage: 25
+  resourcedetection/system:
+    detectors: ["system"]
+    system:
+      hostname_sources: ["os"]
+  resource:
+    attributes:
+      - key: "lma-tenant"
+        value: "cvc"  # PARAM :: vmdb1
+        action: insert
+      - key: "node.ip"
+        value: '${env:HOSTNAME}'
+        action: insert
+  transform:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["host.name"], resource.attributes["host.name"])
+          - set(attributes["node.ip"], resource.attributes["node.ip"])
+          - set(attributes["process.command"], resource.attributes["process.command"])
+          - set(attributes["process.command_line"], resource.attributes["process.command_line"])
+          - set(attributes["process.executable.name"], resource.attributes["process.executable.name"])
+          - set(attributes["process.executable.path"], resource.attributes["process.executable.path"])
+          - set(attributes["process.owner"], resource.attributes["process.owner"])
+          - set(attributes["process.parent_pid"], resource.attributes["process.parent_pid"])
+          - set(attributes["process.pid"], resource.attributes["process.pid"])
+ 
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: '127.0.0.1:4317'
+      http:
+        endpoint: '127.0.0.1:4318'
+ 
+  # METRIC Reciever START
+  hostmetrics:
+    collection_interval: 30s
+    root_path:
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.logical.count:
+            enabled: true
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+          system.memory.limit:
+            enabled: true
+      load:
+      disk:
+      filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+      network:
+      paging:
+      processes:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'otel-collector-${env:HOSTNAME}'  # PARAM :: -db1
+          scrape_interval: 30s # default 5s
+          static_configs:
+            - targets: ['0.0.0.0:8888']
+  # METRIC Reciever END
+ 
+  # LOG Reciever START
+  filelog:
+    exclude:
+    - /var/log/pods/lma_agent-opentelemetry-collector*_*/opentelemetry-collector/*.log
+    include:
+    - /var/log/scanner*.log
+    include_file_name: false
+    include_file_path: true
+    retry_on_failure:
+      enabled: true
+    start_at: end
+  # LOG Reciever END
+ 
+exporters:
+  debug: {}
+  # if you need to debug log on pod, use this exporters on piplines
+  prometheusremotewrite/otel:
+    endpoint: "https://cortex-paas.kr-west1.dev2.samsungsdscloud.com/api/v1/push" # vmware cortex remote write url
+    tls:
+      insecure: true
+    external_labels:
+      otel_collector: server
+      node_name: '${env:HOSTNAME}'
+      node_ip: '${env:HOSTNAME}'
+    headers:
+      X-Scope-OrgID: 'cvc' # PARAM :: cortex tenant id.
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 24h
+    remote_write_queue:
+      enabled: true
+      queue_size: 10000
+    # timeout: 5s
+  opensearch/otel:
+    # Index Pattern will be : ss4o_{type}-{dataset}-{namespace}
+    #dataset: apps
+    #namespace: otel
+    # If use this, pattern will be {logs_index}
+    logs_index: cvc-logs
+    http:
+      tls:
+        insecure_skip_verify: true
+      endpoint: https://opensearch-paas.kr-west1.dev2.samsungsdscloud.com
+      timeout: 2m
+      headers:
+        #Content-Type: "application/json"
+      auth:
+        authenticator: basicauth/otel
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 24h
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 100000
+      storage: file_storage/logs
+    # timeout: 5s
+  awss3/otel:
+    s3uploader:
+      region: 'kr-west1'
+      s3_bucket: 'paas-lma-logs'
+      s3_prefix: 'cvc'
+      s3_partition: 'hour'
+      s3_force_path_style: true
+      disable_ssl: true
+      endpoint: 'https://object-store.private.kr-west1.dev2.samsungsdscloud.com'
+    sending_queue:
+      enabled: true
+      num_consumers: 1
+      queue_size: 100000
+      storage: file_storage/logs
+service:
+  extensions:
+    - basicauth/otel
+    - file_storage/logs
+  telemetry:
+    metrics:
+      address: 0.0.0.0:8888
+      level: detailed
+  pipelines:
+    logs:
+      exporters: [opensearch/otel, awss3/otel]
+      processors: [resource, transform, memory_limiter, batch]
+      receivers: [otlp, filelog]
+    metrics:
+      exporters: [prometheusremotewrite/otel]
+      processors: [resourcedetection/system, resource, transform, memory_limiter, batch]
+      receivers: [otlp, hostmetrics, prometheus]
+
+
+
+
+
+
+# 컨테이너 작동
+ocker ps -a
+ 
+ 
+CONTAINER ID   IMAGE                                                                                                           COMMAND                  CREATED          STATUS          PORTS                                        
+                                                                                                                                                                                                                                        
+        NAMES
+9518a9167ba0   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest                        "java -cp @/app/jib-…"   10 minutes ago   Up 10 minutes   0.0.0.0:8081->8081/tcp, [::]:8081->8081/tcp  
+                                                                                                                                                                                                                                        
+        cvc-scanner-1
+c55c547c4b9a   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0   "/otelcol-contrib --…"   10 minutes ago   Up 10 minutes   0.0.0.0:1888->1888/tcp, [::]:1888->1888/tcp, 0
+.0.0.0:4317-4318->4317-4318/tcp, [::]:4317-4318->4317-4318/tcp, 0.0.0.0:8888-8889->8888-8889/tcp, [::]:8888-8889->8888-8889/tcp, 0.0.0.0:13133->13133/tcp, [::]:13133->13133/tcp, 0.0.0.0:55679->55679/tcp, [::]:55679->55679/tcp, 5567
+8/tcp   cvc-otel-collector-1
