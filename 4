@@ -1,3 +1,271 @@
+# CVC Java어플리케이션 inspect 내용
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker inspect f662c5c9b05e
+[
+    {
+        "Id": "f662c5c9b05ef32f5367bdb14fbf130cc430ee476b926b5dfbbc68abbfb22415",
+        "Created": "2025-05-06T03:57:20.428968002Z",
+        "Path": "java",
+        "Args": [
+            "-cp",
+            "@/app/jib-classpath-file",
+            "com.cvc.scanner.CVCScannerApplication"
+        ],
+        "State": {
+            "Status": "running",
+            "Running": true,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 3208148,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2025-05-06T03:57:20.501670181Z",
+            "FinishedAt": "0001-01-01T00:00:00Z"
+        },
+        "Image": "sha256:ebf92a3c91cf667b3799f163517545ae7bab2088f72c33767fee787bd3c8ee8d",
+        "ResolvConfPath": "/var/lib/docker/containers/f662c5c9b05ef32f5367bdb14fbf130cc430ee476b926b5dfbbc68abbfb22415/resolv.conf",
+        "HostnamePath": "/var/lib/docker/containers/f662c5c9b05ef32f5367bdb14fbf130cc430ee476b926b5dfbbc68abbfb22415/hostname",
+        "HostsPath": "/var/lib/docker/containers/f662c5c9b05ef32f5367bdb14fbf130cc430ee476b926b5dfbbc68abbfb22415/hosts",
+        "LogPath": "/var/lib/docker/containers/f662c5c9b05ef32f5367bdb14fbf130cc430ee476b926b5dfbbc68abbfb22415/f662c5c9b05ef32f5367bdb14fbf130cc430ee476b926b5dfbbc68abbfb22415-json.log",
+        "Name": "/cvc-scanner-1",
+        "RestartCount": 0,
+        "Driver": "overlay2",
+        "Platform": "linux",
+        "MountLabel": "",
+        "ProcessLabel": "",
+        "AppArmorProfile": "",
+        "ExecIDs": null,
+        "HostConfig": {
+            "Binds": [
+                "/cvc/log:/cvc/log:rw"
+            ],
+            "ContainerIDFile": "",
+            "LogConfig": {
+                "Type": "json-file",
+                "Config": {}
+            },
+            "NetworkMode": "cvc_default",
+            "PortBindings": {
+                "8081/tcp": [
+                    {
+                        "HostIp": "",
+                        "HostPort": "8081"
+                    }
+                ]
+            },
+            "RestartPolicy": {
+                "Name": "no",
+                "MaximumRetryCount": 0
+            },
+            "AutoRemove": false,
+            "VolumeDriver": "",
+            "VolumesFrom": null,
+            "ConsoleSize": [
+                0,
+                0
+            ],
+            "CapAdd": null,
+            "CapDrop": null,
+            "CgroupnsMode": "host",
+            "Dns": null,
+            "DnsOptions": null,
+            "DnsSearch": null,
+            "ExtraHosts": [],
+            "GroupAdd": null,
+            "IpcMode": "private",
+            "Cgroup": "",
+            "Links": null,
+            "OomScoreAdj": 0,
+            "PidMode": "",
+            "Privileged": false,
+            "PublishAllPorts": false,
+            "ReadonlyRootfs": false,
+            "SecurityOpt": null,
+            "UTSMode": "",
+            "UsernsMode": "",
+            "ShmSize": 67108864,
+            "Runtime": "runc",
+            "Isolation": "",
+            "CpuShares": 0,
+            "Memory": 0,
+            "NanoCpus": 0,
+            "CgroupParent": "",
+            "BlkioWeight": 0,
+            "BlkioWeightDevice": null,
+            "BlkioDeviceReadBps": null,
+            "BlkioDeviceWriteBps": null,
+            "BlkioDeviceReadIOps": null,
+            "BlkioDeviceWriteIOps": null,
+            "CpuPeriod": 0,
+            "CpuQuota": 0,
+            "CpuRealtimePeriod": 0,
+            "CpuRealtimeRuntime": 0,
+            "CpusetCpus": "",
+            "CpusetMems": "",
+            "Devices": null,
+            "DeviceCgroupRules": null,
+            "DeviceRequests": null,
+            "MemoryReservation": 0,
+            "MemorySwap": 0,
+            "MemorySwappiness": null,
+            "OomKillDisable": false,
+            "PidsLimit": null,
+            "Ulimits": null,
+            "CpuCount": 0,
+            "CpuPercent": 0,
+            "IOMaximumIOps": 0,
+            "IOMaximumBandwidth": 0,
+            "MaskedPaths": [
+                "/proc/asound",
+                "/proc/acpi",
+                "/proc/interrupts",
+                "/proc/kcore",
+                "/proc/keys",
+                "/proc/latency_stats",
+                "/proc/timer_list",
+                "/proc/timer_stats",
+                "/proc/sched_debug",
+                "/proc/scsi",
+                "/sys/firmware",
+                "/sys/devices/virtual/powercap"
+            ],
+            "ReadonlyPaths": [
+                "/proc/bus",
+                "/proc/fs",
+                "/proc/irq",
+                "/proc/sys",
+                "/proc/sysrq-trigger"
+            ]
+        },
+        "GraphDriver": {
+            "Data": {
+                "ID": "f662c5c9b05ef32f5367bdb14fbf130cc430ee476b926b5dfbbc68abbfb22415",
+                "LowerDir": "/var/lib/docker/overlay2/3313b6d9223586a0deb5b78f1b984c65dc2005276fd7654bc8dee2f61232112f-init/diff:/var/lib/docker/overlay2/5ca8adc491d812962656a3f188a0ea9bf821944422c1fff58ef761989c484697/diff:/var/l
+ib/docker/overlay2/1f6f9c2f82c93fa09bddfa113a0beb2bb0c88c20c1cc81bc1cc223b49b22c474/diff:/var/lib/docker/overlay2/3bf9f47fb25064b30c722f179b0401778176ff388849b50841256d4f6da9a1cc/diff:/var/lib/docker/overlay2/79f55e1ab1f2267f473a8
+5ab59fae9d858997740735e2c2240d6b1c4f2966954/diff:/var/lib/docker/overlay2/5d58e09c3522bbead3cb197366d89c88eb81e5a947861c287252ba8245500c3e/diff:/var/lib/docker/overlay2/728d3475bfe3443df086553be565000e40d07d26e4847da2ea92a78986bb3
+678/diff",
+                "MergedDir": "/var/lib/docker/overlay2/3313b6d9223586a0deb5b78f1b984c65dc2005276fd7654bc8dee2f61232112f/merged",
+                "UpperDir": "/var/lib/docker/overlay2/3313b6d9223586a0deb5b78f1b984c65dc2005276fd7654bc8dee2f61232112f/diff",
+                "WorkDir": "/var/lib/docker/overlay2/3313b6d9223586a0deb5b78f1b984c65dc2005276fd7654bc8dee2f61232112f/work"
+            },
+            "Name": "overlay2"
+        },
+        "Mounts": [
+            {
+                "Type": "bind",
+                "Source": "/cvc/log",
+                "Destination": "/cvc/log",
+                "Mode": "rw",
+                "RW": true,
+                "Propagation": "rprivate"
+            }
+        ],
+        "Config": {
+            "Hostname": "f662c5c9b05e",
+            "Domainname": "",
+            "User": "",
+            "AttachStdin": false,
+            "AttachStdout": true,
+            "AttachStderr": true,
+            "ExposedPorts": {
+                "8081/tcp": {}
+            },
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "LANGUAGE=en_US:en",
+                "JAVA_HOME=/usr/lib/jvm/zulu17",
+                "LC_ALL=en_US.UTF-8",
+                "LANG=en_US.UTF-8"
+            ],
+            "Cmd": null,
+            "Image": "paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest",
+            "Volumes": {},
+            "WorkingDir": "",
+            "Entrypoint": [
+                "java",
+                "-cp",
+                "@/app/jib-classpath-file",
+                "com.cvc.scanner.CVCScannerApplication"
+            ],
+            "OnBuild": null,
+            "Labels": {
+                "com.docker.compose.config-hash": "74aaf5bf113057aaf13b68efdc4e52358460ed1331d14691d2d3f3c44a12f8b9",
+                "com.docker.compose.container-number": "1",
+                "com.docker.compose.depends_on": "",
+                "com.docker.compose.image": "sha256:ebf92a3c91cf667b3799f163517545ae7bab2088f72c33767fee787bd3c8ee8d",
+                "com.docker.compose.oneoff": "False",
+                "com.docker.compose.project": "cvc",
+                "com.docker.compose.project.config_files": "/cvc/docker-compose.yaml",
+                "com.docker.compose.project.working_dir": "/cvc",
+                "com.docker.compose.service": "scanner",
+                "com.docker.compose.version": "2.35.1"
+            }
+        },
+        "NetworkSettings": {
+            "Bridge": "",
+            "SandboxID": "a3d9e3bd4403c24bf5f8eeda5a00b8c5827d17a52e91373d46d9ae04f75bb7fb",
+            "SandboxKey": "/var/run/docker/netns/a3d9e3bd4403",
+            "Ports": {
+                "8081/tcp": [
+                    {
+                        "HostIp": "0.0.0.0",
+                        "HostPort": "8081"
+                    },
+                    {
+                        "HostIp": "::",
+                        "HostPort": "8081"
+                    }
+                ]
+            },
+            "HairpinMode": false,
+            "LinkLocalIPv6Address": "",
+            "LinkLocalIPv6PrefixLen": 0,
+            "SecondaryIPAddresses": null,
+            "SecondaryIPv6Addresses": null,
+            "EndpointID": "",
+            "Gateway": "",
+            "GlobalIPv6Address": "",
+            "GlobalIPv6PrefixLen": 0,
+            "IPAddress": "",
+            "IPPrefixLen": 0,
+            "IPv6Gateway": "",
+            "MacAddress": "",
+            "Networks": {
+                "cvc_default": {
+                    "IPAMConfig": null,
+                    "Links": null,
+                    "Aliases": [
+                        "cvc-scanner-1",
+                        "scanner"
+                    ],
+                    "MacAddress": "e6:26:ba:98:5c:f5",
+                    "DriverOpts": null,
+                    "GwPriority": 0,
+                    "NetworkID": "a10efc23cbe57b77e99d56299febb27d8b0a025d62942b946c0dee9bcc10bdf1",
+                    "EndpointID": "2a9ca6205289718b84b3011aac435a2e92f62aaae091532e00cb2d19d95c0280",
+                    "Gateway": "172.18.0.1",
+                    "IPAddress": "172.18.0.2",
+                    "IPPrefixLen": 16,
+                    "IPv6Gateway": "",
+                    "GlobalIPv6Address": "",
+                    "GlobalIPv6PrefixLen": 0,
+                    "DNSNames": [
+                        "cvc-scanner-1",
+                        "scanner",
+                        "f662c5c9b05e"
+                    ]
+                }
+            }
+        }
+    }
+]
+
+
+
 # Java 이미지 기반 paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest 이미지의 Dockerfile 내용
 FROM harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian
  
