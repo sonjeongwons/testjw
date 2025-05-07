@@ -1,20 +1,47 @@
-root@j1-son002:~# docker image ls|grep scr-dev.comm
-scr-dev.comm.scp-in.com/scf/knative-webhook 1.17.0 1e1719a363bf 3 months ago 62MB
-scr-dev.comm.scp-in.com/scf/knative-activator 1.17.0 4abe7d7defbc 3 months ago 62.6MB
-scr-dev.comm.scp-in.com/scf/knative-net-istio-webhook 1.17.0 5d7b4e0564ca 3 months ago 60.2MB
-scr-dev.comm.scp-in.com/scf/knative-autoscaler 1.17.0 98836b59fe6a 3 months ago 63MB
-scr-dev.comm.scp-in.com/scf/knative-cleanup 1.17.0 9cd429f5f3f1 3 months ago 42.4MB
-scr-dev.comm.scp-in.com/scf/knative-controller 1.17.0 475c61a1448f 3 months ago 70.9MB
-scr-dev.comm.scp-in.com/scf/knative-migration 1.17.0 7e3b7e5fa21d 3 months ago 41.3MB
-scr-dev.comm.scp-in.com/scf/knative-queue 1.17.0 c95ee9fd7179 3 months ago 29.4MB
-scr-dev.comm.scp-in.com/scf/knative-net-istio-controller 1.17.0 24c1ab217f08 3 months ago 64.7MB
-scr-dev.comm.scp-in.com/scf/knative-istio-proxyv2 1.24.2 89e63390244c 4 months ago 245MB
-scr-dev.comm.scp-in.com/scf/knative-istio-pilot 1.24.2 6745909e90db 4 months ago 191MB
-scr-dev.comm.scp-in.com/scf/knative-eventing-jobsink 1.17.5 5fcc9654eaf4 N/A 67.7MB
-scr-dev.comm.scp-in.com/scf/knative-eventing-migration 1.17.5 609db2a0ab2d N/A 43.2MB
-scr-dev.comm.scp-in.com/scf/eventing-apiserver-receive-adapter 1.17.5 889c0718c3ad N/A 66.4MB
-scr-dev.comm.scp-in.com/scf/knative-eventing-controller 1.17.5 99a7f410592d N/A 71.9MB
-scr-dev.comm.scp-in.com/scf/knative-eventing-mtping 1.17.5 e6ad73d81b04 N/A 68.5MB
-scr-dev.comm.scp-in.com/scf/knative-eventing-webhook 1.17.5 dcc19f609f13 N/A 70.8MB
+아래는 docker image의 태그에서 "scr-dev.comm.scp-in.com" 도메인을 "paas-dssqlxhe.scr.skr-west.scp-in.com"으로 바꾸는 쉘 스크립트야. 기존 이미지의 태그를 새로운 태그로 변경하고, 원하면 푸시까지 할 수 있게 구성했어.
 
-위 docker 이미지들 태그명을 바꿔서 "scr-dev.comm.scp-in.com" 대신 "paas-dssqlxhe.scr.skr-west.scp-in.com"으로 변경하는 쉘스크립트를 만들어봐
+#!/bin/bash
+
+OLD_REGISTRY="scr-dev.comm.scp-in.com"
+NEW_REGISTRY="paas-dssqlxhe.scr.skr-west.scp-in.com"
+
+# grep 대상 이미지를 리스트로 가져오기
+docker image ls --format '{{.Repository}}:{{.Tag}}' | grep "$OLD_REGISTRY" | while read IMAGE; do
+  # 새 태그 구성
+  NEW_IMAGE=$(echo "$IMAGE" | sed "s|$OLD_REGISTRY|$NEW_REGISTRY|")
+
+  echo "Retagging $IMAGE -> $NEW_IMAGE"
+
+  # 태그 변경
+  docker tag "$IMAGE" "$NEW_IMAGE"
+
+  # 주석 해제하면 레지스트리로 푸시 가능
+  # docker push "$NEW_IMAGE"
+done
+
+사용법
+
+1. 위 내용을 retag-images.sh로 저장
+
+
+2. 실행 권한 부여: chmod +x retag-images.sh
+
+
+3. 실행: ./retag-images.sh
+
+
+
+참고
+
+docker push는 주석 처리되어 있으니, 실제로 새 레지스트리로 푸시하려면 주석을 해제해야 해.
+
+원한다면 기존 태그 삭제 (docker rmi)도 스크립트에 추가 가능해.
+
+
+
+---
+
+Q1: 새로 태그된 이미지를 기존 레지스트리에 푸시하려면 인증은 어떻게 처리하는 게 가장 안전할까?
+Q2: 이미지 레이어 캐싱을 고려할 때 새로운 레지스트리에 동일 이미지를 푸시할 경우 중복 저장은 어떻게 방지되나?
+Q3: 레지스트리 간 이미지 미러링 자동화는 어떤 방식이 효율적일까? (예: crane, skopeo, GitHub Action)
+
