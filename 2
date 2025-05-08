@@ -1,21 +1,20 @@
-curl -vs -X POST -H "Content-Type:application/json" \
--d '
-{
-    "auth": {
-        "identity": {
-            "methods": [
-                "password"
-            ],
-            "password": {
-                "user": {
-                    "name": "scf-service",
-                    "domain": {
-                        "name": "service"
-                    },
-                    "password": "SCFmanager1!"
-                }
-            }
-        }
-    }
-}' \
-"https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null"
+[root@d2-krw1a-cp-scf-manager-01 ~]# k get secret scf-watcher-secret -n scf-watcher -oyaml
+apiVersion: v1
+data:
+  SCF_KEYSTONE_ID: c2NmLXNlcnZpY2U=
+  SCF_KEYSTONE_PW: U0NGbWFuYWdlcjEh
+kind: Secret
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","data":{"SCF_KEYSTONE_ID":"c2NmLXNlcnZpY2U=","SCF_KEYSTONE_PW":"U0NGbWFuYWdlcjEh"},"kind":"Secret","metadata":{"annotations":{"kubernetes.io/service-account.name":"d2-mw-app-scf-watcher"},"labels":{"argocd
+.argoproj.io/instance":"d2-mw-app"},"name":"scf-watcher-secret","namespace":"scf-watcher"},"type":"Opaque"}
+    kubernetes.io/service-account.name: d2-mw-app-scf-watcher
+  creationTimestamp: "2025-05-08T06:45:59Z"
+  labels:
+    argocd.argoproj.io/instance: d2-mw-app
+  name: scf-watcher-secret
+  namespace: scf-watcher
+  resourceVersion: "74736565"
+  uid: 806af110-eb9d-4133-b963-3c3d8cc969bf
+type: Opaque
