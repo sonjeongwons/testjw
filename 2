@@ -1,45 +1,21 @@
-func getLBHealthStatus(ctx context.Context, endpoint, lbID string) (string, error) {
-	// HTTP 클라이언트 설정
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	// 최종 요청 URL 구성
-	url := fmt.Sprintf("%s/%s", endpoint, lbID)
-
-	// HTTP 요청 생성
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-
-	// X-Auth-Token 헤더 추가
-	req.Header.Add("X-Auth-Token", "your-auth-token-value") // 여기서 실제 토큰을 환경변수나 ConfigMap으로 관리하길 추천
-
-	// 요청 실행
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to execute HTTP request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// 응답 바디 읽기
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	// JSON 파싱
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse JSON response: %w", err)
-	}
-
-	// "state" 값 추출
-	state, ok := result["state"].(string)
-	if !ok {
-		return "", fmt.Errorf("state not found or not a string in response")
-	}
-
-	return state, nil
-}
+curl -vs -X POST -H "Content-Type:application/json" \
+-d '
+{
+    "auth": {
+        "identity": {
+            "methods": [
+                "password"
+            ],
+            "password": {
+                "user": {
+                    "name": "scf-service",
+                    "domain": {
+                        "name": "service"
+                    },
+                    "password": "SCFmanager1!"
+                }
+            }
+        }
+    }
+}' \
+"https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null"
