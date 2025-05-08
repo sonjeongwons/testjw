@@ -1,20 +1,108 @@
-[root@d2-krw1a-cp-scf-manager-01 ~]# k get secret scf-watcher-secret -n scf-watcher -oyaml
-apiVersion: v1
-data:
-  SCF_KEYSTONE_ID: c2NmLXNlcnZpY2U=
-  SCF_KEYSTONE_PW: U0NGbWFuYWdlcjEh
-kind: Secret
-metadata:
-  annotations:
-    kubectl.kubernetes.io/last-applied-configuration: |
-      {"apiVersion":"v1","data":{"SCF_KEYSTONE_ID":"c2NmLXNlcnZpY2U=","SCF_KEYSTONE_PW":"U0NGbWFuYWdlcjEh"},"kind":"Secret","metadata":{"annotations":{"kubernetes.io/service-account.name":"d2-mw-app-scf-watcher"},"labels":{"argocd
-.argoproj.io/instance":"d2-mw-app"},"name":"scf-watcher-secret","namespace":"scf-watcher"},"type":"Opaque"}
-    kubernetes.io/service-account.name: d2-mw-app-scf-watcher
-  creationTimestamp: "2025-05-08T06:45:59Z"
-  labels:
-    argocd.argoproj.io/instance: d2-mw-app
-  name: scf-watcher-secret
-  namespace: scf-watcher
-  resourceVersion: "74736565"
-  uid: 806af110-eb9d-4133-b963-3c3d8cc969bf
-type: Opaque
+// 1. Secret에서 ID/PW 읽기
+func getSCFCredential(ctx context.Context) (string, string, error) {
+    config, err := rest.InClusterConfig()
+    if err != nil {
+        return "", "", fmt.Errorf("클러스터 config 오류: %w", err)
+    }
+
+    clientset, err := kubernetes.NewForConfig(config)
+    if err != nil {
+        return "", "", fmt.Errorf("클라이언트 설정 오류: %w", err)
+    }
+
+    secret, err := clientset.CoreV1().Secrets("scf-watcher").Get(ctx, "scf-watcher-secret", metav1.GetOptions{})
+    if err != nil {
+        return "", "", fmt.Errorf("Secret 조회 오류: %w", err)
+    }
+
+    idEnc := secret.Data["SCF_KEYSTONE_ID"]
+    pwEnc := secret.Data["SCF_KEYSTONE_PW"]
+
+    idDecoded, err := base64.StdEncoding.DecodeString(string(idEnc))
+    if err != nil {
+        return "", "", fmt.Errorf("ID 디코딩 오류: %w", err)
+    }
+
+    pwDecoded, err := base64.StdEncoding.DecodeString(string(pwEnc))
+    if err != nil {
+        return "", "", fmt.Errorf("PW 디코딩 오류: %w", err)
+    }
+
+    return string(idDecoded), string(pwDecoded), nil
+}
+
+// 2. Keystone API 호출해서 X-Subject-Token 받아오기
+func getKeystoneToken(ctx context.Context, id, pw string) (string, error) {
+    url := "https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null"
+
+    payload := map[string]interface{}{
+        "auth": map[string]interface{}{
+            "identity": map[string]interface{}{
+                "methods": []string{"password"},
+                "password": map[string]interface{}{
+                    "user": map[string]interface{}{
+                        "name":     id,
+                        "domain":   map[string]string{"name": "service"},
+                        "password": pw,
+                    },
+                },
+            },
+        },
+    }
+
+    payloadBytes, _ := json.Marshal(payload)
+    req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payloadBytes))
+    if err != nil {
+        return "", fmt.Errorf("토큰 요청 생성 오류: %w", err)
+    }
+    req.Header.Set("Content-Type", "application/json")
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    if err != nil {
+        return "", fmt.Errorf("토큰 요청 실패: %w", err)
+    }
+    defer resp.Body.Close()
+
+    token := resp.Header.Get("X-Subject-Token")
+    if token == "" {
+        body, _ := ioutil.ReadAll(resp.Body)
+        return "", fmt.Errorf("토큰 없음. 상태: %v, 응답 본문: %s", resp.StatusCode, string(body))
+    }
+
+    return token, nil
+}
+
+// 3. getLBHealthStatus: 받아온 토큰으로 상태 조회
+func getLBHealthStatus(ctx context.Context) error {
+    id, pw, err := getSCFCredential(ctx)
+    if err != nil {
+        return fmt.Errorf("자격 증명 조회 실패: %w", err)
+    }
+
+    token, err := getKeystoneToken(ctx, id, pw)
+    if err != nil {
+        return fmt.Errorf("Keystone 토큰 획득 실패: %w", err)
+    }
+
+    // 여기에 토큰을 사용한 API 호출 코드 삽입
+    req, err := http.NewRequestWithContext(ctx, "GET", "https://some-lb-health-url", nil)
+    if err != nil {
+        return err
+    }
+
+    req.Header.Set("X-Auth-Token", token) // 예: 헤더에 토큰 설정
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    if err != nil {
+        return err
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return fmt.Errorf("헬스체크 실패: %s", resp.Status)
+    }
+
+    // 응답 처리
+    return nil
+}
