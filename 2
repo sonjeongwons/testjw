@@ -1,9 +1,67 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: function-url-config
-  namespace: knative-serving
-data:
-  FUNCTION_URL_ENDPOINT: "function.example.com"
-  FUNCTION_URL_ENABLED: "true"
-  LOADBALANCER_ID: "internal-lb-id"
+[root@d2-krw1a-cp-scf-manager-01 j1.son]# curl -vs -X GET   -H "X-Auth-Token: gAAAAABoHD_-x2AI1xZnpESFafqS2cnoafD1veJPcmTsnQxUvX7kV_TIkO4M_3iSxef1zpq8g7u-aEIOKEfqIBcMRPmRe6eIOcGDlh8Vtkbeuj7WlMF537dVt9oYLoosxmIO8yBH_MRrwsmzhMburxZ-
+SXkxEMpvtk4Ly7_zmnVUB6EsYzK2JqM" "https://loadbalancer-i.kr-west1.dev2.samsungsdscloud.com/v1/loadbalancers/9c61c5c01dc64d3bb53af8608b488d28"
+*   Trying 198.18.2.52...
+* TCP_NODELAY set
+* Connected to loadbalancer-i.kr-west1.dev2.samsungsdscloud.com (198.18.2.52) port 443 (#0)
+* ALPN, offering h2
+* ALPN, offering http/1.1
+* successfully set certificate verify locations:
+*   CAfile: /etc/pki/tls/certs/ca-bundle.crt
+  CApath: none
+* TLSv1.3 (OUT), TLS handshake, Client hello (1):
+* TLSv1.3 (IN), TLS handshake, Server hello (2):
+* TLSv1.3 (IN), TLS handshake, [no content] (0):
+* TLSv1.3 (IN), TLS handshake, Encrypted Extensions (8):
+* TLSv1.3 (IN), TLS handshake, [no content] (0):
+* TLSv1.3 (IN), TLS handshake, Certificate (11):
+* TLSv1.3 (IN), TLS handshake, [no content] (0):
+* TLSv1.3 (IN), TLS handshake, CERT verify (15):
+* TLSv1.3 (IN), TLS handshake, [no content] (0):
+* TLSv1.3 (IN), TLS handshake, Finished (20):
+* TLSv1.3 (OUT), TLS change cipher, Change cipher spec (1):
+* TLSv1.3 (OUT), TLS handshake, [no content] (0):
+* TLSv1.3 (OUT), TLS handshake, Finished (20):
+* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384
+* ALPN, server accepted to use h2
+* Server certificate:
+*  subject: C=KR; ST=Seoul; O=Samsung SDS Co.,Ltd.; CN=*.kr-west1.dev2.samsungsdscloud.com
+*  start date: Aug  2 00:00:00 2024 GMT
+*  expire date: Sep  2 23:59:59 2025 GMT
+*  subjectAltName: host "loadbalancer-i.kr-west1.dev2.samsungsdscloud.com" matched cert's "*.kr-west1.dev2.samsungsdscloud.com"
+*  issuer: C=GB; ST=Greater Manchester; L=Salford; O=Sectigo Limited; CN=Sectigo RSA Organization Validation Secure Server CA
+*  SSL certificate verify ok.
+* Using HTTP2, server supports multi-use
+* Connection state changed (HTTP/2 confirmed)
+* Copying HTTP/2 data in stream buffer to connection buffer after upgrade: len=0
+* TLSv1.3 (OUT), TLS app data, [no content] (0):
+* TLSv1.3 (OUT), TLS app data, [no content] (0):
+* TLSv1.3 (OUT), TLS app data, [no content] (0):
+* Using Stream ID: 1 (easy handle 0x55805c78a6b0)
+* TLSv1.3 (OUT), TLS app data, [no content] (0):
+> GET /v1/loadbalancers/9c61c5c01dc64d3bb53af8608b488d28 HTTP/2
+> Host: loadbalancer-i.kr-west1.dev2.samsungsdscloud.com
+> User-Agent: curl/7.61.1
+> Accept: */*
+> X-Auth-Token: gAAAAABoHD_-x2AI1xZnpESFafqS2cnoafD1veJPcmTsnQxUvX7kV_TIkO4M_3iSxef1zpq8g7u-aEIOKEfqIBcMRPmRe6eIOcGDlh8Vtkbeuj7WlMF537dVt9oYLoosxmIO8yBH_MRrwsmzhMburxZ-SXkxEMpvtk4Ly7_zmnVUB6EsYzK2JqM
+> 
+* TLSv1.3 (IN), TLS handshake, [no content] (0):
+* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
+* TLSv1.3 (IN), TLS handshake, [no content] (0):
+* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
+* TLSv1.3 (IN), TLS app data, [no content] (0):
+* Connection state changed (MAX_CONCURRENT_STREAMS == 128)!
+* TLSv1.3 (OUT), TLS app data, [no content] (0):
+* TLSv1.3 (IN), TLS app data, [no content] (0):
+* TLSv1.3 (IN), TLS app data, [no content] (0):
+< HTTP/2 200 
+< date: Thu, 08 May 2025 05:24:38 GMT
+< content-type: application/json
+< content-length: 782
+< x-openstack-request-id: req-b31c3f4b-ac78-4c7c-a8b1-febdf1fd5dff
+< 
+{"loadbalancer":{"account_id":"33b532c466824bcf9324101a3c6f3015","created_at":"2025-04-01T11:34:24.898463Z","created_by":"d69cba773b3e4419b0f3ed9045a8e679","description":"","firewall_id":"4810b89631184c3a85169d06b4796c8d","firewal
+l_name":"FW_LB_scfsub3","health_check_ip":["198.19.35.186","198.19.33.65"],"id":"9c61c5c01dc64d3bb53af8608b488d28","layer_type":"L7","modified_at":"2025-04-01T11:34:47.009393Z","modified_by":"d69cba773b3e4419b0f3ed9045a8e679","nam
+e":"scf-function-lb","public_nat_ip":"42.14.6.91","public_nat_state":"ACTIVE","service_ip":"198.19.32.13","source_nat_ip":"198.19.32.32","state":"ACTIVE","subnet_cidr":"198.19.32.0/22","subnet_id":"e430781ba086436ab580029425c5e3cf
+","subnet_name":"scfsub3","vpc_id":"a9ca9022243141d49300ca59585e1049","vpc_name":"scfvpc"}}
+* TLSv1.3 (IN), TLS app data, [no content] (0):
+* Connection #0 to host loadbalancer-i.kr-west1.dev2.samsungsdscloud.com left intact
