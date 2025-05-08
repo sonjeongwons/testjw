@@ -1,108 +1,401 @@
-// 1. Secret에서 ID/PW 읽기
-func getSCFCredential(ctx context.Context) (string, string, error) {
-    config, err := rest.InClusterConfig()
-    if err != nil {
-        return "", "", fmt.Errorf("클러스터 config 오류: %w", err)
-    }
+package com.cvc.scanner;
 
-    clientset, err := kubernetes.NewForConfig(config)
-    if err != nil {
-        return "", "", fmt.Errorf("클라이언트 설정 오류: %w", err)
-    }
+import com.ahnlab.v3engine.V3Scanner;
+import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
-    secret, err := clientset.CoreV1().Secrets("scf-watcher").Get(ctx, "scf-watcher-secret", metav1.GetOptions{})
-    if err != nil {
-        return "", "", fmt.Errorf("Secret 조회 오류: %w", err)
-    }
 
-    idEnc := secret.Data["SCF_KEYSTONE_ID"]
-    pwEnc := secret.Data["SCF_KEYSTONE_PW"]
+import java.util.TimeZone;
+@Slf4j
+@ConfigurationPropertiesScan
+@SpringBootApplication
+public class CVCScannerApplication {
 
-    idDecoded, err := base64.StdEncoding.DecodeString(string(idEnc))
-    if err != nil {
-        return "", "", fmt.Errorf("ID 디코딩 오류: %w", err)
-    }
+	@PostConstruct
+	public void started(){
+		TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+		log.info("--------------CVC API Server started");
+		String externalConfigPath = "/usr/local/v3engine/v3daemon/V3Scanner.properties";
+		if(!V3Scanner.setConfPropertiesPath(externalConfigPath))	// 예제는 예제프로그램과 동일한 디렉토리에 설정파일이 있는 경우다.
+		{
+			log.warn("configuration properties failed... using default properties: {}", V3Scanner.getConfPropertiesPath());
+		}
+		else{
+			log.info("configuration properties loaded successfully: {}", V3Scanner.getConfPropertiesPath());
+		}
+	}
 
-    pwDecoded, err := base64.StdEncoding.DecodeString(string(pwEnc))
-    if err != nil {
-        return "", "", fmt.Errorf("PW 디코딩 오류: %w", err)
-    }
+	public static void main(String[] args) {
+		SpringApplication.run(CVCScannerApplication.class, args);
 
-    return string(idDecoded), string(pwDecoded), nil
+	}
+
 }
 
-// 2. Keystone API 호출해서 X-Subject-Token 받아오기
-func getKeystoneToken(ctx context.Context, id, pw string) (string, error) {
-    url := "https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null"
 
-    payload := map[string]interface{}{
-        "auth": map[string]interface{}{
-            "identity": map[string]interface{}{
-                "methods": []string{"password"},
-                "password": map[string]interface{}{
-                    "user": map[string]interface{}{
-                        "name":     id,
-                        "domain":   map[string]string{"name": "service"},
-                        "password": pw,
-                    },
-                },
-            },
-        },
+
+
+
+
+
+
+
+
+package com.cvc.scanner.service;
+
+import com.cvc.scanner.dto.FileDto;
+import com.ahnlab.v3engine.V3Const;
+import com.ahnlab.v3engine.V3Scanner;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Properties;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.time.Instant;
+import java.util.*;
+
+
+@Service
+public class V3ScannerService {
+
+    private static final Logger logger = LoggerFactory.getLogger(V3ScannerService.class);
+    private final String chunkBaseDir = "/tmp/chunks";  // 청크 저장 디렉토리
+
+    @Value("${api.key}")
+    private String validApiKey;
+    //private static final String VALID_API_KEY = "CVCKEY";
+
+    public boolean validateApiKey(String apiKey) {
+        return !validApiKey.equals(apiKey);
     }
 
-    payloadBytes, _ := json.Marshal(payload)
-    req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payloadBytes))
-    if err != nil {
-        return "", fmt.Errorf("토큰 요청 생성 오류: %w", err)
-    }
-    req.Header.Set("Content-Type", "application/json")
-
-    client := &http.Client{}
-    resp, err := client.Do(req)
-    if err != nil {
-        return "", fmt.Errorf("토큰 요청 실패: %w", err)
-    }
-    defer resp.Body.Close()
-
-    token := resp.Header.Get("X-Subject-Token")
-    if token == "" {
-        body, _ := ioutil.ReadAll(resp.Body)
-        return "", fmt.Errorf("토큰 없음. 상태: %v, 응답 본문: %s", resp.StatusCode, string(body))
+    public Map<String, Object> simpleScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        int ret = V3Scanner.scanFile(filename);
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        printScanInfo(filename, ret, null);
+        return result;
     }
 
-    return token, nil
+    public Map<String, Object> remoteScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        Properties prop = new Properties();
+        int ret = V3Scanner.remoteScanFile(filename, prop);
+
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        result.put("details", prop);
+        return result;
+    }
+
+    public Map<String, Object> detailScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        Properties prop = new Properties();
+        int ret = V3Scanner.scanFile(filename, prop);
+
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        result.put("details", prop);
+        return result;
+    }
+
+    public FileDto.Response scanBase64File(FileDto.Request fileDtoRequest) {
+        File tempFile = null;
+        try {
+            // 파일 디코딩 후 임시파일로 저장
+            byte[] fileData = Base64.getDecoder().decode(fileDtoRequest.getFileData());
+            String baseDir = "/tmp/"; // 임시 디렉터리로 변경
+            String uniqueFileName = "scan_" + UUID.randomUUID() + "_" + Instant.now().toEpochMilli() + "_" + fileDtoRequest.getFileName();
+            tempFile = new File(baseDir + File.separator + uniqueFileName);
+            String FilePath = tempFile.getAbsolutePath();
+            logger.info("tempFile : {}", FilePath);
+            Properties prop = new Properties();
+
+            try (FileOutputStream fos = new FileOutputStream(tempFile)) {
+                fos.write(fileData);
+                fos.flush();
+                logger.info("파일 내용 확인 : {}", new String(fileData));
+            }
+            // 파일 스캔 수행
+            int ret = V3Scanner.scanFile(FilePath, prop);
+            printScanInfo(FilePath, ret, prop);
+            return FileDto.Response.builder()
+                    .fileName(fileDtoRequest.getFileName())
+                    .returnCode(ret)
+                    .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO))
+                    .build();
+        } catch (Exception e) {
+            return FileDto.Response.builder()
+                    .fileName(fileDtoRequest.getFileName())
+                    .returnCode(-1)
+                    .message("File processing failed: " + e.getMessage())
+                    .build();
+        } finally {
+            if (tempFile != null && tempFile.exists()) {
+                try {
+                    Files.delete(tempFile.toPath());
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    public FileDto.Response scanMultipartFile(MultipartFile file) {
+        File tempFile = null;
+        try {
+            // 파일 크기 제한 (1GB)
+            if (file.getSize() > 1024L * 1024L * 1024L) {
+                logger.info("File size exceeds the 1GB limit. fileSize(Byte) : {}", file.getSize());
+                return FileDto.Response.builder()
+                        .fileName(file.getOriginalFilename())
+                        .returnCode(-1)
+                        .message("File size exceeds the 1GB limit.")
+                        .build();
+            }
+
+            // 파일 확장자 필터링
+            String fileName = file.getOriginalFilename();
+            if (isAllowedExtension(fileName)) {
+                logger.info("Unsupported file type.");
+                return FileDto.Response.builder()
+                        .fileName(fileName)
+                        .returnCode(-1)
+                        .message("Unsupported file type.")
+                        .build();
+            }
+            Properties prop = new Properties();
+            logger.info("Processing file on disk.");
+            tempFile = Files.createTempFile("scan_", "_" + UUID.randomUUID() + "_" + Instant.now().toEpochMilli() + "_" + fileName).toFile();
+            logger.info("tempFile : {}", tempFile.getAbsolutePath());
+            file.transferTo(tempFile);
+
+            int ret = V3Scanner.scanFile(tempFile.getAbsolutePath(), prop); // 디스크 기반 검사
+            printScanInfo(tempFile.getAbsolutePath(), ret, prop);
+            return buildResponse(fileName, ret, prop);
+
+        } catch (Exception e) {
+            return FileDto.Response.builder()
+                    .fileName(file.getOriginalFilename())
+                    .returnCode(-1)
+                    .message("File processing failed: " + e.getMessage())
+                    .build();
+        } finally {
+            if (tempFile != null && tempFile.exists()) {
+                try {
+                    tempFile.delete();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    public FileDto.Response scanBinaryFile(String fileName, InputStream inputStream) {
+        File tempFile = null;
+        try {
+            // 파일 크기 제한 (1GB)
+            Path tempPath = Files.createTempFile("scan_", "_" + UUID.randomUUID() + "_" + fileName);
+            tempFile = tempPath.toFile();
+
+            logger.info("Processing binary file on disk: {}", tempFile.getAbsolutePath());
+
+            // 파일을 직접 디스크로 저장 (스트림 기반 처리)
+            try (OutputStream outputStream = new FileOutputStream(tempFile)) {
+                byte[] buffer = new byte[8192]; // 8KB 버퍼 크기 설정
+                int bytesRead;
+                while ((bytesRead = inputStream.read(buffer)) != -1) {
+                    outputStream.write(buffer, 0, bytesRead);
+                }
+            }
+
+            // 파일 확장자 필터링 (금지된 파일 체크)
+            if (isAllowedExtension(fileName)) {
+                return FileDto.Response.builder()
+                        .fileName(fileName)
+                        .returnCode(-1)
+                        .message("Unsupported file type.")
+                        .build();
+            }
+
+            // 파일 스캔 수행
+            Properties prop = new Properties();
+            int ret = V3Scanner.scanFile(tempFile.getAbsolutePath(), prop);
+            printScanInfo(tempFile.getAbsolutePath(), ret, prop);
+
+            return FileDto.Response.builder()
+                    .fileName(fileName)
+                    .returnCode(ret)
+                    .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "No additional information."))
+                    .build();
+        } catch (Exception e) {
+            return FileDto.Response.builder()
+                    .fileName(fileName)
+                    .returnCode(-1)
+                    .message("File processing failed: " + e.getMessage())
+                    .build();
+        } finally {
+            // 파일 처리 완료 후 삭제
+            if (tempFile != null && tempFile.exists()) {
+                tempFile.delete();
+            }
+        }
+    }
+
+    /**
+     * 청크 저장 로직
+     */
+    public void saveChunk(String fileId, int chunkIndex, byte[] chunkData) throws Exception {
+        Path chunkDir = Paths.get(chunkBaseDir, fileId);  // 파일 ID 기반 디렉토리 생성
+        if (!Files.exists(chunkDir)) {
+            Files.createDirectories(chunkDir);  // 디렉토리가 없으면 생성
+        }
+        Path chunkFile = chunkDir.resolve("chunk_" + chunkIndex);  // 청크 파일 이름
+        Files.write(chunkFile, chunkData);  // 청크 데이터 저장
+        logger.info("Saved chunk: FileId={}, ChunkIndex={}", fileId, chunkIndex);
+    }
+
+    /**
+     * 병합 및 스캔 로직
+     */
+    public FileDto.Response mergeChunksAndScan(String fileId, String fileName) throws Exception {
+        Path chunkDir = Paths.get(chunkBaseDir, fileId);
+        Path mergedFile = Paths.get("/tmp/" + UUID.randomUUID() + "_" + fileName);  // 병합 파일 이름에 UUID 추가
+
+        try {
+            // 1. 병합 작업
+            try (FileOutputStream outputStream = new FileOutputStream(mergedFile.toFile())) {
+                Files.list(chunkDir)
+                        .sorted()  // 청크 파일 정렬
+                        .forEach(chunk -> {
+                            try {
+                                Files.copy(chunk, outputStream);
+                            } catch (Exception e) {
+                                throw new RuntimeException("Failed to merge chunk: " + chunk.getFileName(), e);
+                            }
+                        });
+            }
+            logger.info("tempFile : {}", mergedFile.toString());
+            // 2. 스캔 작업 수행
+            Properties prop = new Properties();
+            int ret = V3Scanner.scanFile(mergedFile.toString(), prop);
+            printScanInfo(mergedFile.toString(), ret, prop);
+
+            // 3. 결과 반환
+            return FileDto.Response.builder()
+                    .fileName(fileName)
+                    .returnCode(ret)
+                    .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "No additional information."))
+                    .build();
+
+        } finally {
+            // 4. 병합 파일 및 청크 디렉토리 삭제
+            try {
+                if (Files.exists(mergedFile)) {
+                    Files.delete(mergedFile);
+                    logger.info("Deleted merged file: {}", mergedFile);
+                }
+                if (Files.exists(chunkDir)) {
+                    Files.walk(chunkDir)
+                            .sorted(Comparator.reverseOrder())  // 하위 파일부터 삭제
+                            .forEach(path -> {
+                                try {
+                                    Files.delete(path);
+                                } catch (Exception e) {
+                                    logger.warn("Failed to delete chunk file: {}", path, e);
+                                }
+                            });
+                    logger.info("Deleted chunk directory: {}", chunkDir);
+                }
+            } catch (Exception e) {
+                logger.error("Failed to clean up files: {}", e.getMessage());
+            }
+        }
+    }
+
+    // 지원되는 파일 확장자 확인
+    private boolean isAllowedExtension(String fileName) {
+        String[] allowedExtensions = {".zip", ".jar"};
+        String lowerFileName = fileName.toLowerCase();
+        return Arrays.stream(allowedExtensions).noneMatch(lowerFileName::endsWith);
+    }
+
+    // Response 생성 헬퍼 메서드
+    private FileDto.Response buildResponse(String fileName, int ret, Properties prop) {
+        return FileDto.Response.builder()
+                .fileName(fileName)
+                .returnCode(ret)
+                .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "No additional information."))
+                .build();
+    }
+
+    static void printScanInfo(String filename, int ret, Properties prop)
+    {
+        // message
+        String msg = switch (ret) {
+            case V3Const.RET_AUTH_FAILED -> "인증 실패";
+            case V3Const.RET_CLIENT_TIMEOUT -> "검사 요청 클라이언트 TIMEOUT";
+            case V3Const.RET_NETWORK_ERROR -> "네트워크 장애";
+            case V3Const.RET_CLIENT_FAIL -> "검사 요청 클라이언트 오류";
+            case V3Const.RET_CANNOT_SCAN -> "검사 실패";
+            case V3Const.RET_NO_MALWARE -> "악성코드 없음";
+            case V3Const.RET_MALWARE_FOUND -> "악성코드 발견";
+            case V3Const.RET_CLEAN_MODIFY_SUCCESS -> "수정 치료 성공";
+            case V3Const.RET_CLEAN_MODIFY_FAIL -> "수정 치료 실패(삭제 권고)";
+            case V3Const.RET_CLEAN_DEL_SUCCESS -> "삭제 치료 성공";
+            case V3Const.RET_CLEAN_DEL_FAIL -> "삭제 치료 실패(삭제 권고)";
+            case V3Const.RET_CLEAN_DEL_FAIL_BYCONF -> "삭제 치료 실패(검사 서버 옵션)";
+            default -> "알수 없음";
+        };
+
+        // 정보 출력
+        logger.info("filename : {}", filename);
+        logger.info("return : {} ({})", ret,msg);
+        if (prop != null)
+        {
+            logger.info("date rev  : {}", prop.getProperty(V3Const.PROP_KEY_DATE_REV, "N/A"));
+            logger.info("scan time : {}", prop.getProperty(V3Const.PROP_KEY_SCAN_DATE_TIME, "N/A"));
+            logger.info("more info : {}", prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "N/A"));
+            if (ret == V3Const.RET_MALWARE_FOUND)
+            {
+                logger.info("    malware  : {}", prop.getProperty(V3Const.PROP_KEY_MALWARE_NAME, "N/A"));
+                logger.info("    in    : {}", prop.getProperty(V3Const.PROP_KEY_MALWARE_FILE, "N/A"));
+            }
+            logger.info(String.valueOf(prop));
+        }
+    }
 }
 
-// 3. getLBHealthStatus: 받아온 토큰으로 상태 조회
-func getLBHealthStatus(ctx context.Context) error {
-    id, pw, err := getSCFCredential(ctx)
-    if err != nil {
-        return fmt.Errorf("자격 증명 조회 실패: %w", err)
-    }
 
-    token, err := getKeystoneToken(ctx, id, pw)
-    if err != nil {
-        return fmt.Errorf("Keystone 토큰 획득 실패: %w", err)
-    }
-
-    // 여기에 토큰을 사용한 API 호출 코드 삽입
-    req, err := http.NewRequestWithContext(ctx, "GET", "https://some-lb-health-url", nil)
-    if err != nil {
-        return err
-    }
-
-    req.Header.Set("X-Auth-Token", token) // 예: 헤더에 토큰 설정
-    client := &http.Client{}
-    resp, err := client.Do(req)
-    if err != nil {
-        return err
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode != http.StatusOK {
-        return fmt.Errorf("헬스체크 실패: %s", resp.Status)
-    }
-
-    // 응답 처리
-    return nil
-}
+spring.application.name=demo
+server.port=8081
+api.key=CVCKEY
+# log level for root logger
+logging.level.root=INFO
+# log level for com.example package
+logging.level.com.cvc.scanner=DEBUG
+# log pattern for console handler
+logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n
+# log pattern for file handler
+logging.pattern.file=%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n
+# log file location and name
+logging.file.name=/cvc/log/scanner.log
+#logging.logback.rollingpolicy.file-name-pattern=scanner-%d{yyyy-MM-dd}.log.gz
+#logging.logback.rollingpolicy.max-file-size=10MB
+#logging.logback.rollingpolicy.max-history=365
+spring.servlet.multipart.max-file-size=1GB
+spring.servlet.multipart.max-request-size=1GB
