@@ -1,18 +1,28 @@
-2025-05-09 07:20:00 INFO  [http-nio-8081-exec-4] c.c.s.controller.V3ScannerController - Multipart file scan requested. Filename: fail.txt, User Token: gAAAAABoHWxFq9KgBOQJUToRESw0WOFBFKY47zhFIivv9dUu85Jjyf3Nyw63z4sfZ5tiAETBXKwfHU5Q
+2025-05-09 07:32:51 INFO  [http-nio-8081-exec-7] c.c.s.controller.V3ScannerController - Multipart file scan requested. Filename: fail.txt, User Token: gAAAAABoHWxFq9KgBOQJUToRESw0WOFBFKY47zhFIivv9dUu85Jjyf3Nyw63z4sfZ5tiAETBXKwfHU5Q
 ts5KOlKagdGyX-MB_0ZqbJXeTk_VOqsyAGT8hsuHjObTR-4KVYXsluTZUfk-F4yp9a8fe81NSzCOiI8W0XX6hIxqdskawtH_PDemQMw
-2025-05-09 07:20:00 ERROR [http-nio-8081-exec-4] o.a.c.c.C.[.[.[.[dispatcherServlet] - Servlet.service() for servlet [dispatcherServlet] in context with path [] threw exception [Request processing failed: java.lang.IllegalArgumentE
-xception: Illegal character in scheme name at index 0: %22https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null%22] with root cause
-java.net.URISyntaxException: Illegal character in scheme name at index 0: %22https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null%22
-at java.base/java.net.URI$Parser.fail(URI.java:2976)
-at java.base/java.net.URI$Parser.checkChars(URI.java:3147)
-at java.base/java.net.URI$Parser.checkChar(URI.java:3157)
-at java.base/java.net.URI$Parser.parse(URI.java:3172)
-at java.base/java.net.URI.<init>(URI.java:623)
-at java.base/java.net.URI.create(URI.java:904)
-at org.springframework.web.util.DefaultUriBuilderFactory$DefaultUriBuilder.createUri(DefaultUriBuilderFactory.java:467)
-at org.springframework.web.util.DefaultUriBuilderFactory$DefaultUriBuilder.build(DefaultUriBuilderFactory.java:460)
-at org.springframework.web.util.DefaultUriBuilderFactory.expand(DefaultUriBuilderFactory.java:204)
-at org.springframework.web.client.RestTemplate.execute(RestTemplate.java:800)
+2025-05-09 07:32:51 ERROR [http-nio-8081-exec-7] o.a.c.c.C.[.[.[.[dispatcherServlet] - Servlet.service() for servlet [dispatcherServlet] in context with path [] threw exception [Request processing failed: org.springframework.web.cl
+ient.ResourceAccessException: I/O error on POST request for "https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens": identity-i.kr-west1.dev2.samsungsdscloud.com] with root cause
+java.net.UnknownHostException: identity-i.kr-west1.dev2.samsungsdscloud.com
+at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:572)
+at java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327)
+at java.base/java.net.Socket.connect(Socket.java:639)
+at java.base/sun.security.ssl.SSLSocketImpl.connect(SSLSocketImpl.java:304)
+at java.base/sun.security.ssl.BaseSSLSocketImpl.connect(BaseSSLSocketImpl.java:174)
+at java.base/sun.net.NetworkClient.doConnect(NetworkClient.java:183)
+at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:533)
+at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:638)
+at java.base/sun.net.www.protocol.https.HttpsClient.<init>(HttpsClient.java:266)
+at java.base/sun.net.www.protocol.https.HttpsClient.New(HttpsClient.java:380)
+at java.base/sun.net.www.protocol.https.AbstractDelegateHttpsURLConnection.getNewHttpClient(AbstractDelegateHttpsURLConnection.java:193)
+at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect0(HttpURLConnection.java:1245)
+at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect(HttpURLConnection.java:1131)
+at java.base/sun.net.www.protocol.https.AbstractDelegateHttpsURLConnection.connect(AbstractDelegateHttpsURLConnection.java:179)
+at java.base/sun.net.www.protocol.https.HttpsURLConnectionImpl.connect(HttpsURLConnectionImpl.java:142)
+at org.springframework.http.client.SimpleClientHttpRequest.executeInternal(SimpleClientHttpRequest.java:79)
+at org.springframework.http.client.AbstractStreamingClientHttpRequest.executeInternal(AbstractStreamingClientHttpRequest.java:71)
+at org.springframework.http.client.AbstractClientHttpRequest.execute(AbstractClientHttpRequest.java:81)
+at org.springframework.web.client.RestTemplate.doExecute(RestTemplate.java:900)
+at org.springframework.web.client.RestTemplate.execute(RestTemplate.java:801)
 at org.springframework.web.client.RestTemplate.exchange(RestTemplate.java:683)
 at com.cvc.scanner.service.TokenService.getCvcAdminToken(TokenService.java:55)
 at com.cvc.scanner.service.TokenService.validateToken(TokenService.java:61)
@@ -42,6 +52,7 @@ at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterCha
 at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100)
 at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
 at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
+at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
 at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93)
 at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
 at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
