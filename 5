@@ -1,132 +1,71 @@
-응, 네가 준 Python 코드가 requests.post()로 파일 업로드를 multipart/form-data 방식으로 수행하는 거라면, 이걸 curl 명령어로 바꾸는 건 충분히 가능해. 아래 예시로 바꿔줄게:
-
-
----
-
-Python 코드 요약
-
-API_URL = "https://cvc.private.kr-west1.dev2.samsungsdscloud.com/api/v1/scanner/multipart-scan"
-API_KEY = "gAAAAABoHWxF..."
-FILE_NAME = "fail.txt"
-
-equivalent curl 명령어:
-
-curl -X POST "https://cvc.private.kr-west1.dev2.samsungsdscloud.com/api/v1/scanner/multipart-scan" \
-  -H "X-Subject-Token: gAAAAABoHWxF..." \
-  -F "file=@fail.txt"
-
-
----
-
-설명:
-
--X POST: POST 메서드 사용
-
--H: 헤더 설정 (X-Subject-Token)
-
--F: multipart 업로드. @fail.txt는 현재 디렉터리에 있는 파일을 첨부한다는 의미
-
-
-
----
-
-인증서 오류 우회가 필요한 경우:
-
-만약 Python에서 발생한 CERTIFICATE_VERIFY_FAILED처럼 인증서 문제가 발생했다면 아래처럼 -k 옵션 추가:
-
-curl -k -X POST ...  # 인증서 검증 생략
-
-
----
-
-Q1: curl 명령어에서 --cert, --key 옵션은 어떤 상황에서 사용하는 걸까?
-Q2: multipart 업로드 시 Content-Type 헤더를 수동 지정하면 왜 문제가 생길 수 있을까?
-Q3: curl 명령어에 인증 토큰을 안전하게 삽입하는 방법은 어떤 게 가장 안전할까 (예: 스크립트 내부에서)?
-
-
-
-
-
-[root@d2-krw1a-cp-scf-manager-01 ~]# cat test.py 
-import requests
-import time
-
-# 설정
-API_URL = "https://cvc.private.kr-west1.dev2.samsungsdscloud.com/api/v1/scanner/multipart-scan"
-API_KEY = "gAAAAABoHWxFq9KgBOQJUToRESw0WOFBFKY47zhFIivv9dUu85Jjyf3Nyw63z4sfZ5tiAETBXKwfHU5Qts5KOlKagdGyX-MB_0ZqbJXeTk_VOqsyAGT8hsuHjObTR-4KVYXsluTZUfk-F4yp9a8fe81NSzCOiI8W0XX6hIxqdskawtH_PDemQMw"
-FILE_PATH = "/path/to/your/testfile"
-FILE_NAME = "fail.txt"
-
-headers = {
-    "X-Subject-Token": API_KEY
-}
-
-start_time = time.time()
-
-# 파일 업로드
-with open(FILE_NAME, "rb") as file:
-    files = {"file": (FILE_NAME, file)}
-    response = requests.post(API_URL, headers=headers, files=files)
-
-end_time = time.time()
-
-# 결과 출력
-print(f"멀티파트 방식 처리 시간: {end_time - start_time:.2f}초")
-print("응답 코드:", response.status_code)
-print("응답:", response.json())
-
-
-
-
-
-[root@d2-krw1a-cp-scf-manager-01 ~]# python3 test.py 
-Traceback (most recent call last):
-  File "/usr/lib/python3.6/site-packages/urllib3/connectionpool.py", line 600, in urlopen
-    chunked=chunked)
-  File "/usr/lib/python3.6/site-packages/urllib3/connectionpool.py", line 343, in _make_request
-    self._validate_conn(conn)
-  File "/usr/lib/python3.6/site-packages/urllib3/connectionpool.py", line 839, in _validate_conn
-    conn.connect()
-  File "/usr/lib/python3.6/site-packages/urllib3/connection.py", line 358, in connect
-    ssl_context=context)
-  File "/usr/lib/python3.6/site-packages/urllib3/util/ssl_.py", line 354, in ssl_wrap_socket
-    return context.wrap_socket(sock, server_hostname=server_hostname)
-  File "/usr/lib64/python3.6/ssl.py", line 365, in wrap_socket
-    _context=self, _session=session)
-  File "/usr/lib64/python3.6/ssl.py", line 810, in __init__
-    self.do_handshake()
-  File "/usr/lib64/python3.6/ssl.py", line 1070, in do_handshake
-    self._sslobj.do_handshake()
-  File "/usr/lib64/python3.6/ssl.py", line 648, in do_handshake
-    self._sslobj.do_handshake()
-ssl.SSLError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed (_ssl.c:897)
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/usr/lib/python3.6/site-packages/requests/adapters.py", line 449, in send
-    timeout=timeout
-  File "/usr/lib/python3.6/site-packages/urllib3/connectionpool.py", line 638, in urlopen
-    _stacktrace=sys.exc_info()[2])
-  File "/usr/lib/python3.6/site-packages/urllib3/util/retry.py", line 399, in increment
-    raise MaxRetryError(_pool, url, error or ResponseError(cause))
-urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='cvc.private.kr-west1.dev2.samsungsdscloud.com', port=443): Max retries exceeded with url: /api/v1/scanner/multipart-scan (Caused by SSLError(SSLError(1, '[SSL: CERTIFICATE
-_VERIFY_FAILED] certificate verify failed (_ssl.c:897)'),))
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "test.py", line 19, in <module>
-    response = requests.post(API_URL, headers=headers, files=files)
-  File "/usr/lib/python3.6/site-packages/requests/api.py", line 116, in post
-    return request('post', url, data=data, json=json, **kwargs)
-  File "/usr/lib/python3.6/site-packages/requests/api.py", line 60, in request
-    return session.request(method=method, url=url, **kwargs)
-  File "/usr/lib/python3.6/site-packages/requests/sessions.py", line 535, in request
-    resp = self.send(prep, **send_kwargs)
-  File "/usr/lib/python3.6/site-packages/requests/sessions.py", line 648, in send
-    r = adapter.send(request, **kwargs)
-  File "/usr/lib/python3.6/site-packages/requests/adapters.py", line 514, in send
-    raise SSLError(e, request=request)
-requests.exceptions.SSLError: HTTPSConnectionPool(host='cvc.private.kr-west1.dev2.samsungsdscloud.com', port=443): Max retries exceeded with url: /api/v1/scanner/multipart-scan (Caused by SSLError(SSLError(1, '[SSL: CERTIFICATE_VER
-IFY_FAILED] certificate verify failed (_ssl.c:897)'),))
+2025-05-09 07:20:00 INFO  [http-nio-8081-exec-4] c.c.s.controller.V3ScannerController - Multipart file scan requested. Filename: fail.txt, User Token: gAAAAABoHWxFq9KgBOQJUToRESw0WOFBFKY47zhFIivv9dUu85Jjyf3Nyw63z4sfZ5tiAETBXKwfHU5Q
+ts5KOlKagdGyX-MB_0ZqbJXeTk_VOqsyAGT8hsuHjObTR-4KVYXsluTZUfk-F4yp9a8fe81NSzCOiI8W0XX6hIxqdskawtH_PDemQMw
+2025-05-09 07:20:00 ERROR [http-nio-8081-exec-4] o.a.c.c.C.[.[.[.[dispatcherServlet] - Servlet.service() for servlet [dispatcherServlet] in context with path [] threw exception [Request processing failed: java.lang.IllegalArgumentE
+xception: Illegal character in scheme name at index 0: %22https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null%22] with root cause
+java.net.URISyntaxException: Illegal character in scheme name at index 0: %22https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null%22
+at java.base/java.net.URI$Parser.fail(URI.java:2976)
+at java.base/java.net.URI$Parser.checkChars(URI.java:3147)
+at java.base/java.net.URI$Parser.checkChar(URI.java:3157)
+at java.base/java.net.URI$Parser.parse(URI.java:3172)
+at java.base/java.net.URI.<init>(URI.java:623)
+at java.base/java.net.URI.create(URI.java:904)
+at org.springframework.web.util.DefaultUriBuilderFactory$DefaultUriBuilder.createUri(DefaultUriBuilderFactory.java:467)
+at org.springframework.web.util.DefaultUriBuilderFactory$DefaultUriBuilder.build(DefaultUriBuilderFactory.java:460)
+at org.springframework.web.util.DefaultUriBuilderFactory.expand(DefaultUriBuilderFactory.java:204)
+at org.springframework.web.client.RestTemplate.execute(RestTemplate.java:800)
+at org.springframework.web.client.RestTemplate.exchange(RestTemplate.java:683)
+at com.cvc.scanner.service.TokenService.getCvcAdminToken(TokenService.java:55)
+at com.cvc.scanner.service.TokenService.validateToken(TokenService.java:61)
+at com.cvc.scanner.controller.V3ScannerController.scanMultipartFile(V3ScannerController.java:91)
+at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+at java.base/java.lang.reflect.Method.invoke(Method.java:568)
+at org.springframework.web.method.support.InvocableHandlerMethod.doInvoke(InvocableHandlerMethod.java:257)
+at org.springframework.web.method.support.InvocableHandlerMethod.invokeForRequest(InvocableHandlerMethod.java:190)
+at org.springframework.web.servlet.mvc.method.annotation.ServletInvocableHandlerMethod.invokeAndHandle(ServletInvocableHandlerMethod.java:118)
+at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.invokeHandlerMethod(RequestMappingHandlerAdapter.java:986)
+at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.handleInternal(RequestMappingHandlerAdapter.java:891)
+at org.springframework.web.servlet.mvc.method.AbstractHandlerMethodAdapter.handle(AbstractHandlerMethodAdapter.java:87)
+at org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1088)
+at org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:978)
+at org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1014)
+at org.springframework.web.servlet.FrameworkServlet.doPost(FrameworkServlet.java:914)
+at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:590)
+at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)
+at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:658)
+at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:195)
+at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
+at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51)
+at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
+at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
+at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100)
+at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
+at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
+at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93)
+at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
+at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
+at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
+at org.springframework.web.servlet.v6_0.OpenTelemetryHandlerMappingFilter.doFilter(OpenTelemetryHandlerMappingFilter.java:76)
+at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
+at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
+at org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201)
+at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
+at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
+at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
+at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:167)
+at org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:90)
+at org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:483)
+at org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:115)
+at org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:93)
+at org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:74)
+at org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:344)
+at org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:397)
+at org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63)
+at org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:905)
+at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1741)
+at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52)
+at org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1190)
+at org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:659)
+at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63)
+at java.base/java.lang.Thread.run(Thread.java:833)
