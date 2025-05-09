@@ -1,469 +1,110 @@
-2025-05-09T01:33:28ZINFOReconcile 시작{"controller": "scfwatcher", "controllerGroup": "module.scf.scp.samsungsds.com", "controllerKind": "ScfWatcher", "ScfWatcher": {"name":"scf-choi12345","namespace":"scf-choi12345"}, "n
-amespace": "scf-choi12345", "name": "scf-choi12345", "reconcileID": "ed56aa5f-26f9-4cc9-832e-17459ac240b4"}
-2025-05-09T01:33:28ZINFO기존 Knative Service 상태 : {"controller": "scfwatcher", "controllerGroup": "module.scf.scp.samsungsds.com", "controllerKind": "ScfWatcher", "ScfWatcher": {"name":"scf-choi12345","namespace":"scf
--choi12345"}, "namespace": "scf-choi12345", "name": "scf-choi12345", "reconcileID": "ed56aa5f-26f9-4cc9-832e-17459ac240b4"}
-2025-05-09T01:33:28ZINFO신규 Knative Service 상태True{"controller": "scfwatcher", "controllerGroup": "module.scf.scp.samsungsds.com", "controllerKind": "ScfWatcher", "ScfWatcher": {"name":"scf-choi12345","namespace":"scf
--choi12345"}, "namespace": "scf-choi12345", "name": "scf-choi12345", "reconcileID": "ed56aa5f-26f9-4cc9-832e-17459ac240b4"}
-2025-05-09T01:33:28ZINFO함수 URL 정보 ConfigMap 불러오기{"controller": "scfwatcher", "controllerGroup": "module.scf.scp.samsungsds.com", "controllerKind": "ScfWatcher", "ScfWatcher": {"name":"scf-choi12345","namespa
-ce":"scf-choi12345"}, "namespace": "scf-choi12345", "name": "scf-choi12345", "reconcileID": "ed56aa5f-26f9-4cc9-832e-17459ac240b4"}
-2025-05-09T01:33:28ZDPANICodd number of arguments passed as key-value pairs for logging{"controller": "scfwatcher", "controllerGroup": "module.scf.scp.samsungsds.com", "controllerKind": "ScfWatcher", "ScfWatcher": {"name":
-"scf-choi12345","namespace":"scf-choi12345"}, "namespace": "scf-choi12345", "name": "scf-choi12345", "reconcileID": "ed56aa5f-26f9-4cc9-832e-17459ac240b4", "ignored key": 0}
-scf.scp.samsungsds.com/crd/internal/controller.(*ScfWatcherReconciler).Reconcile
-/workspace/internal/controller/scfwatcher_controller.go:131
-sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).Reconcile
-/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:116
-sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).reconcileHandler
-/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:303
-sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).processNextWorkItem
-/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:263
-sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).Start.func2.2
-/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:224
-2025-05-09T01:33:28ZERRORObserved a panic{"controller": "scfwatcher", "controllerGroup": "module.scf.scp.samsungsds.com", "controllerKind": "ScfWatcher", "ScfWatcher": {"name":"scf-choi12345","namespace":"scf-choi123
-45"}, "namespace": "scf-choi12345", "name": "scf-choi12345", "reconcileID": "ed56aa5f-26f9-4cc9-832e-17459ac240b4", "panic": "odd number of arguments passed as key-value pairs for logging", "stacktrace": "goroutine 112 [running]:\n
-k8s.io/apimachinery/pkg/util/runtime.logPanic({0x227c420, 0xc000abea50}, {0x1b7bb40, 0xc0003fafa0})\n\t/go/pkg/mod/k8s.io/apimachinery@v0.31.0/pkg/util/runtime/runtime.go:107 +0xbc\nsigs.k8s.io/controller-runtime/pkg/internal/contr
-oller.(*Controller[...]).Reconcile.func1()\n\t/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:105 +0x112\npanic({0x1b7bb40?, 0xc0003fafa0?})\n\t/usr/local/go/src/runtime/panic.go:770 +0x132\
-ngo.uber.org/zap/zapcore.CheckWriteAction.OnWrite(0x1?, 0x1?, {0x0?, 0x0?, 0xc0005ddf60?})\n\t/go/pkg/mod/go.uber.org/zap@v1.27.0/zapcore/entry.go:196 +0x54\ngo.uber.org/zap/zapcore.(*CheckedEntry).Write(0xc0001a28f0, {0xc00073c0c0
-, 0x1, 0x1})\n\t/go/pkg/mod/go.uber.org/zap@v1.27.0/zapcore/entry.go:262 +0x24e\ngo.uber.org/zap.(*Logger).DPanic(0x1f41c47?, {0x1fac89c?, 0x1b7bd80?}, {0xc00073c0c0, 0x1, 0x1})\n\t/go/pkg/mod/go.uber.org/zap@v1.27.0/logger.go:275 
-+0x51\ngithub.com/go-logr/zapr.(*zapLogger).handleFields(0xc000abea80, 0x0, {0xc0003faf60, 0x1, 0x0?}, {0x0, 0x0, 0x5?})\n\t/go/pkg/mod/github.com/go-logr/zapr@v1.3.0/zapr.go:147 +0xd33\ngithub.com/go-logr/zapr.(*zapLogger).Info(0x
-c000abea80, 0x0, {0x1f8f1cb?, 0x0?}, {0xc0003faf60, 0x1, 0x1})\n\t/go/pkg/mod/github.com/go-logr/zapr@v1.3.0/zapr.go:201 +0x8f\ngithub.com/go-logr/logr.Logger.Info({{0x2282838?, 0xc000abea80?}, 0x1f5a630?}, {0x1f8f1cb, 0x32}, {0xc0
-003faf60, 0x1, 0x1})\n\t/go/pkg/mod/github.com/go-logr/logr@v1.4.2/logr.go:280 +0xf3\nscf.scp.samsungsds.com/crd/internal/controller.(*ScfWatcherReconciler).Reconcile(0xc000011e60, {0x227c420, 0xc000abea50}, {{{0xc00044eb60?, 0x1f3
-8809?}, {0xc00044e9c0?, 0x100?}}})\n\t/workspace/internal/controller/scfwatcher_controller.go:131 +0x74d\nsigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).Reconcile(0xc000abe9c0?, {0x227c420?, 0xc000abea50?
-}, {{{0xc00044eb60?, 0x0?}, {0xc00044e9c0?, 0x0?}}})\n\t/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:116 +0xd4\nsigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).r
-econcileHandler(0x2291aa0, {0x227c458, 0xc0006b7b80}, {{{0xc00044eb60, 0xd}, {0xc00044e9c0, 0xd}}})\n\t/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:303 +0x3bc\nsigs.k8s.io/controller-runt
-ime/pkg/internal/controller.(*Controller[...]).processNextWorkItem(0x2291aa0, {0x227c458, 0xc0006b7b80})\n\t/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:263 +0x21d\nsigs.k8s.io/controller
--runtime/pkg/internal/controller.(*Controller[...]).Start.func2.2()\n\t/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:224 +0x8a\ncreated by sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).Start.func2 in goroutine 131\n\t/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:220 +0x490\n"}
-go.uber.org/zap/zapcore.(*CheckedEntry).Write
-/go/pkg/mod/go.uber.org/zap@v1.27.0/zapcore/entry.go:262
-go.uber.org/zap.(*Logger).DPanic
-/go/pkg/mod/go.uber.org/zap@v1.27.0/logger.go:275
-github.com/go-logr/zapr.(*zapLogger).handleFields
-/go/pkg/mod/github.com/go-logr/zapr@v1.3.0/zapr.go:147
-github.com/go-logr/zapr.(*zapLogger).Info
-/go/pkg/mod/github.com/go-logr/zapr@v1.3.0/zapr.go:201
-github.com/go-logr/logr.Logger.Info
-/go/pkg/mod/github.com/go-logr/logr@v1.4.2/logr.go:280
-scf.scp.samsungsds.com/crd/internal/controller.(*ScfWatcherReconciler).Reconcile
-/workspace/internal/controller/scfwatcher_controller.go:131
-sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).Reconcile
-/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:116
-sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).reconcileHandler
-/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:303
-sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).processNextWorkItem
-/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:263
-sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).Start.func2.2
-/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:224
-2025-05-09T01:33:28ZERRORReconciler error{"controller": "scfwatcher", "controllerGroup": "module.scf.scp.samsungsds.com", "controllerKind": "ScfWatcher", "ScfWatcher": {"name":"scf-choi12345","namespace":"scf-choi123
-45"}, "namespace": "scf-choi12345", "name": "scf-choi12345", "reconcileID": "ed56aa5f-26f9-4cc9-832e-17459ac240b4", "error": "panic: odd number of arguments passed as key-value pairs for logging [recovered]"}
-sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).reconcileHandler
-/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:316
-sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).processNextWorkItem
-/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:263
-sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller[...]).Start.func2.2
-/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.19.0/pkg/internal/controller/controller.go:224
-
-
-/*
-Copyright 2024.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
-package controller
-
-import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"net"
-	"net/http"
-	"strconv"
-	"time"
-
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
-	modulev1 "scf.scp.samsungsds.com/crd/api/v1"
-)
-
-// ScfWatcherReconciler reconciles a ScfWatcher object
-type ScfWatcherReconciler struct {
-	client.Client
-	Scheme *runtime.Scheme
-}
-
-// Function Status JSON Data
-type FunctionStatusData struct {
-	functionStatus string
-}
-
-const (
-	StatusTrue      = "True"
-	StatusFalse     = "False"
-	StatusUnknown   = "Unkown"
-	StatusActive    = "ACTIVE"
-	StatusSuccess   = "Success"
-	StatusFail      = "Fail"
-	StatusReady     = "READY"
-	StatusNotReady  = "NOT_READY"
-	StatusDeploying = "DEPLOYING"
-)
-
-const ManagerEndpoint = "http://cp-scf-manager.scf-manager-cp:8080/api/v2/function/status/"
-
-//+kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers/finalizers,verbs=update
-//+kubebuilder:rbac:groups=serving.knative.dev,resources=services,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
-
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the ScfWatcher object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.18.4/pkg/reconcile
-func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-	logger.Info("Reconcile 시작")
-	returnStatus := StatusDeploying
-	statusMessage := map[string]string{"functionStatus": returnStatus}
-
-	// TODO(user): your logic here
-	// 1. ScfWatcher CR 객체 가져오기
-	var scfWatcher modulev1.ScfWatcher
-	if err := r.Get(ctx, req.NamespacedName, &scfWatcher); err != nil {
-		logger.Error(err, "Unable to fetch ScfWatcher")
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	// 2-1 관련된 Knative Service 가져오기
-	var ksvc servingv1.Service
-	if err := r.Get(ctx, client.ObjectKey{Namespace: scfWatcher.Spec.KsvcNamespace, Name: scfWatcher.Spec.KsvcName}, &ksvc); err != nil {
-		logger.Error(err, "Unable to fetch Knative Service")
-		return ctrl.Result{}, err
-	}
-
-	// 현재 상태와 이전 상태를 비교
-	currentStatus := getStatusFromKsvc(ksvc)
-	logger.Info("기존 Knative Service 상태 : " + scfWatcher.Status.LastKsvcStatus)
-	logger.Info("신규 Knative Service 상태" + currentStatus)
-
-	// ConfigMap 정보 불러오기
-	var configMap corev1.ConfigMap
-	if err := r.Get(ctx, client.ObjectKey{Namespace: "scf-watcher", Name: scfWatcher.Spec.KsvcName}, &configMap); err != nil {
-		logger.Error(err, "Unable to fetch Watcher ConfigMap")
-		return ctrl.Result{}, err
-	}
-
-	logger.Info("함수 URL 정보 ConfigMap 불러오기")
-	// ConfigMap으로 부터 함수 URL 정보 불러오기
-	functionUrlEnabled := configMap.Data["FUNCTION_URL_ENABLED"]
-	functionUrlEndpoint := configMap.Data["FUNCTION_URL_ENDPOINT"]
-	dnsLookupMaxRetryCount := configMap.Data["DNS_LOOKUP_MAX_RETRY_COUNT"]
-	dnsLookupIntervalSecond := configMap.Data["DNS_LOOKUP_INTERVAL_SECOND"]
-
-	if functionUrlEnabled == "" {
-		logger.Error(nil, "FUNCTION_URL_ENABLED not found in ConfigMap")
-		return ctrl.Result{}, fmt.Errorf("FUNCTION_URL_ENABLED not found in ConfigMap")
-	}
-
-	if scfWatcher.Status.LastKsvcStatus != currentStatus {
-		// 상태에 변화있으면 재시도 횟수 초기화
-		scfWatcher.Status.DnsLookupRetryCount = 0
-		logger.Info("상태변화 없음. reconcile 재시도 초기화", scfWatcher.Status.DnsLookupRetryCount)
-		_ = r.Status().Update(ctx, &scfWatcher)
-	}
-
-	if functionUrlEnabled == StatusTrue {
-
-		// 2-2 LB DNS연결 여부 조회
-		lbDnsConnectivity, err := checkLBDnsConnectivity(ctx, functionUrlEndpoint)
-		if err != nil {
-			logger.Error(err, "Error getting DNS Connectivity")
-
-			retryInt, err := strconv.Atoi(dnsLookupMaxRetryCount)
-			if err != nil {
-				fmt.Printf("dnsLookupMaxRetryCount 문자열을 int로 변환 실패: %v\n", err)
-				return ctrl.Result{}, nil
-			}
-
-			intervalInt, err := strconv.Atoi(dnsLookupIntervalSecond)
-			if err != nil {
-				fmt.Printf("dnsLookupIntervalSecond 문자열을 int로 변환 실패: %v\n", err)
-				return ctrl.Result{}, nil
-			}
-
-			// 재시도 횟수 초과 확인
-			if scfWatcher.Status.DnsLookupRetryCount >= retryInt {
-				logger.Info("최대 재시도 횟수 초과. Requeue 중지")
-				statusMessage = map[string]string{"functionStatus": StatusNotReady}
-				if err := sendStatusToManager(ctx, ManagerEndpoint, statusMessage, scfWatcher.Spec.KsvcName); err != nil {
-					logger.Error(err, "Failed to send status update to manager")
-					return ctrl.Result{}, err
-				}
-				logger.Info("상태전송", "status", returnStatus)
-				return ctrl.Result{}, nil
-			}
-
-			// 재시도 횟수 증가
-			scfWatcher.Status.DnsLookupRetryCount++
-			_ = r.Status().Update(ctx, &scfWatcher)
-			logger.Info("DNS 연결 실패로 reconcile 재시도 횟수 증가", scfWatcher.Status.DnsLookupRetryCount)
-			return ctrl.Result{RequeueAfter: time.Duration(intervalInt) * time.Second}, nil
-		}
-
-		// 정상 동작 시 재시도 횟수 초기화
-		if scfWatcher.Status.DnsLookupRetryCount > 0 {
-			scfWatcher.Status.DnsLookupRetryCount = 0
-			logger.Info("DNS정상 연결. reconcile 재시도 초기화", scfWatcher.Status.DnsLookupRetryCount)
-			_ = r.Status().Update(ctx, &scfWatcher)
-		}
-
-		logger.Info("DNS 연결 여부 : " + lbDnsConnectivity)
-
-		// DNS연결 ScfWatcher의 상태를 업데이트
-		scfWatcher.Status.LoadBalancerEndpointDnsConnectivity = lbDnsConnectivity
-		if err := r.Client.Status().Update(ctx, &scfWatcher); err != nil {
-			logger.Error(err, "Unable to update ScfWatcher status")
-			return ctrl.Result{}, err
-		}
-		logger.Info("ScfWatcher CR DNS Lookup Status 업데이트 완료")
-		logger.Info("ScfWatcher CR Status 업데이트 값 : ", "DNS연결 : ", lbDnsConnectivity)
-
-		// 현재 상태와 이전 상태를 비교
-
-		if scfWatcher.Status.LastKsvcStatus == StatusTrue && currentStatus == StatusTrue && lbDnsConnectivity == StatusSuccess {
-			// 상태에 변화가 없으면 Reconcile을 반복하지 않음
-			logger.Info("Knative상태, DNS Lookup 이상없음")
-			return ctrl.Result{}, nil
-		}
-		logger.Info("상태비교 끝")
-
-		if currentStatus == StatusTrue && lbDnsConnectivity == StatusSuccess {
-			returnStatus = StatusReady
-		} else if currentStatus == StatusFail || lbDnsConnectivity == StatusFail {
-			returnStatus = StatusNotReady
-		}
-	} else {
-		// 현재 상태와 이전 상태를 비교
-		if scfWatcher.Status.LastKsvcStatus == currentStatus {
-			// 상태에 변화가 없으면 Reconcile을 반복하지 않음
-			return ctrl.Result{}, nil
-		}
-		logger.Info("상태비교 끝")
-
-		if currentStatus == StatusTrue {
-			returnStatus = StatusReady
-		} else if currentStatus == StatusFail {
-			returnStatus = StatusNotReady
-		}
-
-	}
-
-	// 4. scf-manager에게 상태 업데이트 전송
-	statusMessage = map[string]string{"functionStatus": returnStatus}
-	if err := sendStatusToManager(ctx, ManagerEndpoint, statusMessage, scfWatcher.Spec.KsvcName); err != nil {
-		logger.Error(err, "Failed to send status update to manager")
-		return ctrl.Result{}, err
-	}
-	logger.Info("상태전송", "status", returnStatus)
-
-	// 5. ksvc 상태 관련 ScfWatcher의 상태를 업데이트
-	scfWatcher.Status.LastKsvcStatus = currentStatus
-	scfWatcher.Status.LastReportedTime = metav1.Now()
-	if err := r.Client.Status().Update(ctx, &scfWatcher); err != nil {
-		logger.Error(err, "Unable to update ScfWatcher status")
-		return ctrl.Result{}, err
-	}
-	logger.Info("ScfWatcher CR Knative Status 업데이트 완료")
-	logger.Info("ScfWatcher CR Knative Status 업데이트 값 : " + currentStatus)
-	return ctrl.Result{}, nil
-}
-
-// getStatusFromKsvc 함수는 Knative 서비스의 현재 상태를 확인
-func getStatusFromKsvc(ksvc servingv1.Service) string {
-	for _, condition := range ksvc.Status.Conditions {
-		if condition.Type == "Ready" {
-			if condition.Status == corev1.ConditionTrue {
-				return StatusTrue
-			} else if condition.Status == corev1.ConditionFalse {
-				return StatusFail
-			} else {
-				return StatusUnknown
-			}
-		}
-	}
-	return StatusUnknown
-}
-
-// sendStatusToManager 함수는 상태를 Manager endpoint로 전송
-func sendStatusToManager(ctx context.Context, endpoint string, status map[string]string, ksvcName string) error {
-	logger := log.FromContext(ctx)
-	statusJSON, err := json.Marshal(status)
-	if err != nil {
-		return err
-	}
-	//resp, err := http.Post(endpoint+":"+ksvcName, "application/json", bytes.NewBuffer(statusJSON))
-	req, err := http.NewRequest(http.MethodPut, endpoint+ksvcName, bytes.NewBuffer(statusJSON))
-	log.Log.Info("Here is endpoint : " + endpoint + ksvcName)
-	//log.Log.Info("Here is JsonBody : "+statusJSON)
-	if err != nil {
-		logger.Error(err, "Failed to make Request")
-		return err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{}
-	resp, err := client.Do(req)
-
-	if err != nil {
-		logger.Error(err, "Failed to send API to Manager")
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to report status: %v", resp.Status)
-	}
-	return nil
-}
-
-// SetupWithManager sets up the controller with the Manager.
-func (r *ScfWatcherReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&modulev1.ScfWatcher{}).                                                                       // ScfWatcher 리소스를 관찰
-		Watches(&servingv1.Service{}, handler.EnqueueRequestsFromMapFunc(r.findObjectsForKnativeService)). // Knative Service 리소스를 관찰
-		Complete(r)
-}
-
-func (r *ScfWatcherReconciler) findObjectsForKnativeService(ctx context.Context, obj client.Object) []reconcile.Request {
-	scfWatchers := &modulev1.ScfWatcherList{}
-	err := r.List(ctx, scfWatchers)
-	if err != nil {
-		return []reconcile.Request{}
-	}
-
-	var requests []reconcile.Request
-	for _, scfWatcher := range scfWatchers.Items {
-		if scfWatcher.Spec.KsvcName == obj.GetName() && scfWatcher.Spec.KsvcNamespace == obj.GetNamespace() {
-			requests = append(requests, reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      scfWatcher.Name,
-					Namespace: scfWatcher.Namespace,
-				},
-			})
-		}
-	}
-	return requests
-}
-
-// LB DNS 등록 확인 함수
-func checkLBDnsConnectivity(ctx context.Context, urlEndpoint string) (string, error) {
-	logger := log.FromContext(ctx)
-	// nslookup 대체로 net.LookupHost 사용
-	_, err := net.LookupHost(urlEndpoint)
-	if err != nil {
-		logger.Error(err, "Failed to connext DNS")
-		return StatusFail, err
-	}
-	return StatusSuccess, nil
-}
-
-
-
-/*
-Copyright 2024.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
-package v1
-
-import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-)
-
-// ScfWatcherSpec defines the desired state of ScfWatcher
-type ScfWatcherSpec struct {
-	// ksvcName은 감시할 Knative 서비스의 이름
-	// KsvcName is the name of the Knative Service to watch
-	KsvcName string `json:"ksvcName,omitempty"`
-
-	// ksvcNamespace는 해당 Knative 서비스가 속한 네임스페이스
-	// KsvcNamespace is the namespace of the Knative Service
-	KsvcNamespace string `json:"ksvcNamespace,omitempty"`
-}
-
-// ScfWatcherStatus defines the observed state of ScfWatcher
-type ScfWatcherStatus struct {
-	// lastKsvcStatus는 마지막으로 감지된 Knative 서비스의 상태
-	// KsvcStatus represents the current status of the watched Knative Service
-	LastKsvcStatus string `json:"lastKsvcStatus,omitempty"`
-
-	// lastReportedTime은 마지막으로 상태가 보고된 시간
-	// LastUpdated is the timestamp of the last status update
-	LastReportedTime metav1.Time `json:"lastReportedTime,omitempty"`
-
-	// 추가: LB 엔드포인트 DNS통신 연결 성공 여부 (Success, Fail)
-	LoadBalancerEndpointDnsConnectivity string `json:"loadBalancerEndpointDnsConnectivity,omitempty"`
-
-	// 추가: DNS Lookup 재시도 횟수 추적
-	DnsLookupRetryCount int `json:"dnsLookupRetryCount,omitempty"`
-}
-
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-
-// ScfWatcher is the Schema for the scfwatchers API
-type ScfWatcher struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	Spec   ScfWatcherSpec   `json:"spec,omitempty"`
-	Status ScfWatcherStatus `json:"status,omitempty"`
-}
-
-//+kubebuilder:object:root=true
-
-// ScfWatcherList contains a list of ScfWatcher
-type ScfWatcherList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []ScfWatcher `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&ScfWatcher{}, &ScfWatcherList{})
-}
+좋아. SOPS를 활용해 docker-compose.yaml 안의 환경변수를 보안적으로 관리하는 방법은 일반적으로 다음과 같은 두 가지 방식이 있어:
+
+
+---
+
+[방식 1] .env 파일을 SOPS로 암호화하여 사용하는 방식 (추천)
+
+① .env 파일 작성
+
+# .env
+API_KEY=abcd1234
+DB_PASSWORD=s3cr3t
+
+② .env 파일을 SOPS로 암호화
+
+sops -e .env > .env.enc
+
+③ .env.enc를 .env로 복호화
+
+sops -d .env.enc > .env
+
+이렇게 복호화된 .env를 기반으로 docker-compose 실행:
+
+docker-compose --env-file .env up -d
+
+> 이때 .env.enc는 Git에 포함하고 .env는 .gitignore에 포함시켜 보안 유지.
+
+
+
+
+---
+
+[방식 2] docker-compose.yaml 자체를 SOPS로 암호화
+
+이 방법은 비추천이지만, 가능은 해. 단점은 docker-compose가 암호화된 yaml 파일을 직접 읽지 못한다는 점.
+
+① 원본 작성
+
+# docker-compose.yaml
+services:
+  myapp:
+    image: myapp:latest
+    environment:
+      - API_KEY=abcd1234
+      - DB_PASSWORD=s3cr3t
+
+② SOPS로 암호화
+
+sops -e docker-compose.yaml > docker-compose.enc.yaml
+
+③ 복호화 후 실행
+
+sops -d docker-compose.enc.yaml > docker-compose.yaml
+docker-compose up -d
+
+> 보안은 되지만 매번 복호화 → 실행 흐름이 필요하고, 실수로 복호화된 파일이 Git에 올라갈 수 있어 주의가 필요해.
+
+
+
+
+---
+
+SOPS Key 관리
+
+SOPS는 다음 백엔드를 사용할 수 있어:
+
+AWS KMS
+
+GCP KMS
+
+Azure Key Vault
+
+PGP key
+
+Age
+
+
+
+예: AWS KMS 사용 시 ~/.sops.yaml 설정 예시:
+
+creation_rules:
+  - kms: "arn:aws:kms:ap-northeast-2:123456789012:key/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+
+---
+
+전체 워크플로우 요약
+
+1. 민감한 환경변수는 .env 파일에 작성
+
+
+2. .env → sops -e → .env.enc (암호화)
+
+
+3. 실행 전 .env.enc → 복호화 → .env
+
+
+4. docker-compose --env-file .env up
+
+
+
+CI/CD에서는 .env.enc를 복호화한 후 환경변수 주입만 하면 되므로, 실무에 적합해.
+
+
+---
+
+Q1: SOPS를 사용할 때 Age 키와 PGP 키 중 어떤 방식이 실무에서 더 효율적일까?
+Q2: SOPS를 CI/CD 파이프라인에 통합하는 가장 안전한 절차는 어떻게 구성할 수 있을까?
+Q3: Kubernetes 환경에서 SOPS와 Sealed Secrets를 조합해 보안 구성할 수 있는 전략은?
+
