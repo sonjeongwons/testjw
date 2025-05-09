@@ -1,108 +1,213 @@
-좋아, 요청한 두 가지 기능을 Java 코드로 설계해서 TokenService 같은 클래스로 정리해줄게. Spring 기반 환경을 가정하고, RestTemplate을 사용해서 HTTP 요청을 보내도록 하겠다.
+package com.cvc.scanner.controller;
 
+import com.cvc.scanner.dto.FileDto;
+import com.cvc.scanner.service.V3ScannerService;
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 
----
+import java.io.InputStream;
+import java.util.Random;
 
-전제 조건
+import org.springframework.http.HttpStatus;
+import jakarta.validation.Valid;
+import org.springframework.web.multipart.MultipartFile;
 
-@Value로 외부 설정값을 주입받는 형태
+import java.util.Map;
 
-RestTemplate을 Bean으로 등록한 상태
+@RestController
+@RequestMapping("/api/v1/scanner")
+public class V3ScannerController {
 
-에러 처리 및 예외 상황은 간략화하고 이후 확장 가능
+    private static final Logger logger = LoggerFactory.getLogger(V3ScannerController.class);
 
+    @Autowired
+    private V3ScannerService v3ScannerService;
 
-
----
-
-1. POST로 CVC admin 토큰 생성
-
-@Service
-public class TokenService {
-
-    @Value("${iam.api.endpoint}")
-    private String iamApiEndpoint;
-
-    @Value("${cvc.service.id}")
-    private String cvcServiceId;
-
-    @Value("${cvc.service.pw}")
-    private String cvcServicePw;
-
-    private final RestTemplate restTemplate;
-
-    public TokenService(RestTemplate restTemplate) {
-        this.restTemplate = restTemplate;
+    @GetMapping("/simple")
+    public ResponseEntity<Map<String, Object>> simpleScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
+        logger.info("Simple scan requested. Filename: {}, API Key: {}", fileName, apiKey);
+        if (v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+        }
+        return ResponseEntity.ok(v3ScannerService.simpleScan(fileName));
     }
 
-    public String getCvcAdminToken() {
-        String url = iamApiEndpoint + "/v3/auth/tokens?nocatalog=null";
+    @GetMapping("/remote")
+    public ResponseEntity<Map<String, Object>> remoteScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
+        logger.info("Remote scan requested. Filename: {}, API Key: {}", fileName, apiKey);
+        if (v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+        }
+        return ResponseEntity.ok(v3ScannerService.remoteScan(fileName));
+    }
 
-        Map<String, Object> body = Map.of(
-            "auth", Map.of(
-                "identity", Map.of(
-                    "methods", List.of("password"),
-                    "password", Map.of(
-                        "user", Map.of(
-                            "name", cvcServiceId,
-                            "domain", Map.of("name", "service"),
-                            "password", cvcServicePw
-                        )
-                    )
-                )
-            )
-        );
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-
-        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-
-        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
-        return response.getHeaders().getFirst("X-Subject-Token");
+    @GetMapping("/detail")
+    public ResponseEntity<Map<String, Object>> detailScan(@RequestHeader("X-CVC-API-KEY") String apiKey, @RequestParam String fileName) {
+        logger.info("Detail scan requested. Filename: {}, API Key: {}", fileName, apiKey);
+        if (v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+        }
+        return ResponseEntity.ok(v3ScannerService.detailScan(fileName));
     }
 
 
----
+    @PostMapping("/base64-scan")
+    public ResponseEntity<FileDto.Response> scanFile(
+            @RequestHeader("X-CVC-API-KEY") String apiKey,
+            @Valid @RequestBody FileDto.Request fileDtoRequest) {
+        logger.info("File scan requested. Filename: {}, API Key: {}", fileDtoRequest.getFileName(), apiKey);
+        if (v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                    FileDto.Response.builder()
+                            .fileName(fileDtoRequest.getFileName())
+                            .returnCode(HttpStatus.UNAUTHORIZED.value())
+                            .message("Unauthorized: Invalid API Key")
+                            .build()
+            );
+        }
+        FileDto.Response response = v3ScannerService.scanBase64File(fileDtoRequest);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
 
-2. GET으로 토큰 유효성 검증
+    @PostMapping(value = "/multipart-scan", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<FileDto.Response> scanMultipartFile(
+            @RequestHeader("X-CVC-API-KEY") String apiKey,
+            @RequestPart("file") MultipartFile file) {
 
-public boolean validateToken(String userToken, String adminToken) {
-        String url = iamApiEndpoint + "/v3/auth/tokens?nocatalog=null";
+        logger.info("Multipart file scan requested. Filename: {}, API Key: {}", file.getOriginalFilename(), apiKey);
+        if (v3ScannerService.validateApiKey(apiKey)) {
+            logger.warn("Unauthorized access attempt with API Key: {}", apiKey);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                    FileDto.Response.builder()
+                            .fileName(file.getOriginalFilename())
+                            .returnCode(HttpStatus.UNAUTHORIZED.value())
+                            .message("Unauthorized: Invalid API Key")
+                            .build()
+            );
+        }
+        FileDto.Response response = v3ScannerService.scanMultipartFile(file);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("X-Auth-Token", adminToken);
-        headers.set("X-Subject-Token", userToken);
+    @PostMapping(value = "/binary-scan", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    public ResponseEntity<FileDto.Response> scanBinaryFile(
+            @RequestHeader("X-CVC-API-KEY") String apiKey,
+            @RequestHeader("File-Name") String fileName,
+            HttpServletRequest request) {
 
-        HttpEntity<Void> request = new HttpEntity<>(headers);
+        if (v3ScannerService.validateApiKey(apiKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                    FileDto.Response.builder()
+                            .fileName(fileName)
+                            .returnCode(HttpStatus.UNAUTHORIZED.value())
+                            .message("Unauthorized: Invalid API Key")
+                            .build()
+            );
+        }
 
-        try {
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
-            return response.getStatusCode() == HttpStatus.OK;
-        } catch (HttpClientErrorException | HttpServerErrorException e) {
-            return false;
+        try (InputStream inputStream = request.getInputStream()) {
+            FileDto.Response response = v3ScannerService.scanBinaryFile(fileName, inputStream);
+            return ResponseEntity.status(HttpStatus.OK).body(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    FileDto.Response.builder()
+                            .fileName(fileName)
+                            .returnCode(-1)
+                            .message("Error processing file: " + e.getMessage())
+                            .build()
+            );
         }
     }
+
+    @PostMapping(value = "/upload-chunk", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    public ResponseEntity<String> uploadChunk(
+            @RequestHeader("File-Id") String fileId,  // 파일 ID
+            @RequestHeader("Chunk-Index") int chunkIndex,  // 청크 인덱스
+            @RequestHeader("Total-Chunks") int totalChunks,  // 전체 청크 개수
+            @RequestBody byte[] chunkData) {  // 청크 데이터
+
+        try {
+            v3ScannerService.saveChunk(fileId, chunkIndex, chunkData);
+            return ResponseEntity.ok("Chunk uploaded successfully.");
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Chunk upload failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 병합 및 스캔 엔드포인트
+     */
+    @PostMapping("/merge-chunks")
+    public ResponseEntity<FileDto.Response> mergeChunksAndScan(
+            @RequestHeader("File-Id") String fileId,  // 파일 ID
+            @RequestHeader("File-Name") String fileName) {  // 원래 파일 이름
+
+        try {
+            FileDto.Response response = v3ScannerService.mergeChunksAndScan(fileId, fileName);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    FileDto.Response.builder()
+                            .fileName(fileName)
+                            .returnCode(-1)
+                            .message("Failed to merge and scan chunks: " + e.getMessage())
+                            .build()
+            );
+        }
+    }
+
+    @GetMapping("/status")
+    public ResponseEntity<FileDto.Response> getStatus() {
+        logger.info("API status requested.");
+        String[] fileNames = {"TestFile", "TestFolder","TestZip","Wow","Hello"};
+        Random random = new Random();
+        String fileName=fileNames[random.nextInt(fileNames.length)];
+        return ResponseEntity.status(HttpStatus.OK).body(
+                FileDto.Response.builder()
+                        .fileName(fileName)
+                        .returnCode(0)
+                        .message("API is running")
+                        .build()
+        );
+    }
+
+    @PostMapping("/status")
+    public ResponseEntity<FileDto.Response> modifyStatus(
+            @RequestHeader("File-Id") String fileId,  // 파일 ID
+            @RequestHeader("File-Name") String fileName) {
+        logger.info("Post메소드가 호출되었습니다.");
+        String[] numbers = {"0","1"};
+        Random random = new Random();
+        String number=numbers[random.nextInt(numbers.length)];
+        return ResponseEntity.status(HttpStatus.OK).body(
+                FileDto.Response.builder()
+                        .fileName(fileName)
+                        .returnCode(Integer.parseInt(number))
+                        .message("File ID is : " + fileId)
+                        .build()
+        );
+    }
+
+    @GetMapping("/test")
+    public ResponseEntity<FileDto.Response> callTest(
+            @RequestHeader("File-Id") String fileId,  // 파일 ID
+            @RequestHeader("File-Name") String fileName) {
+        logger.info("TEST API is Called. 파일ID는 " + fileId +" 이고, 파일이름은 " + fileName + " 입니다.");
+        return ResponseEntity.status(HttpStatus.OK).body(
+                FileDto.Response.builder()
+                        .fileName(fileName)
+                        .returnCode(-1)
+                        .message("마지막으로 파일ID는 " + fileId)
+                        .build()
+        );
+    }
 }
-
-
----
-
-정리
-
-getCvcAdminToken()은 X-Subject-Token 헤더 값을 추출해서 반환
-
-validateToken()은 200 OK 여부로 유효성을 판단
-
-두 메소드는 확장성을 고려해 예외 처리와 로그 등을 추가 가능
-
-
-필요하면 이 기능을 Spring Security 필터나 AOP 기반 인터셉터로 확장해서 모든 API 요청 시 자동 인증도 가능하게 만들 수 있어.
-
-
----
-
-Q1: 이 메소드를 스프링 시큐리티 필터로 통합해서 인증 미들웨어로 만들려면 어떤 구조로 확장해야 할까?
-Q2: 이 토큰 검증 로직에서 캐시를 도입해 성능을 최적화하려면 어떤 방식이 좋을까?
-Q3: 만약 이 API 서버가 토큰을 발급하는 IAM서버와 네트워크가 불안정해질 때를 대비한 Failover 설계는 어떻게 구성할 수 있을까?
-
