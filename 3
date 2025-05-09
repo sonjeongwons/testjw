@@ -1,350 +1,343 @@
-/*
-Copyright 2024.
+package com.cvc.scanner.service;
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+import com.cvc.scanner.dto.FileDto;
+import com.ahnlab.v3engine.V3Const;
+import com.ahnlab.v3engine.V3Scanner;
 
-    http://www.apache.org/licenses/LICENSE-2.0
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Properties;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.multipart.MultipartFile;
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.time.Instant;
+import java.util.*;
 
-package controller
 
-import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net"
-	"net/http"
-	"time"
+@Service
+public class V3ScannerService {
 
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+    private static final Logger logger = LoggerFactory.getLogger(V3ScannerService.class);
+    private final String chunkBaseDir = "/tmp/chunks";  // 청크 저장 디렉토리
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
-	modulev1 "scf.scp.samsungsds.com/crd/api/v1"
-)
+    @Value("${api.key}")
+    private String validApiKey;
 
-// ScfWatcherReconciler reconciles a ScfWatcher object
-type ScfWatcherReconciler struct {
-	client.Client
-	Scheme *runtime.Scheme
-}
+    @Value("${cvc.service.id}")
+    private String cvcServiceId;
 
-// Function Status JSON Data
-type FunctionStatusData struct {
-	functionStatus string
-}
+    @Value("${cvc.service.pw}")
+    private String cvcServicePw;
 
-const (
-	StatusTrue      = "True"
-	StatusFalse     = "False"
-	StatusUnknown   = "Unkown"
-	StatusActive    = "Active"
-	StatusSuccess   = "Success"
-	StatusFail      = "Fail"
-	StatusReady     = "READY"
-	StatusNotReady  = "NOT_READY"
-	StatusDeploying = "DEPLOYING"
-)
-const MaxRetryCount = 3
+    @Value("${iam.api.endpoint}")
+    private String iamApiEndpoint;
 
-//+kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers/finalizers,verbs=update
-//+kubebuilder:rbac:groups=serving.knative.dev,resources=services,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
+    public boolean validateApiKey(String apiKey) {
+        return !validApiKey.equals(apiKey);
+    }
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the ScfWatcher object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.18.4/pkg/reconcile
-func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-	logger.Info("Reconcile 시작")
+    public Map<String, Object> simpleScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        int ret = V3Scanner.scanFile(filename);
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        printScanInfo(filename, ret, null);
+        return result;
+    }
 
-	// TODO(user): your logic here
-	// 1. ScfWatcher CR 객체 가져오기
-	var scfWatcher modulev1.ScfWatcher
-	if err := r.Get(ctx, req.NamespacedName, &scfWatcher); err != nil {
-		logger.Error(err, "Unable to fetch ScfWatcher")
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
+    public Map<String, Object> remoteScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        Properties prop = new Properties();
+        int ret = V3Scanner.remoteScanFile(filename, prop);
 
-	// 2-1 관련된 Knative Service 가져오기
-	var ksvc servingv1.Service
-	if err := r.Get(ctx, client.ObjectKey{Namespace: scfWatcher.Spec.KsvcNamespace, Name: scfWatcher.Spec.KsvcName}, &ksvc); err != nil {
-		logger.Error(err, "Unable to fetch Knative Service")
-		return ctrl.Result{}, err
-	}
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        result.put("details", prop);
+        return result;
+    }
 
-	// 2-2 LB Health 상태 조회
-	lbId := scfWatcher.Spec.LoadbalancerId
-	lbHealthStatus, err := getLBHealthStatus(ctx, lbId)
-	if err != nil {
-		logger.Error(err, "Error getting LB health status: %v")
+    public Map<String, Object> detailScan(String filename) {
+        Map<String, Object> result = new HashMap<>();
+        Properties prop = new Properties();
+        int ret = V3Scanner.scanFile(filename, prop);
 
-		// 재시도 횟수 초과 확인
-		if scfWatcher.Status.RetryCount >= MaxRetryCount {
-			logger.Info("최대 재시도 횟수 초과. Requeue 중지")
-			return ctrl.Result{}, nil
-		}
+        result.put("filename", filename);
+        result.put("returnCode", ret);
+        result.put("details", prop);
+        return result;
+    }
 
-		// 재시도 횟수 증가
-		scfWatcher.Status.RetryCount++
-		_=r.Status().Update(ctx, &scfWatcher)
+    public FileDto.Response scanBase64File(FileDto.Request fileDtoRequest) {
+        File tempFile = null;
+        try {
+            // 파일 디코딩 후 임시파일로 저장
+            byte[] fileData = Base64.getDecoder().decode(fileDtoRequest.getFileData());
+            String baseDir = "/tmp/"; // 임시 디렉터리로 변경
+            String uniqueFileName = "scan_" + UUID.randomUUID() + "_" + Instant.now().toEpochMilli() + "_" + fileDtoRequest.getFileName();
+            tempFile = new File(baseDir + File.separator + uniqueFileName);
+            String FilePath = tempFile.getAbsolutePath();
+            logger.info("tempFile : {}", FilePath);
+            Properties prop = new Properties();
 
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-	}
+            try (FileOutputStream fos = new FileOutputStream(tempFile)) {
+                fos.write(fileData);
+                fos.flush();
+                logger.info("파일 내용 확인 : {}", new String(fileData));
+            }
+            // 파일 스캔 수행
+            int ret = V3Scanner.scanFile(FilePath, prop);
+            printScanInfo(FilePath, ret, prop);
+            return FileDto.Response.builder()
+                    .fileName(fileDtoRequest.getFileName())
+                    .returnCode(ret)
+                    .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO))
+                    .build();
+        } catch (Exception e) {
+            return FileDto.Response.builder()
+                    .fileName(fileDtoRequest.getFileName())
+                    .returnCode(-1)
+                    .message("File processing failed: " + e.getMessage())
+                    .build();
+        } finally {
+            if (tempFile != null && tempFile.exists()) {
+                try {
+                    Files.delete(tempFile.toPath());
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
 
-		// 정상 동작 시 재시도 횟수 초기화
-		if scfWatcher.Status.RetryCount > 0 {
-			scfWatcher.Status.RetryCount = 0
-			_=r.Status().Update(ctx, &scfWatcher)
-		}
+    public FileDto.Response scanMultipartFile(MultipartFile file) {
+        File tempFile = null;
+        try {
+            // 파일 크기 제한 (1GB)
+            if (file.getSize() > 1024L * 1024L * 1024L) {
+                logger.info("File size exceeds the 1GB limit. fileSize(Byte) : {}", file.getSize());
+                return FileDto.Response.builder()
+                        .fileName(file.getOriginalFilename())
+                        .returnCode(-1)
+                        .message("File size exceeds the 1GB limit.")
+                        .build();
+            }
 
-	logger.Info("LB 헬스체크 상태 값 : " + lbHealthStatus)
+            // 파일 확장자 필터링
+            String fileName = file.getOriginalFilename();
+            if (isAllowedExtension(fileName)) {
+                logger.info("Unsupported file type.");
+                return FileDto.Response.builder()
+                        .fileName(fileName)
+                        .returnCode(-1)
+                        .message("Unsupported file type.")
+                        .build();
+            }
+            Properties prop = new Properties();
+            logger.info("Processing file on disk.");
+            tempFile = Files.createTempFile("scan_", "_" + UUID.randomUUID() + "_" + Instant.now().toEpochMilli() + "_" + fileName).toFile();
+            logger.info("tempFile : {}", tempFile.getAbsolutePath());
+            file.transferTo(tempFile);
 
-	// 2-3 LB DNS연결 여부 조회
-	lbDnsConnectivity, err := checkLBDnsConnectivity(ctx, "cp-scf-manager.scf-manager-cp")
-	if err != nil {
-		logger.Error(err, "Error getting DNS Connectivity: %v")
+            int ret = V3Scanner.scanFile(tempFile.getAbsolutePath(), prop); // 디스크 기반 검사
+            printScanInfo(tempFile.getAbsolutePath(), ret, prop);
+            return buildResponse(fileName, ret, prop);
 
-		// 재시도 횟수 초과 확인
-		if scfWatcher.Status.RetryCount >= MaxRetryCount {
-			logger.Info("최대 재시도 횟수 초과. Requeue 중지")
-			return ctrl.Result{}, nil
-		}
+        } catch (Exception e) {
+            return FileDto.Response.builder()
+                    .fileName(file.getOriginalFilename())
+                    .returnCode(-1)
+                    .message("File processing failed: " + e.getMessage())
+                    .build();
+        } finally {
+            if (tempFile != null && tempFile.exists()) {
+                try {
+                    tempFile.delete();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
 
-		// 재시도 횟수 증가
-		scfWatcher.Status.RetryCount++
-		_=r.Status().Update(ctx, &scfWatcher)
+    public FileDto.Response scanBinaryFile(String fileName, InputStream inputStream) {
+        File tempFile = null;
+        try {
+            // 파일 크기 제한 (1GB)
+            Path tempPath = Files.createTempFile("scan_", "_" + UUID.randomUUID() + "_" + fileName);
+            tempFile = tempPath.toFile();
 
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-	}
+            logger.info("Processing binary file on disk: {}", tempFile.getAbsolutePath());
 
-	// 정상 동작 시 재시도 횟수 초기화
-	if scfWatcher.Status.RetryCount > 0 {
-		scfWatcher.Status.RetryCount = 0
-		_=r.Status().Update(ctx, &scfWatcher)
-	}
+            // 파일을 직접 디스크로 저장 (스트림 기반 처리)
+            try (OutputStream outputStream = new FileOutputStream(tempFile)) {
+                byte[] buffer = new byte[8192]; // 8KB 버퍼 크기 설정
+                int bytesRead;
+                while ((bytesRead = inputStream.read(buffer)) != -1) {
+                    outputStream.write(buffer, 0, bytesRead);
+                }
+            }
 
-	logger.Info("DNS 연결 여부 : " + lbDnsConnectivity)
+            // 파일 확장자 필터링 (금지된 파일 체크)
+            if (isAllowedExtension(fileName)) {
+                return FileDto.Response.builder()
+                        .fileName(fileName)
+                        .returnCode(-1)
+                        .message("Unsupported file type.")
+                        .build();
+            }
 
-	// 3. 현재 상태와 이전 상태를 비교합니다.
-	currentStatus := getStatusFromKsvc(ksvc)
-	logger.Info("기존상태 : " + scfWatcher.Status.LastKsvcStatus)
-	logger.Info("신규상태" + currentStatus)
+            // 파일 스캔 수행
+            Properties prop = new Properties();
+            int ret = V3Scanner.scanFile(tempFile.getAbsolutePath(), prop);
+            printScanInfo(tempFile.getAbsolutePath(), ret, prop);
 
-	// LB헬스체크 및 DNS연결 관련 ScfWatcher의 상태를 업데이트
-	scfWatcher.Status.LoadBalancerHealthStatus = lbHealthStatus
-	scfWatcher.Status.LoadBalancerEndpointDnsConnectivity = lbDnsConnectivity
-	if err := r.Client.Status().Update(ctx, &scfWatcher); err != nil {
-		logger.Error(err, "Unable to update ScfWatcher status")
-		return ctrl.Result{}, err
-	}
-	logger.Info("ScfWatcher CR Status 업데이트 완료")
-	logger.Info("ScfWatcher CR Status 업데이트 값 : ", "LB헬스체크 : ", lbHealthStatus, "DNS연결 : ", lbDnsConnectivity)
+            return FileDto.Response.builder()
+                    .fileName(fileName)
+                    .returnCode(ret)
+                    .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "No additional information."))
+                    .build();
+        } catch (Exception e) {
+            return FileDto.Response.builder()
+                    .fileName(fileName)
+                    .returnCode(-1)
+                    .message("File processing failed: " + e.getMessage())
+                    .build();
+        } finally {
+            // 파일 처리 완료 후 삭제
+            if (tempFile != null && tempFile.exists()) {
+                tempFile.delete();
+            }
+        }
+    }
 
-	if scfWatcher.Status.LastKsvcStatus == StatusTrue && currentStatus == StatusTrue && lbHealthStatus == StatusActive && lbDnsConnectivity == StatusSuccess {
-		// 상태에 변화가 없으면 Reconcile을 반복하지 않음
-		logger.Info("Knative상태, LB헬스체크 상태, DNS Lookup 이상없음")
-		return ctrl.Result{}, nil
-	}
-	logger.Info("상태비교 끝")
+    /**
+     * 청크 저장 로직
+     */
+    public void saveChunk(String fileId, int chunkIndex, byte[] chunkData) throws Exception {
+        Path chunkDir = Paths.get(chunkBaseDir, fileId);  // 파일 ID 기반 디렉토리 생성
+        if (!Files.exists(chunkDir)) {
+            Files.createDirectories(chunkDir);  // 디렉토리가 없으면 생성
+        }
+        Path chunkFile = chunkDir.resolve("chunk_" + chunkIndex);  // 청크 파일 이름
+        Files.write(chunkFile, chunkData);  // 청크 데이터 저장
+        logger.info("Saved chunk: FileId={}, ChunkIndex={}", fileId, chunkIndex);
+    }
 
-	// 4. Watcher ConfigMap 정보 불러오기
-	//var configMap corev1.ConfigMap
-	//if err := r.Get(ctx, client.ObjectKey{Namespace: "scf-watcher", Name: "watcher-config"}, &configMap); err != nil {
-	//logger.Error(err, "Unable to fetch Watcher ConfigMap")
-	//return ctrl.Result{}, err
-	//}
+    /**
+     * 병합 및 스캔 로직
+     */
+    public FileDto.Response mergeChunksAndScan(String fileId, String fileName) throws Exception {
+        Path chunkDir = Paths.get(chunkBaseDir, fileId);
+        Path mergedFile = Paths.get("/tmp/" + UUID.randomUUID() + "_" + fileName);  // 병합 파일 이름에 UUID 추가
 
-	logger.Info("scf-manager 엔드포인트 불러오기")
-	// 5. Watcher ConfigMap으로 부터 MANAGER_ENDPOINT 정보 불러오기
-	//managerEndpoint := configMap.Data["MANAGER_ENDPOINT"]
-	managerEndpoint := "http://cp-scf-manager.scf-manager-cp:8080/api/v2/function/status/"
-	if managerEndpoint == "" {
-		logger.Error(nil, "MANAGER_ENDPOINT not found in ConfigMap")
-		return ctrl.Result{}, fmt.Errorf("MANAGER_ENDPOINT not found in ConfigMap")
-	}
+        try {
+            // 1. 병합 작업
+            try (FileOutputStream outputStream = new FileOutputStream(mergedFile.toFile())) {
+                Files.list(chunkDir)
+                        .sorted()  // 청크 파일 정렬
+                        .forEach(chunk -> {
+                            try {
+                                Files.copy(chunk, outputStream);
+                            } catch (Exception e) {
+                                throw new RuntimeException("Failed to merge chunk: " + chunk.getFileName(), e);
+                            }
+                        });
+            }
+            logger.info("tempFile : {}", mergedFile.toString());
+            // 2. 스캔 작업 수행
+            Properties prop = new Properties();
+            int ret = V3Scanner.scanFile(mergedFile.toString(), prop);
+            printScanInfo(mergedFile.toString(), ret, prop);
 
-	// 6. scf-manager에게 상태 업데이트 전송
-	returnStatus := StatusDeploying
+            // 3. 결과 반환
+            return FileDto.Response.builder()
+                    .fileName(fileName)
+                    .returnCode(ret)
+                    .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "No additional information."))
+                    .build();
 
-	// Function URL 기능 활성화 여부 검사
-	functionUrlEnabled := scfWatcher.Spec.FunctionUrlEnabled
-	if functionUrlEnabled {
-		if currentStatus == StatusTrue && lbHealthStatus == StatusActive && lbDnsConnectivity == StatusSuccess {
-			returnStatus = StatusReady
-		} else if currentStatus == StatusFail && lbHealthStatus != StatusActive && lbDnsConnectivity == StatusFail {
-			returnStatus = StatusNotReady
-		}
-	} else {
-		if currentStatus == StatusTrue {
-			returnStatus = StatusReady
-		} else if currentStatus == StatusFail {
-			returnStatus = StatusNotReady
-		}
-	}
+        } finally {
+            // 4. 병합 파일 및 청크 디렉토리 삭제
+            try {
+                if (Files.exists(mergedFile)) {
+                    Files.delete(mergedFile);
+                    logger.info("Deleted merged file: {}", mergedFile);
+                }
+                if (Files.exists(chunkDir)) {
+                    Files.walk(chunkDir)
+                            .sorted(Comparator.reverseOrder())  // 하위 파일부터 삭제
+                            .forEach(path -> {
+                                try {
+                                    Files.delete(path);
+                                } catch (Exception e) {
+                                    logger.warn("Failed to delete chunk file: {}", path, e);
+                                }
+                            });
+                    logger.info("Deleted chunk directory: {}", chunkDir);
+                }
+            } catch (Exception e) {
+                logger.error("Failed to clean up files: {}", e.getMessage());
+            }
+        }
+    }
 
-	statusMessage := map[string]string{"functionStatus": returnStatus}
-	if err := sendStatusToManager(ctx, managerEndpoint, statusMessage, scfWatcher.Spec.KsvcName); err != nil {
-		logger.Error(err, "Failed to send status update to manager")
-		return ctrl.Result{}, err
-	}
-	logger.Info("상태전송", "status", returnStatus)
+    // 지원되는 파일 확장자 확인
+    private boolean isAllowedExtension(String fileName) {
+        String[] allowedExtensions = {".zip", ".jar"};
+        String lowerFileName = fileName.toLowerCase();
+        return Arrays.stream(allowedExtensions).noneMatch(lowerFileName::endsWith);
+    }
 
-	// 6. ksvc 상태 관련 ScfWatcher의 상태를 업데이트
-	scfWatcher.Status.LastKsvcStatus = currentStatus
-	scfWatcher.Status.LastReportedTime = metav1.Now()
-	if err := r.Client.Status().Update(ctx, &scfWatcher); err != nil {
-		logger.Error(err, "Unable to update ScfWatcher status")
-		return ctrl.Result{}, err
-	}
-	logger.Info("ScfWatcher CR Status 업데이트 완료")
-	logger.Info("ScfWatcher CR Status 업데이트 값 : " + currentStatus)
-	return ctrl.Result{}, nil
-}
+    // Response 생성 헬퍼 메서드
+    private FileDto.Response buildResponse(String fileName, int ret, Properties prop) {
+        return FileDto.Response.builder()
+                .fileName(fileName)
+                .returnCode(ret)
+                .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "No additional information."))
+                .build();
+    }
 
-// getStatusFromKsvc 함수는 Knative 서비스의 현재 상태를 확인
-func getStatusFromKsvc(ksvc servingv1.Service) string {
-	for _, condition := range ksvc.Status.Conditions {
-		if condition.Type == "Ready" {
-			if condition.Status == corev1.ConditionTrue {
-				return StatusTrue
-			} else if condition.Status == corev1.ConditionFalse {
-				return StatusFail
-			} else {
-				return StatusUnknown
-			}
-		}
-	}
-	return StatusUnknown
-}
+    static void printScanInfo(String filename, int ret, Properties prop)
+    {
+        // message
+        String msg = switch (ret) {
+            case V3Const.RET_AUTH_FAILED -> "인증 실패";
+            case V3Const.RET_CLIENT_TIMEOUT -> "검사 요청 클라이언트 TIMEOUT";
+            case V3Const.RET_NETWORK_ERROR -> "네트워크 장애";
+            case V3Const.RET_CLIENT_FAIL -> "검사 요청 클라이언트 오류";
+            case V3Const.RET_CANNOT_SCAN -> "검사 실패";
+            case V3Const.RET_NO_MALWARE -> "악성코드 없음";
+            case V3Const.RET_MALWARE_FOUND -> "악성코드 발견";
+            case V3Const.RET_CLEAN_MODIFY_SUCCESS -> "수정 치료 성공";
+            case V3Const.RET_CLEAN_MODIFY_FAIL -> "수정 치료 실패(삭제 권고)";
+            case V3Const.RET_CLEAN_DEL_SUCCESS -> "삭제 치료 성공";
+            case V3Const.RET_CLEAN_DEL_FAIL -> "삭제 치료 실패(삭제 권고)";
+            case V3Const.RET_CLEAN_DEL_FAIL_BYCONF -> "삭제 치료 실패(검사 서버 옵션)";
+            default -> "알수 없음";
+        };
 
-// sendStatusToManager 함수는 상태를 Manager endpoint로 전송
-func sendStatusToManager(ctx context.Context, endpoint string, status map[string]string, ksvcName string) error {
-	logger := log.FromContext(ctx)
-	statusJSON, err := json.Marshal(status)
-	if err != nil {
-		return err
-	}
-	//resp, err := http.Post(endpoint+":"+ksvcName, "application/json", bytes.NewBuffer(statusJSON))
-	req, err := http.NewRequest(http.MethodPut, endpoint+ksvcName, bytes.NewBuffer(statusJSON))
-	log.Log.Info("Here is endpoint : " + endpoint + ksvcName)
-	//log.Log.Info("Here is JsonBody : "+statusJSON)
-	if err != nil {
-		logger.Error(err, "Failed to make Request")
-		return err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{}
-	resp, err := client.Do(req)
-
-	if err != nil {
-		logger.Error(err, "Failed to send API to Manager")
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to report status: %v", resp.Status)
-	}
-	return nil
-}
-
-// SetupWithManager sets up the controller with the Manager.
-func (r *ScfWatcherReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&modulev1.ScfWatcher{}).                                                                       // ScfWatcher 리소스를 관찰
-		Watches(&servingv1.Service{}, handler.EnqueueRequestsFromMapFunc(r.findObjectsForKnativeService)). // Knative Service 리소스를 관찰
-		Complete(r)
-}
-
-func (r *ScfWatcherReconciler) findObjectsForKnativeService(ctx context.Context, obj client.Object) []reconcile.Request {
-	scfWatchers := &modulev1.ScfWatcherList{}
-	err := r.List(ctx, scfWatchers)
-	if err != nil {
-		return []reconcile.Request{}
-	}
-
-	var requests []reconcile.Request
-	for _, scfWatcher := range scfWatchers.Items {
-		if scfWatcher.Spec.KsvcName == obj.GetName() && scfWatcher.Spec.KsvcNamespace == obj.GetNamespace() {
-			requests = append(requests, reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      scfWatcher.Name,
-					Namespace: scfWatcher.Namespace,
-				},
-			})
-		}
-	}
-	return requests
-}
-
-// LB 상태를 가져오는 함수 (LB API 호출 시뮬레이션)
-func getLBHealthStatus(ctx context.Context, lbId string) (string, error) {
-	logger := log.FromContext(ctx)
-	// 여기에 LB API 호출 코드를 넣으면 됨.
-	// 지금은 예시로, API 호출한 결과를 받아오는 부분을 시뮬레이션
-
-	// 실제 구현에서는 HTTP 요청하거나 SDK 클라이언트 호출하는 식으로 작성.
-	req, err := http.NewRequest(http.MethodGet, "http://cp-scf-manager.scf-manager-cp:8080/api/v2/function/status/"+lbId, nil)
-	if err != nil {
-		logger.Error(err, "Failed to make Request")
-		return "", err
-	}
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		logger.Error(err, "Failed to send API to LB")
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get LB health status: %v", resp.Status)
-	}
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	return string(bodyBytes), nil
-}
-
-// LB DNS 등록 확인 함수
-func checkLBDnsConnectivity(ctx context.Context, endpoint string) (string, error) {
-	logger := log.FromContext(ctx)
-	// nslookup 대체로 net.LookupHost 사용
-	_, err := net.LookupHost(endpoint)
-	if err != nil {
-		logger.Error(err, "Failed to connext DNS")
-		return StatusFail, err
-	}
-	return StatusSuccess, nil
+        // 정보 출력
+        logger.info("filename : {}", filename);
+        logger.info("return : {} ({})", ret,msg);
+        if (prop != null)
+        {
+            logger.info("date rev  : {}", prop.getProperty(V3Const.PROP_KEY_DATE_REV, "N/A"));
+            logger.info("scan time : {}", prop.getProperty(V3Const.PROP_KEY_SCAN_DATE_TIME, "N/A"));
+            logger.info("more info : {}", prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "N/A"));
+            if (ret == V3Const.RET_MALWARE_FOUND)
+            {
+                logger.info("    malware  : {}", prop.getProperty(V3Const.PROP_KEY_MALWARE_NAME, "N/A"));
+                logger.info("    in    : {}", prop.getProperty(V3Const.PROP_KEY_MALWARE_FILE, "N/A"));
+            }
+            logger.info(String.valueOf(prop));
+        }
+    }
 }
