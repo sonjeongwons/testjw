@@ -1,47 +1,108 @@
-아래는 docker image의 태그에서 "scr-dev.comm.scp-in.com" 도메인을 "paas-dssqlxhe.scr.skr-west.scp-in.com"으로 바꾸는 쉘 스크립트야. 기존 이미지의 태그를 새로운 태그로 변경하고, 원하면 푸시까지 할 수 있게 구성했어.
-
-#!/bin/bash
-
-OLD_REGISTRY="scr-dev.comm.scp-in.com"
-NEW_REGISTRY="paas-dssqlxhe.scr.skr-west.scp-in.com"
-
-# grep 대상 이미지를 리스트로 가져오기
-docker image ls --format '{{.Repository}}:{{.Tag}}' | grep "$OLD_REGISTRY" | while read IMAGE; do
-  # 새 태그 구성
-  NEW_IMAGE=$(echo "$IMAGE" | sed "s|$OLD_REGISTRY|$NEW_REGISTRY|")
-
-  echo "Retagging $IMAGE -> $NEW_IMAGE"
-
-  # 태그 변경
-  docker tag "$IMAGE" "$NEW_IMAGE"
-
-  # 주석 해제하면 레지스트리로 푸시 가능
-  # docker push "$NEW_IMAGE"
-done
-
-사용법
-
-1. 위 내용을 retag-images.sh로 저장
+좋아, 요청한 두 가지 기능을 Java 코드로 설계해서 TokenService 같은 클래스로 정리해줄게. Spring 기반 환경을 가정하고, RestTemplate을 사용해서 HTTP 요청을 보내도록 하겠다.
 
 
-2. 실행 권한 부여: chmod +x retag-images.sh
+---
 
+전제 조건
 
-3. 실행: ./retag-images.sh
+@Value로 외부 설정값을 주입받는 형태
 
+RestTemplate을 Bean으로 등록한 상태
 
-
-참고
-
-docker push는 주석 처리되어 있으니, 실제로 새 레지스트리로 푸시하려면 주석을 해제해야 해.
-
-원한다면 기존 태그 삭제 (docker rmi)도 스크립트에 추가 가능해.
+에러 처리 및 예외 상황은 간략화하고 이후 확장 가능
 
 
 
 ---
 
-Q1: 새로 태그된 이미지를 기존 레지스트리에 푸시하려면 인증은 어떻게 처리하는 게 가장 안전할까?
-Q2: 이미지 레이어 캐싱을 고려할 때 새로운 레지스트리에 동일 이미지를 푸시할 경우 중복 저장은 어떻게 방지되나?
-Q3: 레지스트리 간 이미지 미러링 자동화는 어떤 방식이 효율적일까? (예: crane, skopeo, GitHub Action)
+1. POST로 CVC admin 토큰 생성
+
+@Service
+public class TokenService {
+
+    @Value("${iam.api.endpoint}")
+    private String iamApiEndpoint;
+
+    @Value("${cvc.service.id}")
+    private String cvcServiceId;
+
+    @Value("${cvc.service.pw}")
+    private String cvcServicePw;
+
+    private final RestTemplate restTemplate;
+
+    public TokenService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    public String getCvcAdminToken() {
+        String url = iamApiEndpoint + "/v3/auth/tokens?nocatalog=null";
+
+        Map<String, Object> body = Map.of(
+            "auth", Map.of(
+                "identity", Map.of(
+                    "methods", List.of("password"),
+                    "password", Map.of(
+                        "user", Map.of(
+                            "name", cvcServiceId,
+                            "domain", Map.of("name", "service"),
+                            "password", cvcServicePw
+                        )
+                    )
+                )
+            )
+        );
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
+        return response.getHeaders().getFirst("X-Subject-Token");
+    }
+
+
+---
+
+2. GET으로 토큰 유효성 검증
+
+public boolean validateToken(String userToken, String adminToken) {
+        String url = iamApiEndpoint + "/v3/auth/tokens?nocatalog=null";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Auth-Token", adminToken);
+        headers.set("X-Subject-Token", userToken);
+
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            return response.getStatusCode() == HttpStatus.OK;
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            return false;
+        }
+    }
+}
+
+
+---
+
+정리
+
+getCvcAdminToken()은 X-Subject-Token 헤더 값을 추출해서 반환
+
+validateToken()은 200 OK 여부로 유효성을 판단
+
+두 메소드는 확장성을 고려해 예외 처리와 로그 등을 추가 가능
+
+
+필요하면 이 기능을 Spring Security 필터나 AOP 기반 인터셉터로 확장해서 모든 API 요청 시 자동 인증도 가능하게 만들 수 있어.
+
+
+---
+
+Q1: 이 메소드를 스프링 시큐리티 필터로 통합해서 인증 미들웨어로 만들려면 어떤 구조로 확장해야 할까?
+Q2: 이 토큰 검증 로직에서 캐시를 도입해 성능을 최적화하려면 어떤 방식이 좋을까?
+Q3: 만약 이 API 서버가 토큰을 발급하는 IAM서버와 네트워크가 불안정해질 때를 대비한 Failover 설계는 어떻게 구성할 수 있을까?
 
