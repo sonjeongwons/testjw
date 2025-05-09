@@ -1,110 +1,120 @@
-좋아. SOPS를 활용해 docker-compose.yaml 안의 환경변수를 보안적으로 관리하는 방법은 일반적으로 다음과 같은 두 가지 방식이 있어:
+[root@d2-krw1a-dp-cvc-engine-01 sdspaas]# curl -vs -X POST -H "Content-Type:application/json" \
+-d '
+{
+    "auth": {
+        "identity": {
+            "methods": [
+                "password"
+            ],
+            "password": {
+                "user": {
+                    "name": "cvc-service",
+                    "domain": {
+                        "name": "service"
+                    },
+                    "password": "CVCscanner1!"
+                }
+            }
+        }
+    }
+}' \
+"https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null" 1> /dev/null
 
-
----
-
-[방식 1] .env 파일을 SOPS로 암호화하여 사용하는 방식 (추천)
-
-① .env 파일 작성
-
-# .env
-API_KEY=abcd1234
-DB_PASSWORD=s3cr3t
-
-② .env 파일을 SOPS로 암호화
-
-sops -e .env > .env.enc
-
-③ .env.enc를 .env로 복호화
-
-sops -d .env.enc > .env
-
-이렇게 복호화된 .env를 기반으로 docker-compose 실행:
-
-docker-compose --env-file .env up -d
-
-> 이때 .env.enc는 Git에 포함하고 .env는 .gitignore에 포함시켜 보안 유지.
-
-
-
-
----
-
-[방식 2] docker-compose.yaml 자체를 SOPS로 암호화
-
-이 방법은 비추천이지만, 가능은 해. 단점은 docker-compose가 암호화된 yaml 파일을 직접 읽지 못한다는 점.
-
-① 원본 작성
-
-# docker-compose.yaml
-services:
-  myapp:
-    image: myapp:latest
-    environment:
-      - API_KEY=abcd1234
-      - DB_PASSWORD=s3cr3t
-
-② SOPS로 암호화
-
-sops -e docker-compose.yaml > docker-compose.enc.yaml
-
-③ 복호화 후 실행
-
-sops -d docker-compose.enc.yaml > docker-compose.yaml
-docker-compose up -d
-
-> 보안은 되지만 매번 복호화 → 실행 흐름이 필요하고, 실수로 복호화된 파일이 Git에 올라갈 수 있어 주의가 필요해.
-
-
-
-
----
-
-SOPS Key 관리
-
-SOPS는 다음 백엔드를 사용할 수 있어:
-
-AWS KMS
-
-GCP KMS
-
-Azure Key Vault
-
-PGP key
-
-Age
+* TLSv1.3 (OUT), TLS handshake, Finished (20):
+} [52 bytes data]
+* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384
+* ALPN, server accepted to use http/1.1
+* Server certificate:
+*  subject: C=KR; ST=Seoul; O=Samsung SDS Co.,Ltd.; CN=*.kr-west1.dev2.samsungsdscloud.com
+*  start date: Aug  2 00:00:00 2024 GMT
+*  expire date: Sep  2 23:59:59 2025 GMT
+*  subjectAltName: host "identity-i.kr-west1.dev2.samsungsdscloud.com" matched cert's "*.kr-west1.dev2.samsungsdscloud.com"
+*  issuer: C=GB; ST=Greater Manchester; L=Salford; O=Sectigo Limited; CN=Sectigo RSA Organization Validation Secure Server CA
+*  SSL certificate verify ok.
+} [5 bytes data]
+* TLSv1.3 (OUT), TLS app data, [no content] (0):
+} [1 bytes data]
+> POST /v3/auth/tokens?nocatalog=null HTTP/1.1
+> Host: identity-i.kr-west1.dev2.samsungsdscloud.com
+> User-Agent: curl/7.61.1
+> Accept: */*
+> Content-Type:application/json
+> Content-Length: 394
+> 
+} [394 bytes data]
+* upload completely sent off: 394 out of 394 bytes
+{ [5 bytes data]
+* TLSv1.3 (IN), TLS handshake, [no content] (0):
+{ [1 bytes data]
+* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
+{ [297 bytes data]
+* TLSv1.3 (IN), TLS handshake, [no content] (0):
+{ [1 bytes data]
+* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
+{ [297 bytes data]
+* TLSv1.3 (IN), TLS app data, [no content] (0):
+{ [1 bytes data]
+< HTTP/1.1 201 CREATED
+< Date: Fri, 09 May 2025 02:45:25 GMT
+< Content-Type: application/json
+< Content-Length: 776
+< Connection: keep-alive
+< Set-Cookie: scp-session=1746758726.262.2346704.444269|ea36d40165ecd08fc85f7eda8b76c8dc; Expires=Fri, 09-May-25 03:15:25 GMT; Max-Age=1800; Path=/; Secure; HttpOnly
+< X-Subject-Token: gAAAAABoHWxFq9KgBOQJUToRESw0WOFBFKY47zhFIivv9dUu85Jjyf3Nyw63z4sfZ5tiAETBXKwfHU5Qts5KOlKagdGyX-MB_0ZqbJXeTk_VOqsyAGT8hsuHjObTR-4KVYXsluTZUfk-F4yp9a8fe81NSzCOiI8W0XX6hIxqdskawtH_PDemQMw
+< Vary: X-Auth-Token
+< x-openstack-request-id: req-e2bcffaa-2a03-430e-abec-ddb49a7b4112
+< 
+{ [776 bytes data]
+* Connection #0 to host identity-i.kr-west1.dev2.samsungsdscloud.com left intact
 
 
 
-예: AWS KMS 사용 시 ~/.sops.yaml 설정 예시:
-
-creation_rules:
-  - kms: "arn:aws:kms:ap-northeast-2:123456789012:key/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-
-
----
-
-전체 워크플로우 요약
-
-1. 민감한 환경변수는 .env 파일에 작성
-
-
-2. .env → sops -e → .env.enc (암호화)
-
-
-3. 실행 전 .env.enc → 복호화 → .env
-
-
-4. docker-compose --env-file .env up
 
 
 
-CI/CD에서는 .env.enc를 복호화한 후 환경변수 주입만 하면 되므로, 실무에 적합해.
 
 
----
 
-Q1: SOPS를 사용할 때 Age 키와 PGP 키 중 어떤 방식이 실무에서 더 효율적일까?
-Q2: SOPS를 CI/CD 파이프라인에 통합하는 가장 안전한 절차는 어떻게 구성할 수 있을까?
-Q3: Kubernetes 환경에서 SOPS와 Sealed Secrets를 조합해 보안 구성할 수 있는 전략은?
+
+[root@d2-krw1a-dp-cvc-engine-01 sdspaas]# curl -vs -X GET -H "X-Auth-Token: gAAAAABoHWkDs1h-h_9aENAAiwaZagQ5jzhLWx8EIw60stXx4KgQqi4rYiug7bZ6p42LPkxM-v9ee8k2b0LtHQY8NAeA_ZFmdiO6Zh7Ea5V2aIDVt_t1iyDTy_iEgn-LYTajvQFzlPERLlG3cBr-1G_vo7y
+9uLLJNYKrV7Bh9L6QpSItPRizxgc" -H "X-Subject-Token: gAAAAABoHWxFq9KgBOQJUToRESw0WOFBFKY47zhFIivv9dUu85Jjyf3Nyw63z4sfZ5tiAETBXKwfHU5Qts5KOlKagdGyX-MB_0ZqbJXeTk_VOqsyAGT8hsuHjObTR-4KVYXsluTZUfk-F4yp9a8fe81NSzCOiI8W0XX6hIxqdskawtH_PDem
+QMw" "https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null"
+
+* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384
+* ALPN, server accepted to use http/1.1
+* Server certificate:
+*  subject: C=KR; ST=Seoul; O=Samsung SDS Co.,Ltd.; CN=*.kr-west1.dev2.samsungsdscloud.com
+*  start date: Aug  2 00:00:00 2024 GMT
+*  expire date: Sep  2 23:59:59 2025 GMT
+*  subjectAltName: host "identity-i.kr-west1.dev2.samsungsdscloud.com" matched cert's "*.kr-west1.dev2.samsungsdscloud.com"
+*  issuer: C=GB; ST=Greater Manchester; L=Salford; O=Sectigo Limited; CN=Sectigo RSA Organization Validation Secure Server CA
+*  SSL certificate verify ok.
+* TLSv1.3 (OUT), TLS app data, [no content] (0):
+> GET /v3/auth/tokens?nocatalog=null HTTP/1.1
+> Host: identity-i.kr-west1.dev2.samsungsdscloud.com
+> User-Agent: curl/7.61.1
+> Accept: */*
+> X-Auth-Token: gAAAAABoHWkDs1h-h_9aENAAiwaZagQ5jzhLWx8EIw60stXx4KgQqi4rYiug7bZ6p42LPkxM-v9ee8k2b0LtHQY8NAeA_ZFmdiO6Zh7Ea5V2aIDVt_t1iyDTy_iEgn-LYTajvQFzlPERLlG3cBr-1G_vo7y9uLLJNYKrV7Bh9L6QpSItPRizxgc
+> X-Subject-Token: gAAAAABoHWxFq9KgBOQJUToRESw0WOFBFKY47zhFIivv9dUu85Jjyf3Nyw63z4sfZ5tiAETBXKwfHU5Qts5KOlKagdGyX-MB_0ZqbJXeTk_VOqsyAGT8hsuHjObTR-4KVYXsluTZUfk-F4yp9a8fe81NSzCOiI8W0XX6hIxqdskawtH_PDemQMw
+> 
+* TLSv1.3 (IN), TLS handshake, [no content] (0):
+* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
+* TLSv1.3 (IN), TLS handshake, [no content] (0):
+* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
+* TLSv1.3 (IN), TLS app data, [no content] (0):
+< HTTP/1.1 200 OK
+< Date: Fri, 09 May 2025 02:45:50 GMT
+< Content-Type: application/json
+< Content-Length: 776
+< Connection: keep-alive
+< Set-Cookie: scp-session=1746758751.878.2346237.140956|ea36d40165ecd08fc85f7eda8b76c8dc; Expires=Fri, 09-May-25 03:15:50 GMT; Max-Age=1800; Path=/; Secure; HttpOnly
+< X-Subject-Token: gAAAAABoHWxFq9KgBOQJUToRESw0WOFBFKY47zhFIivv9dUu85Jjyf3Nyw63z4sfZ5tiAETBXKwfHU5Qts5KOlKagdGyX-MB_0ZqbJXeTk_VOqsyAGT8hsuHjObTR-4KVYXsluTZUfk-F4yp9a8fe81NSzCOiI8W0XX6hIxqdskawtH_PDemQMw
+< Vary: X-Auth-Token
+< x-openstack-request-id: req-05c7ccc0-910c-4b6e-95cd-8776b2008340
+< 
+* Connection #0 to host identity-i.kr-west1.dev2.samsungsdscloud.com left intact
+{"token": {"methods": ["password"], "user": {"domain": {"id": "0860cdd74e06475395d29f14848cba22", "name": "service"}, "id": "b5a83c42cf204d74842c6f0bc2fbb08a", "name": "scf-service", "password_expires_at": null}, "audit_ids": ["Tar
+ROMKlTASXwhva9NMfxw"], "expires_at": "2025-05-09T14:45:25.000000Z", "issued_at": "2025-05-09T02:45:25.000000Z", "project": {"domain": {"id": "0860cdd74e06475395d29f14848cba22", "name": "service"}, "id": "33b532c466824bcf9324101a3c6
+f3015", "name": "service-dp-scf"}, "is_domain": false, "roles": [{"id": "a5c62ffa0e7a4ccca077094e64ecc35a", "name": "reader"}, {"id": "cbf6c7f89b084734927bd40bf8ce0681", "name": "member"}, {"id": "0b0467920fe04cbd9d479e2eab84575a",
+ "name": "manager"}, {"id": "521b706a398243f281f7e4b98296f671", "name": "admin"}]}}[root@d2-krw1a-dp-cvc-engine-01 sdspaas]# 
 
