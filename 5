@@ -1,3 +1,59 @@
+[root@d2-krw1a-cp-scf-manager-01 ~]# dnf module list python3
+Updating Subscription Management repositories.
+Unable to read consumer identity
+
+This system is not registered with an entitlement server. You can use subscription-manager to register.
+
+Last metadata expiration check: 0:00:43 ago on Fri 09 May 2025 02:53:38 PM KST.
+Error: No matching Modules to list
+[root@d2-krw1a-cp-scf-manager-01 ~]# dnf module enable python36
+Updating Subscription Management repositories.
+Unable to read consumer identity
+
+This system is not registered with an entitlement server. You can use subscription-manager to register.
+
+dnLast metadata expiration check: 0:00:56 ago on Fri 09 May 2025 02:53:38 PM KST.
+Error: Problems in request:
+missing groups or modules: python36
+[root@d2-krw1a-cp-scf-manager-01 ~]# dnf install python36
+Updating Subscription Management repositories.
+Unable to read consumer identity
+
+This system is not registered with an entitlement server. You can use subscription-manager to register.
+
+Last metadata expiration check: 0:00:58 ago on Fri 09 May 2025 02:53:38 PM KST.
+Dependencies resolved.
+=======================================================================================================================================================================================================================================
+ Package                                                Architecture                              Version                                                                    Repository                                           Size
+=======================================================================================================================================================================================================================================
+Installing:
+ python36                                               x86_64                                    3.6.8-39.module+el8.10.0+1910+234ad790                                     scf-package-repo                                     18 k
+Upgrading:
+ platform-python-pip                                    noarch                                    9.0.3-24.el8.rocky.0                                                       scf-package-repo                                    1.6 M
+Installing dependencies:
+ python3-pip                                            noarch                                    9.0.3-24.el8.rocky.0                                                       scf-package-repo                                     20 k
+
+Transaction Summary
+=======================================================================================================================================================================================================================================
+Install  2 Packages
+Upgrade  1 Package
+
+Total size: 1.6 M
+Is this ok [y/N]: y
+Downloading Packages:
+[SKIPPED] python3-pip-9.0.3-24.el8.rocky.0.noarch.rpm: Already downloaded                                                                                                                                                             
+[SKIPPED] python36-3.6.8-39.module+el8.10.0+1910+234ad790.x86_64.rpm: Already downloaded                                                                                                                                              
+[SKIPPED] platform-python-pip-9.0.3-24.el8.rocky.0.noarch.rpm: Already downloaded                                                                                                                                                     
+Running transaction check
+No available modular metadata for modular package 'python36-3.6.8-39.module+el8.10.0+1910+234ad790.x86_64', it cannot be installed on the system
+The downloaded packages were saved in cache until the next successful transaction.
+You can remove cached packages by executing 'dnf clean packages'.
+Error: No available modular metadata for modular package
+[root@d2-krw1a-cp-scf-manager-01 ~]# which python3
+/usr/bin/which: no python3 in (/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/bin:/usr/local/bin:/root/bin)
+[root@d2-krw1a-cp-scf-manager-01 ~]# python3 --version
+-bash: python3: command not found
+
 [root@d2-krw1a-cp-scf-manager-01 ~]# dnf install python3
 Updating Subscription Management repositories.
 Unable to read consumer identity
