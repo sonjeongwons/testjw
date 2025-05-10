@@ -1,43 +1,41 @@
-[root@d2-krw1a-dp-cvc-engine-01 ~]# docker ps
-CONTAINER ID   IMAGE                                                                                                           COMMAND                  CREATED        STATUS        PORTS                                            
-                                                                                                                                                                                                                                      
-      NAMES
-4111eec0baf6   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0   "/otelcol-contrib --…"   25 hours ago   Up 25 hours   0.0.0.0:1888->1888/tcp, [::]:1888->1888/tcp, 0.0.
-0.0:4317-4318->4317-4318/tcp, [::]:4317-4318->4317-4318/tcp, 0.0.0.0:8888-8889->8888-8889/tcp, [::]:8888-8889->8888-8889/tcp, 0.0.0.0:13133->13133/tcp, [::]:13133->13133/tcp, 0.0.0.0:55679->55679/tcp, [::]:55679->55679/tcp, 55678/
-tcp   cvc-otel-collector-1
-0c3b9ef17987   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest                        "java -cp @/app/jib-…"   25 hours ago   Up 25 hours   0.0.0.0:8081->8081/tcp, [::]:8081->8081/tcp      
-                                                                                                                                                                                                                                      
-      cvc-scanner-1
-[root@d2-krw1a-dp-cvc-engine-01 ~]# ip a
-1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
-    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
-    inet 127.0.0.1/8 scope host lo
-       valid_lft forever preferred_lft forever
-    inet6 ::1/128 scope host 
-       valid_lft forever preferred_lft forever
-2: ens3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc mq state UP group default qlen 1000
-    link/ether fa:16:3e:3d:da:07 brd ff:ff:ff:ff:ff:ff
-    altname enp0s3
-    inet 198.19.8.11/27 brd 198.19.8.31 scope global dynamic noprefixroute ens3
-       valid_lft 16624sec preferred_lft 16624sec
-    inet6 fe80::3c8:db07:432e:58ea/64 scope link noprefixroute 
-       valid_lft forever preferred_lft forever
-3: docker0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state DOWN group default 
-    link/ether 52:f8:d3:e7:70:4a brd ff:ff:ff:ff:ff:ff
-    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0
-       valid_lft forever preferred_lft forever
-305: br-fe7e3f811ff2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default 
-    link/ether 6e:84:82:15:70:60 brd ff:ff:ff:ff:ff:ff
-    inet 172.18.0.1/16 brd 172.18.255.255 scope global br-fe7e3f811ff2
-       valid_lft forever preferred_lft forever
-    inet6 fe80::6c84:82ff:fe15:7060/64 scope link 
-       valid_lft forever preferred_lft forever
-306: veth8dbe035@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-fe7e3f811ff2 state UP group default 
-    link/ether 6a:38:1a:2b:61:92 brd ff:ff:ff:ff:ff:ff link-netnsid 0
-    inet6 fe80::6838:1aff:fe2b:6192/64 scope link 
-       valid_lft forever preferred_lft forever
-307: veth1c4667a@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-fe7e3f811ff2 state UP group default 
-    link/ether 96:2d:3b:71:62:42 brd ff:ff:ff:ff:ff:ff link-netnsid 1
-    inet6 fe80::942d:3bff:fe71:6242/64 scope link 
-       valid_lft forever preferred_lft forever
-[root@d2-krw1a-dp-cvc-engine-01 ~]# 
+root@eeb44e12ef0b:/app# curl host.docker.internal:3003
+curl: (56) Recv failure: Connection reset by peer
+root@eeb44e12ef0b:/app# 
+exit
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# netstat -an |grep 3003
+tcp        0      0 0.0.0.0:3003            0.0.0.0:*               LISTEN     
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# cat docker-compose.yaml 
+services:
+  otel-collector:
+    user: "0:0"
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0
+    volumes:
+      - /cvc/otelcol-0.118.0.yaml:/etc/otelcol-contrib/config.yaml
+      - /var/lib/otelcol/file_storage/gateway:/var/lib/otelcol/file_storage/gateway
+    ports:
+      - 1888:1888 # pprof extension
+      - 8888:8888 # Prometheus metrics exposed by the Collector
+      - 8889:8889 # Prometheus exporter metrics
+      - 13133:13133 # health_check extension
+      - 4317:4317 # OTLP gRPC receiver
+      - 4318:4318 # OTLP http receiver
+      - 55679:55679 # zpages extension
+    extra_hosts:
+      - "cortex-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      - "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      - "object-store.private.kr-west1.dev2.samsungsdscloud.com:198.18.1.29"
+  scanner:
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest
+    ports:
+      - 8081:8081
+    volumes:
+      - /cvc/log:/cvc/log
+      - /tmp:/tmp
+    environment:
+      - CVC_KEYSTONE_ID=cvc-service
+      - CVC_KEYSTONE_PW=CVCscanner1!
+      - IAM_API_ENDPOINT=https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null
+    extra_hosts:
+      - "iam-i.kr-west1.dev2.samsungsdscloud.com:198.18.1.136"
+      - "identity-i.kr-west1.dev2.samsungsdscloud.com:198.18.1.136"
+      - "host.docker.internal:host-gateway"
