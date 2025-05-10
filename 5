@@ -1,13 +1,43 @@
-2025-05-09 09:43:34 INFO  [http-nio-8081-exec-6] c.c.s.controller.V3ScannerController - Multipart file scan requested. Filename: eicar.txt, User Token: gAAAAABoHWxFq9KgBOQJUToRESw0WOFBFKY47zhFIivv9dUu85Jjyf3Nyw63z4sfZ5tiAETBXKwfHU5
-Qts5KOlKagdGyX-MB_0ZqbJXeTk_VOqsyAGT8hsuHjObTR-4KVYXsluTZUfk-F4yp9a8fe81NSzCOiI8W0XX6hIxqdskawtH_PDemQMw
-2025-05-09 09:43:35 INFO  [http-nio-8081-exec-6] c.c.scanner.service.V3ScannerService - Processing file on disk.
-2025-05-09 09:43:35 INFO  [http-nio-8081-exec-6] c.c.scanner.service.V3ScannerService - tempFile : /tmp/scan_2628150485610652201_c3fa38d9-2292-419a-8460-a1e26edec55c_1746783815434_eicar.txt
-[http-nio-8081-exec-6]{LOG1}Fri May 09 09:43:35 UTC 2025 [scanFile_Impl_Real] filename = /tmp/scan_2628150485610652201_c3fa38d9-2292-419a-8460-a1e26edec55c_1746783815434_eicar.txt
-[http-nio-8081-exec-6]{LOG1}Fri May 09 09:43:35 UTC 2025 ahnlab_V3Scanner.scanFile_Impl_Real() exception raised - java.io.IOException: Cannot run program "/scanner/bypass": error=2, No such file or directory
-2025-05-09 09:43:35 INFO  [http-nio-8081-exec-6] c.c.scanner.service.V3ScannerService - filename : /tmp/scan_2628150485610652201_c3fa38d9-2292-419a-8460-a1e26edec55c_1746783815434_eicar.txt
-2025-05-09 09:43:35 INFO  [http-nio-8081-exec-6] c.c.scanner.service.V3ScannerService - return : -111 (알수 없음)
-2025-05-09 09:43:35 INFO  [http-nio-8081-exec-6] c.c.scanner.service.V3ScannerService - date rev  : N/A
-2025-05-09 09:43:35 INFO  [http-nio-8081-exec-6] c.c.scanner.service.V3ScannerService - scan time : N/A
-2025-05-09 09:43:35 INFO  [http-nio-8081-exec-6] c.c.scanner.service.V3ScannerService - more info : unknown error ocurred
-2025-05-09 09:43:35 INFO  [http-nio-8081-exec-6] c.c.scanner.service.V3ScannerService - {exception=java.io.IOException: Cannot run program "/scanner/bypass": error=2, No such file or directory, errorno=-111, filename=/tmp/scan_2628
-150485610652201_c3fa38d9-2292-419a-8460-a1e26edec55c_1746783815434_eicar.txt, V3ScannerVer=4.0.4.1(build 1092), info=unknown error ocurred}
+[root@d2-krw1a-dp-cvc-engine-01 ~]# docker ps
+CONTAINER ID   IMAGE                                                                                                           COMMAND                  CREATED        STATUS        PORTS                                            
+                                                                                                                                                                                                                                      
+      NAMES
+4111eec0baf6   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0   "/otelcol-contrib --…"   25 hours ago   Up 25 hours   0.0.0.0:1888->1888/tcp, [::]:1888->1888/tcp, 0.0.
+0.0:4317-4318->4317-4318/tcp, [::]:4317-4318->4317-4318/tcp, 0.0.0.0:8888-8889->8888-8889/tcp, [::]:8888-8889->8888-8889/tcp, 0.0.0.0:13133->13133/tcp, [::]:13133->13133/tcp, 0.0.0.0:55679->55679/tcp, [::]:55679->55679/tcp, 55678/
+tcp   cvc-otel-collector-1
+0c3b9ef17987   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest                        "java -cp @/app/jib-…"   25 hours ago   Up 25 hours   0.0.0.0:8081->8081/tcp, [::]:8081->8081/tcp      
+                                                                                                                                                                                                                                      
+      cvc-scanner-1
+[root@d2-krw1a-dp-cvc-engine-01 ~]# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: ens3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc mq state UP group default qlen 1000
+    link/ether fa:16:3e:3d:da:07 brd ff:ff:ff:ff:ff:ff
+    altname enp0s3
+    inet 198.19.8.11/27 brd 198.19.8.31 scope global dynamic noprefixroute ens3
+       valid_lft 16624sec preferred_lft 16624sec
+    inet6 fe80::3c8:db07:432e:58ea/64 scope link noprefixroute 
+       valid_lft forever preferred_lft forever
+3: docker0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state DOWN group default 
+    link/ether 52:f8:d3:e7:70:4a brd ff:ff:ff:ff:ff:ff
+    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0
+       valid_lft forever preferred_lft forever
+305: br-fe7e3f811ff2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default 
+    link/ether 6e:84:82:15:70:60 brd ff:ff:ff:ff:ff:ff
+    inet 172.18.0.1/16 brd 172.18.255.255 scope global br-fe7e3f811ff2
+       valid_lft forever preferred_lft forever
+    inet6 fe80::6c84:82ff:fe15:7060/64 scope link 
+       valid_lft forever preferred_lft forever
+306: veth8dbe035@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-fe7e3f811ff2 state UP group default 
+    link/ether 6a:38:1a:2b:61:92 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet6 fe80::6838:1aff:fe2b:6192/64 scope link 
+       valid_lft forever preferred_lft forever
+307: veth1c4667a@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-fe7e3f811ff2 state UP group default 
+    link/ether 96:2d:3b:71:62:42 brd ff:ff:ff:ff:ff:ff link-netnsid 1
+    inet6 fe80::942d:3bff:fe71:6242/64 scope link 
+       valid_lft forever preferred_lft forever
+[root@d2-krw1a-dp-cvc-engine-01 ~]# 
