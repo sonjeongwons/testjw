@@ -1,41 +1,76 @@
-root@eeb44e12ef0b:/app# curl host.docker.internal:3003
-curl: (56) Recv failure: Connection reset by peer
-root@eeb44e12ef0b:/app# 
-exit
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# netstat -an |grep 3003
-tcp        0      0 0.0.0.0:3003            0.0.0.0:*               LISTEN     
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# cat docker-compose.yaml 
-services:
-  otel-collector:
-    user: "0:0"
-    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0
-    volumes:
-      - /cvc/otelcol-0.118.0.yaml:/etc/otelcol-contrib/config.yaml
-      - /var/lib/otelcol/file_storage/gateway:/var/lib/otelcol/file_storage/gateway
-    ports:
-      - 1888:1888 # pprof extension
-      - 8888:8888 # Prometheus metrics exposed by the Collector
-      - 8889:8889 # Prometheus exporter metrics
-      - 13133:13133 # health_check extension
-      - 4317:4317 # OTLP gRPC receiver
-      - 4318:4318 # OTLP http receiver
-      - 55679:55679 # zpages extension
-    extra_hosts:
-      - "cortex-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
-      - "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
-      - "object-store.private.kr-west1.dev2.samsungsdscloud.com:198.18.1.29"
-  scanner:
-    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest
-    ports:
-      - 8081:8081
-    volumes:
-      - /cvc/log:/cvc/log
-      - /tmp:/tmp
-    environment:
-      - CVC_KEYSTONE_ID=cvc-service
-      - CVC_KEYSTONE_PW=CVCscanner1!
-      - IAM_API_ENDPOINT=https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null
-    extra_hosts:
-      - "iam-i.kr-west1.dev2.samsungsdscloud.com:198.18.1.136"
-      - "identity-i.kr-west1.dev2.samsungsdscloud.com:198.18.1.136"
-      - "host.docker.internal:host-gateway"
+package com.cvc.scanner.service;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class TokenService {
+
+    @Value("${cvc.service.id}")
+    private String cvcServiceId;
+
+    @Value("${cvc.service.pw}")
+    private String cvcServicePw;
+
+    @Value("${iam.api.endpoint}")
+    private String iamApiEndpoint;
+
+    private final RestTemplate restTemplate;
+
+    public TokenService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    public String getCvcAdminToken() {
+        //String url = iamApiEndpoint + "/v3/auth/tokens?nocatalog=null";
+        String url = iamApiEndpoint;
+
+        Map<String, Object> body = Map.of(
+                "auth", Map.of(
+                        "identity", Map.of(
+                                "methods", List.of("password"),
+                                "password", Map.of(
+                                        "user", Map.of(
+                                                "name", cvcServiceId,
+                                                "domain", Map.of("name", "service"),
+                                                "password", cvcServicePw
+                                        )
+                                )
+                        )
+                )
+        );
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
+        return response.getHeaders().getFirst("X-Subject-Token");
+    }
+    public boolean validateToken(String userToken) {
+        //String url = iamApiEndpoint + "/v3/auth/tokens?nocatalog=null";
+        String url = iamApiEndpoint;
+        String adminToken = getCvcAdminToken();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Auth-Token", adminToken);
+        headers.set("X-Subject-Token", userToken);
+
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            return response.getStatusCode().is2xxSuccessful();
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            return false;
+        }
+    }
+}
