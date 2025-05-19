@@ -1,35 +1,239 @@
-package com.cvc.scanner.service;
+아래 V3ScannerController.java 코드와 TokenServie.java 를 작성했어. 외부사용자가 /multipart-scan API를 헤더에 X-Subject-Token을 추가하여 호출하게되면, 이 Java어플리케이션에서는 TokenService에 작성된 로직에 따라 API를 호출하기위한 토큰이 유효한지 검사하게돼. 토큰이 유효한지 검사하고, 토큰의 권한이 "Admin"이 맞는지 확인하고싶어. 나는 Admin 권한을 가진 토큰 요청에 대해서만 API 사용 인가를 할거야. 내 요구사항에 맞춰 TokenService 및 Contoller 코드 수정을해서 개선해봐.
+ㄴㄴ
+package com.cvc.scanner.controller;
 
 import com.cvc.scanner.dto.FileDto;
-import com.ahnlab.v3engine.V3Const;
-import com.ahnlab.v3engine.V3Scanner;
-
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Properties;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
+import com.cvc.scanner.service.TokenService;
+import com.cvc.scanner.service.V3ScannerService;
+import com.sun.net.httpserver.HttpsServer;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.io.InputStream;
+import java.util.Random;
+
+import org.springframework.http.HttpStatus;
+import jakarta.validation.Valid;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.nio.file.Files;
-import java.time.Instant;
-import java.util.*;
+import java.util.Map;
 
+@RestController
+@RequestMapping("/api/v1/scanner")
+public class V3ScannerController {
+
+    private static final Logger logger = LoggerFactory.getLogger(V3ScannerController.class);
+
+    @Autowired
+    private V3ScannerService v3ScannerService;
+    @Autowired
+    private TokenService tokenService;
+
+    @GetMapping("/simple")
+    public ResponseEntity<Map<String, Object>> simpleScan(@RequestHeader("X-Subject-Token") String Token, @RequestParam String fileName) {
+        logger.info("Simple scan requested. Filename: {}, API Key: {}", fileName, Token);
+//        if (v3ScannerService.validateToken(Token)) {
+//            logger.warn("Unauthorized access attempt with API Key: {}", Token);
+//            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+//        }
+        return ResponseEntity.ok(v3ScannerService.simpleScan(fileName));
+    }
+
+    @GetMapping("/remote")
+    public ResponseEntity<Map<String, Object>> remoteScan(@RequestHeader("X-Subject-Token") String Token, @RequestParam String fileName) {
+        logger.info("Remote scan requested. Filename: {}, API Key: {}", fileName, Token);
+//        if (v3ScannerService.validateToken(Token)) {
+//            logger.warn("Unauthorized access attempt with API Key: {}", Token);
+//            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+//        }
+        return ResponseEntity.ok(v3ScannerService.remoteScan(fileName));
+    }
+
+    @GetMapping("/detail")
+    public ResponseEntity<Map<String, Object>> detailScan(@RequestHeader("X-Subject-Token") String Token, @RequestParam String fileName) {
+        logger.info("Detail scan requested. Filename: {}, API Key: {}", fileName, Token);
+//        if (v3ScannerService.validateToken(Token)) {
+//            logger.warn("Unauthorized access attempt with API Key: {}", Token);
+//            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
+//        }
+        return ResponseEntity.ok(v3ScannerService.detailScan(fileName));
+    }
+
+
+    @PostMapping("/base64-scan")
+    public ResponseEntity<FileDto.Response> scanFile(
+            @RequestHeader("X-Subject-Token") String Token,
+            @Valid @RequestBody FileDto.Request fileDtoRequest) {
+        logger.info("File scan requested. Filename: {}, API Key: {}", fileDtoRequest.getFileName(), Token);
+//        if (v3ScannerService.validateToken(Token)) {
+//            logger.warn("Unauthorized access attempt with API Key: {}", Token);
+//            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+//                    FileDto.Response.builder()
+//                            .fileName(fileDtoRequest.getFileName())
+//                            .returnCode(HttpStatus.UNAUTHORIZED.value())
+//                            .message("Unauthorized: Invalid API Key")
+//                            .build()
+//            );
+//        }
+        FileDto.Response response = v3ScannerService.scanBase64File(fileDtoRequest);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    @PostMapping(value = "/multipart-scan", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<FileDto.Response> scanMultipartFile(
+            @RequestHeader("X-Subject-Token") String token,
+            @RequestPart("file") MultipartFile file) {
+
+        logger.info("Multipart file scan requested. Filename: {}, User Token: {}", file.getOriginalFilename(), token);
+        boolean isValid = tokenService.validateToken(token);
+        if(!isValid){
+            logger.info("인증 토큰이 유효하지 않습니다.");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(FileDto.Response.builder()
+                            .fileName(file.getOriginalFilename())
+                            .returnCode(HttpStatus.UNAUTHORIZED.value())
+                            .message("인증 토큰이 유효하지 않습니다.")
+                            .build());
+        }
+        FileDto.Response response = v3ScannerService.scanMultipartFile(file);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    @PostMapping(value = "/binary-scan", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    public ResponseEntity<FileDto.Response> scanBinaryFile(
+            @RequestHeader("X-Subject-Token") String Token,
+            @RequestHeader("File-Name") String fileName,
+            HttpServletRequest request) {
+
+//        if (v3ScannerService.validateToken(Token)) {
+//            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+//                    FileDto.Response.builder()
+//                            .fileName(fileName)
+//                            .returnCode(HttpStatus.UNAUTHORIZED.value())
+//                            .message("Unauthorized: Invalid API Key")
+//                            .build()
+//            );
+//        }
+
+        try (InputStream inputStream = request.getInputStream()) {
+            FileDto.Response response = v3ScannerService.scanBinaryFile(fileName, inputStream);
+            return ResponseEntity.status(HttpStatus.OK).body(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    FileDto.Response.builder()
+                            .fileName(fileName)
+                            .returnCode(-1)
+                            .message("Error processing file: " + e.getMessage())
+                            .build()
+            );
+        }
+    }
+
+    @PostMapping(value = "/upload-chunk", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    public ResponseEntity<String> uploadChunk(
+            @RequestHeader("File-Id") String fileId,  // 파일 ID
+            @RequestHeader("Chunk-Index") int chunkIndex,  // 청크 인덱스
+            @RequestHeader("Total-Chunks") int totalChunks,  // 전체 청크 개수
+            @RequestBody byte[] chunkData) {  // 청크 데이터
+
+        try {
+            v3ScannerService.saveChunk(fileId, chunkIndex, chunkData);
+            return ResponseEntity.ok("Chunk uploaded successfully.");
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Chunk upload failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 병합 및 스캔 엔드포인트
+     */
+    @PostMapping("/merge-chunks")
+    public ResponseEntity<FileDto.Response> mergeChunksAndScan(
+            @RequestHeader("File-Id") String fileId,  // 파일 ID
+            @RequestHeader("File-Name") String fileName) {  // 원래 파일 이름
+
+        try {
+            FileDto.Response response = v3ScannerService.mergeChunksAndScan(fileId, fileName);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    FileDto.Response.builder()
+                            .fileName(fileName)
+                            .returnCode(-1)
+                            .message("Failed to merge and scan chunks: " + e.getMessage())
+                            .build()
+            );
+        }
+    }
+
+    @GetMapping("/status")
+    public ResponseEntity<FileDto.Response> getStatus() {
+        logger.info("API status requested.");
+        String[] fileNames = {"TestFile", "TestFolder","TestZip","Wow","Hello"};
+        Random random = new Random();
+        String fileName=fileNames[random.nextInt(fileNames.length)];
+        return ResponseEntity.status(HttpStatus.OK).body(
+                FileDto.Response.builder()
+                        .fileName(fileName)
+                        .returnCode(0)
+                        .message("API is running")
+                        .build()
+        );
+    }
+
+    @PostMapping("/status")
+    public ResponseEntity<FileDto.Response> modifyStatus(
+            @RequestHeader("File-Id") String fileId,  // 파일 ID
+            @RequestHeader("File-Name") String fileName) {
+        logger.info("Post메소드가 호출되었습니다.");
+        String[] numbers = {"0","1"};
+        Random random = new Random();
+        String number=numbers[random.nextInt(numbers.length)];
+        return ResponseEntity.status(HttpStatus.OK).body(
+                FileDto.Response.builder()
+                        .fileName(fileName)
+                        .returnCode(Integer.parseInt(number))
+                        .message("File ID is : " + fileId)
+                        .build()
+        );
+    }
+
+    @GetMapping("/test")
+    public ResponseEntity<FileDto.Response> callTest(
+            @RequestHeader("File-Id") String fileId,  // 파일 ID
+            @RequestHeader("File-Name") String fileName) {
+        logger.info("TEST API is Called. 파일ID는 " + fileId +" 이고, 파일이름은 " + fileName + " 입니다.");
+        return ResponseEntity.status(HttpStatus.OK).body(
+                FileDto.Response.builder()
+                        .fileName(fileName)
+                        .returnCode(-1)
+                        .message("마지막으로 파일ID는 " + fileId)
+                        .build()
+        );
+    }
+}
+
+
+
+package com.cvc.scanner.service;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.List;
+import java.util.Map;
 
 @Service
-public class V3ScannerService {
-
-    private static final Logger logger = LoggerFactory.getLogger(V3ScannerService.class);
-    private final String chunkBaseDir = "/tmp/chunks";  // 청크 저장 디렉토리
-
-    @Value("${api.key}")
-    private String validApiKey;
+public class TokenService {
 
     @Value("${cvc.service.id}")
     private String cvcServiceId;
@@ -40,304 +244,57 @@ public class V3ScannerService {
     @Value("${iam.api.endpoint}")
     private String iamApiEndpoint;
 
-    public boolean validateApiKey(String apiKey) {
-        return !validApiKey.equals(apiKey);
+    private final RestTemplate restTemplate;
+
+    public TokenService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
     }
 
-    public Map<String, Object> simpleScan(String filename) {
-        Map<String, Object> result = new HashMap<>();
-        int ret = V3Scanner.scanFile(filename);
-        result.put("filename", filename);
-        result.put("returnCode", ret);
-        printScanInfo(filename, ret, null);
-        return result;
+    public String getCvcAdminToken() {
+        //String url = iamApiEndpoint + "/v3/auth/tokens?nocatalog=null";
+        String url = iamApiEndpoint;
+
+        Map<String, Object> body = Map.of(
+                "auth", Map.of(
+                        "identity", Map.of(
+                                "methods", List.of("password"),
+                                "password", Map.of(
+                                        "user", Map.of(
+                                                "name", cvcServiceId,
+                                                "domain", Map.of("name", "service"),
+                                                "password", cvcServicePw
+                                        )
+                                )
+                        )
+                )
+        );
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
+        return response.getHeaders().getFirst("X-Subject-Token");
     }
+    public boolean validateToken(String userToken) {
+        //String url = iamApiEndpoint + "/v3/auth/tokens?nocatalog=null";
+        String url = iamApiEndpoint;
+        String adminToken = getCvcAdminToken();
 
-    public Map<String, Object> remoteScan(String filename) {
-        Map<String, Object> result = new HashMap<>();
-        Properties prop = new Properties();
-        int ret = V3Scanner.remoteScanFile(filename, prop);
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Auth-Token", adminToken);
+        headers.set("X-Subject-Token", userToken);
 
-        result.put("filename", filename);
-        result.put("returnCode", ret);
-        result.put("details", prop);
-        return result;
-    }
-
-    public Map<String, Object> detailScan(String filename) {
-        Map<String, Object> result = new HashMap<>();
-        Properties prop = new Properties();
-        int ret = V3Scanner.scanFile(filename, prop);
-
-        result.put("filename", filename);
-        result.put("returnCode", ret);
-        result.put("details", prop);
-        return result;
-    }
-
-    public FileDto.Response scanBase64File(FileDto.Request fileDtoRequest) {
-        File tempFile = null;
-        try {
-            // 파일 디코딩 후 임시파일로 저장
-            byte[] fileData = Base64.getDecoder().decode(fileDtoRequest.getFileData());
-            String baseDir = "/tmp/"; // 임시 디렉터리로 변경
-            String uniqueFileName = "scan_" + UUID.randomUUID() + "_" + Instant.now().toEpochMilli() + "_" + fileDtoRequest.getFileName();
-            tempFile = new File(baseDir + File.separator + uniqueFileName);
-            String FilePath = tempFile.getAbsolutePath();
-            logger.info("tempFile : {}", FilePath);
-            Properties prop = new Properties();
-
-            try (FileOutputStream fos = new FileOutputStream(tempFile)) {
-                fos.write(fileData);
-                fos.flush();
-                logger.info("파일 내용 확인 : {}", new String(fileData));
-            }
-            // 파일 스캔 수행
-            int ret = V3Scanner.scanFile(FilePath, prop);
-            printScanInfo(FilePath, ret, prop);
-            return FileDto.Response.builder()
-                    .fileName(fileDtoRequest.getFileName())
-                    .returnCode(ret)
-                    .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO))
-                    .build();
-        } catch (Exception e) {
-            return FileDto.Response.builder()
-                    .fileName(fileDtoRequest.getFileName())
-                    .returnCode(-1)
-                    .message("File processing failed: " + e.getMessage())
-                    .build();
-        } finally {
-            if (tempFile != null && tempFile.exists()) {
-                try {
-                    Files.delete(tempFile.toPath());
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-    }
-
-    public FileDto.Response scanMultipartFile(MultipartFile file) {
-        File tempFile = null;
-        try {
-            // 파일 크기 제한 (1GB)
-            if (file.getSize() > 1024L * 1024L * 1024L) {
-                logger.info("File size exceeds the 1GB limit. fileSize(Byte) : {}", file.getSize());
-                return FileDto.Response.builder()
-                        .fileName(file.getOriginalFilename())
-                        .returnCode(-1)
-                        .message("File size exceeds the 1GB limit.")
-                        .build();
-            }
-
-            // 파일 확장자 필터링
-            String fileName = file.getOriginalFilename();
-            if (isAllowedExtension(fileName)) {
-                logger.info("Unsupported file type.");
-                return FileDto.Response.builder()
-                        .fileName(fileName)
-                        .returnCode(-1)
-                        .message("Unsupported file type.")
-                        .build();
-            }
-            Properties prop = new Properties();
-            logger.info("Processing file on disk.");
-            tempFile = Files.createTempFile("scan_", "_" + UUID.randomUUID() + "_" + Instant.now().toEpochMilli() + "_" + fileName).toFile();
-            logger.info("tempFile : {}", tempFile.getAbsolutePath());
-            file.transferTo(tempFile);
-
-            int ret = V3Scanner.scanFile(tempFile.getAbsolutePath(), prop); // 디스크 기반 검사
-            printScanInfo(tempFile.getAbsolutePath(), ret, prop);
-            return buildResponse(fileName, ret, prop);
-
-        } catch (Exception e) {
-            return FileDto.Response.builder()
-                    .fileName(file.getOriginalFilename())
-                    .returnCode(-1)
-                    .message("File processing failed: " + e.getMessage())
-                    .build();
-        } finally {
-            if (tempFile != null && tempFile.exists()) {
-                try {
-                    tempFile.delete();
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-    }
-
-    public FileDto.Response scanBinaryFile(String fileName, InputStream inputStream) {
-        File tempFile = null;
-        try {
-            // 파일 크기 제한 (1GB)
-            Path tempPath = Files.createTempFile("scan_", "_" + UUID.randomUUID() + "_" + fileName);
-            tempFile = tempPath.toFile();
-
-            logger.info("Processing binary file on disk: {}", tempFile.getAbsolutePath());
-
-            // 파일을 직접 디스크로 저장 (스트림 기반 처리)
-            try (OutputStream outputStream = new FileOutputStream(tempFile)) {
-                byte[] buffer = new byte[8192]; // 8KB 버퍼 크기 설정
-                int bytesRead;
-                while ((bytesRead = inputStream.read(buffer)) != -1) {
-                    outputStream.write(buffer, 0, bytesRead);
-                }
-            }
-
-            // 파일 확장자 필터링 (금지된 파일 체크)
-            if (isAllowedExtension(fileName)) {
-                return FileDto.Response.builder()
-                        .fileName(fileName)
-                        .returnCode(-1)
-                        .message("Unsupported file type.")
-                        .build();
-            }
-
-            // 파일 스캔 수행
-            Properties prop = new Properties();
-            int ret = V3Scanner.scanFile(tempFile.getAbsolutePath(), prop);
-            printScanInfo(tempFile.getAbsolutePath(), ret, prop);
-
-            return FileDto.Response.builder()
-                    .fileName(fileName)
-                    .returnCode(ret)
-                    .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "No additional information."))
-                    .build();
-        } catch (Exception e) {
-            return FileDto.Response.builder()
-                    .fileName(fileName)
-                    .returnCode(-1)
-                    .message("File processing failed: " + e.getMessage())
-                    .build();
-        } finally {
-            // 파일 처리 완료 후 삭제
-            if (tempFile != null && tempFile.exists()) {
-                tempFile.delete();
-            }
-        }
-    }
-
-    /**
-     * 청크 저장 로직
-     */
-    public void saveChunk(String fileId, int chunkIndex, byte[] chunkData) throws Exception {
-        Path chunkDir = Paths.get(chunkBaseDir, fileId);  // 파일 ID 기반 디렉토리 생성
-        if (!Files.exists(chunkDir)) {
-            Files.createDirectories(chunkDir);  // 디렉토리가 없으면 생성
-        }
-        Path chunkFile = chunkDir.resolve("chunk_" + chunkIndex);  // 청크 파일 이름
-        Files.write(chunkFile, chunkData);  // 청크 데이터 저장
-        logger.info("Saved chunk: FileId={}, ChunkIndex={}", fileId, chunkIndex);
-    }
-
-    /**
-     * 병합 및 스캔 로직
-     */
-    public FileDto.Response mergeChunksAndScan(String fileId, String fileName) throws Exception {
-        Path chunkDir = Paths.get(chunkBaseDir, fileId);
-        Path mergedFile = Paths.get("/tmp/" + UUID.randomUUID() + "_" + fileName);  // 병합 파일 이름에 UUID 추가
+        HttpEntity<Void> request = new HttpEntity<>(headers);
 
         try {
-            // 1. 병합 작업
-            try (FileOutputStream outputStream = new FileOutputStream(mergedFile.toFile())) {
-                Files.list(chunkDir)
-                        .sorted()  // 청크 파일 정렬
-                        .forEach(chunk -> {
-                            try {
-                                Files.copy(chunk, outputStream);
-                            } catch (Exception e) {
-                                throw new RuntimeException("Failed to merge chunk: " + chunk.getFileName(), e);
-                            }
-                        });
-            }
-            logger.info("tempFile : {}", mergedFile.toString());
-            // 2. 스캔 작업 수행
-            Properties prop = new Properties();
-            int ret = V3Scanner.scanFile(mergedFile.toString(), prop);
-            printScanInfo(mergedFile.toString(), ret, prop);
-
-            // 3. 결과 반환
-            return FileDto.Response.builder()
-                    .fileName(fileName)
-                    .returnCode(ret)
-                    .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "No additional information."))
-                    .build();
-
-        } finally {
-            // 4. 병합 파일 및 청크 디렉토리 삭제
-            try {
-                if (Files.exists(mergedFile)) {
-                    Files.delete(mergedFile);
-                    logger.info("Deleted merged file: {}", mergedFile);
-                }
-                if (Files.exists(chunkDir)) {
-                    Files.walk(chunkDir)
-                            .sorted(Comparator.reverseOrder())  // 하위 파일부터 삭제
-                            .forEach(path -> {
-                                try {
-                                    Files.delete(path);
-                                } catch (Exception e) {
-                                    logger.warn("Failed to delete chunk file: {}", path, e);
-                                }
-                            });
-                    logger.info("Deleted chunk directory: {}", chunkDir);
-                }
-            } catch (Exception e) {
-                logger.error("Failed to clean up files: {}", e.getMessage());
-            }
-        }
-    }
-
-    // 지원되는 파일 확장자 확인
-    private boolean isAllowedExtension(String fileName) {
-        String[] allowedExtensions = {".zip", ".jar"};
-        String lowerFileName = fileName.toLowerCase();
-        return Arrays.stream(allowedExtensions).noneMatch(lowerFileName::endsWith);
-    }
-
-    // Response 생성 헬퍼 메서드
-    private FileDto.Response buildResponse(String fileName, int ret, Properties prop) {
-        return FileDto.Response.builder()
-                .fileName(fileName)
-                .returnCode(ret)
-                .message(prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "No additional information."))
-                .build();
-    }
-
-    static void printScanInfo(String filename, int ret, Properties prop)
-    {
-        // message
-        String msg = switch (ret) {
-            case V3Const.RET_AUTH_FAILED -> "인증 실패";
-            case V3Const.RET_CLIENT_TIMEOUT -> "검사 요청 클라이언트 TIMEOUT";
-            case V3Const.RET_NETWORK_ERROR -> "네트워크 장애";
-            case V3Const.RET_CLIENT_FAIL -> "검사 요청 클라이언트 오류";
-            case V3Const.RET_CANNOT_SCAN -> "검사 실패";
-            case V3Const.RET_NO_MALWARE -> "악성코드 없음";
-            case V3Const.RET_MALWARE_FOUND -> "악성코드 발견";
-            case V3Const.RET_CLEAN_MODIFY_SUCCESS -> "수정 치료 성공";
-            case V3Const.RET_CLEAN_MODIFY_FAIL -> "수정 치료 실패(삭제 권고)";
-            case V3Const.RET_CLEAN_DEL_SUCCESS -> "삭제 치료 성공";
-            case V3Const.RET_CLEAN_DEL_FAIL -> "삭제 치료 실패(삭제 권고)";
-            case V3Const.RET_CLEAN_DEL_FAIL_BYCONF -> "삭제 치료 실패(검사 서버 옵션)";
-            default -> "알수 없음";
-        };
-
-        // 정보 출력
-        logger.info("filename : {}", filename);
-        logger.info("return : {} ({})", ret,msg);
-        if (prop != null)
-        {
-            logger.info("date rev  : {}", prop.getProperty(V3Const.PROP_KEY_DATE_REV, "N/A"));
-            logger.info("scan time : {}", prop.getProperty(V3Const.PROP_KEY_SCAN_DATE_TIME, "N/A"));
-            logger.info("more info : {}", prop.getProperty(V3Const.PROP_KEY_MORE_INFO, "N/A"));
-            if (ret == V3Const.RET_MALWARE_FOUND)
-            {
-                logger.info("    malware  : {}", prop.getProperty(V3Const.PROP_KEY_MALWARE_NAME, "N/A"));
-                logger.info("    in    : {}", prop.getProperty(V3Const.PROP_KEY_MALWARE_FILE, "N/A"));
-            }
-            logger.info(String.valueOf(prop));
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            return response.getStatusCode().is2xxSuccessful();
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            return false;
         }
     }
 }
+
+
