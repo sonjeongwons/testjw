@@ -1,26 +1,23 @@
-spring.application.name=demo
-server.port=8081
-# log level for root logger
-logging.level.root=INFO
-# log level for com.example package
-logging.level.com.cvc.scanner=DEBUG
-# log pattern for console handler
-logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n
-# log pattern for file handler
-logging.pattern.file=%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n
-# log file location and name
-logging.file.name=/cvc/log/scanner.log
-logging.logback.rollingpolicy.file-name-pattern=scanner-%d{yyyy-MM-dd}.log
-logging.logback.rollingpolicy.max-file-size=10MB
-logging.logback.rollingpolicy.max-history=365
-spring.servlet.multipart.max-file-size=1GB
-spring.servlet.multipart.max-request-size=1GB
-cvc.service.id=${CVC_KEYSTONE_ID}
-cvc.service.pw=${CVC_KEYSTONE_PW}
-iam.api.endpoint=${IAM_API_ENDPOINT}
+<!-- src/main/resources/logback-spring.xml -->
+<configuration>
 
-위와 같이 java application.properties를 작성했어. 하지만 어플리케이션 동작해도 /cvc/log/scanner.log 로그파일 생성도 안되고 로그도 안쌓여.
-logging.logback.rollingpolicy.file-name-pattern=scanner-%d{yyyy-MM-dd}.log
-logging.logback.rollingpolicy.max-file-size=10MB
-logging.logback.rollingpolicy.max-history=365
-위 내용을 제거해서 어플리케이션 다시 실행해보니 정상적으로 /cvc/log/scanner.log 로그 생성되고있어. 문제가 무엇이었을까?
+    <property name="LOG_PATH" value="/cvc/log"/>
+    <property name="LOG_FILE" value="scanner"/>
+
+    <appender name="ROLLING_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${LOG_FILE}.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/${LOG_FILE}-%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>365</maxHistory>
+            <maxFileSize>10MB</maxFileSize> <!-- 이 부분은 size-based rolling과 혼용 시 추가 설정 필요 -->
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="ROLLING_FILE" />
+    </root>
+
+</configuration>
