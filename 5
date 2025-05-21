@@ -1,8 +1,65 @@
-<!-- src/main/resources/logback-spring.xml -->
+아래 에러원인을 알려줘.
+
+[root@d2-krw1a-dp-cvc-engine-01 log]# docker logs 9bd0bff09472 
+Picked up JAVA_TOOL_OPTIONS: -javaagent:/app/opentelemetry-javaagent.jar
+OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
+[otel.javaagent 2025-05-21 03:25:05:738 +0000] [main] INFO io.opentelemetry.javaagent.tooling.VersionLogger - opentelemetry-javaagent - version: 1.33.2
+03:25:07.649 [main] ERROR org.springframework.boot.SpringApplication -- Application run failed
+java.lang.IllegalStateException: IO error on loading imports from [logback-spring.xml]
+at org.springframework.boot.context.config.ConfigDataImporter.resolveAndLoad(ConfigDataImporter.java:90)
+at org.springframework.boot.context.config.ConfigDataEnvironmentContributors.withProcessedImports(ConfigDataEnvironmentContributors.java:121)
+at org.springframework.boot.context.config.ConfigDataEnvironment.processInitial(ConfigDataEnvironment.java:245)
+at org.springframework.boot.context.config.ConfigDataEnvironment.processAndApply(ConfigDataEnvironment.java:232)
+at org.springframework.boot.context.config.ConfigDataEnvironmentPostProcessor.postProcessEnvironment(ConfigDataEnvironmentPostProcessor.java:96)
+at org.springframework.boot.context.config.ConfigDataEnvironmentPostProcessor.postProcessEnvironment(ConfigDataEnvironmentPostProcessor.java:89)
+at org.springframework.boot.env.EnvironmentPostProcessorApplicationListener.onApplicationEnvironmentPreparedEvent(EnvironmentPostProcessorApplicationListener.java:132)
+at org.springframework.boot.env.EnvironmentPostProcessorApplicationListener.onApplicationEvent(EnvironmentPostProcessorApplicationListener.java:115)
+at org.springframework.context.event.SimpleApplicationEventMulticaster.doInvokeListener(SimpleApplicationEventMulticaster.java:185)
+at org.springframework.context.event.SimpleApplicationEventMulticaster.invokeListener(SimpleApplicationEventMulticaster.java:178)
+at org.springframework.context.event.SimpleApplicationEventMulticaster.multicastEvent(SimpleApplicationEventMulticaster.java:156)
+at org.springframework.context.event.SimpleApplicationEventMulticaster.multicastEvent(SimpleApplicationEventMulticaster.java:138)
+at org.springframework.boot.context.event.EventPublishingRunListener.multicastInitialEvent(EventPublishingRunListener.java:136)
+at org.springframework.boot.context.event.EventPublishingRunListener.environmentPrepared(EventPublishingRunListener.java:81)
+at org.springframework.boot.SpringApplicationRunListeners.lambda$environmentPrepared$2(SpringApplicationRunListeners.java:64)
+at java.base/java.lang.Iterable.forEach(Iterable.java:75)
+at org.springframework.boot.SpringApplicationRunListeners.doWithListeners(SpringApplicationRunListeners.java:118)
+at org.springframework.boot.SpringApplicationRunListeners.doWithListeners(SpringApplicationRunListeners.java:112)
+at org.springframework.boot.SpringApplicationRunListeners.environmentPrepared(SpringApplicationRunListeners.java:63)
+at org.springframework.boot.SpringApplication.prepareEnvironment(SpringApplication.java:353)
+at org.springframework.boot.SpringApplication.run(SpringApplication.java:313)
+at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361)
+at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350)
+at com.cvc.scanner.CVCScannerApplication.main(CVCScannerApplication.java:34)
+Caused by: java.util.InvalidPropertiesFormatException: jdk.internal.org.xml.sax.SAXParseException; An XML properties document must contain the DOCTYPE declaration as defined by java.util.Properties.
+at java.base/jdk.internal.util.xml.PropertiesDefaultHandler.load(PropertiesDefaultHandler.java:85)
+at java.base/java.util.Properties.loadFromXML(Properties.java:960)
+at org.springframework.core.io.support.PropertiesLoaderUtils.fillProperties(PropertiesLoaderUtils.java:137)
+at org.springframework.core.io.support.PropertiesLoaderUtils.loadProperties(PropertiesLoaderUtils.java:123)
+at org.springframework.boot.env.PropertiesPropertySourceLoader.loadProperties(PropertiesPropertySourceLoader.java:67)
+at org.springframework.boot.env.PropertiesPropertySourceLoader.load(PropertiesPropertySourceLoader.java:49)
+at org.springframework.boot.context.config.StandardConfigDataLoader.load(StandardConfigDataLoader.java:54)
+at org.springframework.boot.context.config.StandardConfigDataLoader.load(StandardConfigDataLoader.java:36)
+at org.springframework.boot.context.config.ConfigDataLoaders.load(ConfigDataLoaders.java:96)
+at org.springframework.boot.context.config.ConfigDataImporter.load(ConfigDataImporter.java:132)
+at org.springframework.boot.context.config.ConfigDataImporter.resolveAndLoad(ConfigDataImporter.java:87)
+... 23 common frames omitted
+Caused by: jdk.internal.org.xml.sax.SAXParseException: An XML properties document must contain the DOCTYPE declaration as defined by java.util.Properties.
+at java.base/jdk.internal.util.xml.PropertiesDefaultHandler.startElement(PropertiesDefaultHandler.java:165)
+at java.base/jdk.internal.util.xml.impl.ParserSAX.parse(ParserSAX.java:470)
+at java.base/jdk.internal.util.xml.impl.ParserSAX.parse(ParserSAX.java:411)
+at java.base/jdk.internal.util.xml.impl.ParserSAX.parse(ParserSAX.java:374)
+at java.base/jdk.internal.util.xml.impl.SAXParserImpl.parse(SAXParserImpl.java:97)
+
+
+
+참고로 설정되어있는 logback-spring.xml 파일과 application.properties 파일 내용은 아래와 같아.
+
+#logback-spring.xml
+<?xml version="1.0" encoding="UTF-8"?>
 <configuration>
 
     <property name="LOG_PATH" value="/cvc/log"/>
-    <property name="LOG_FILE" value="scanner"/>
+    <property name="LOG_FILE" value="scanner.log"/>
 
     <appender name="ROLLING_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/${LOG_FILE}.log</file>
@@ -21,3 +78,26 @@
     </root>
 
 </configuration>
+
+#application.properties
+spring.application.name=demo
+server.port=8081
+spring.config.import=logback-spring.xml
+# log level for root logger
+logging.level.root=INFO
+# log level for com.example package
+logging.level.com.cvc.scanner=DEBUG
+# log pattern for console handler
+logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n
+# log pattern for file handler
+logging.pattern.file=%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n
+# log file location and name
+logging.file.name=/cvc/log/scanner.log
+#logging.logback.rollingpolicy.file-name-pattern=scanner-%d{yyyy-MM-dd}.log
+#logging.logback.rollingpolicy.max-file-size=10MB
+#logging.logback.rollingpolicy.max-history=365
+spring.servlet.multipart.max-file-size=1GB
+spring.servlet.multipart.max-request-size=1GB
+cvc.service.id=${CVC_KEYSTONE_ID}
+cvc.service.pw=${CVC_KEYSTONE_PW}
+iam.api.endpoint=${IAM_API_ENDPOINT}
