@@ -1,45 +1,101 @@
-FROM harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.4.1'
+	id 'io.spring.dependency-management' version '1.1.7'
+	id "com.google.cloud.tools.jib" version "3.3.0"
+}
 
-# Proxy 설정
-ARG http_proxy=http://70.10.15.10:8080
-ARG https_proxy=http://70.10.15.10:8080
+group = 'com.cvc'
+version = '1.0-SNAPSHOT'
 
-ADD sds.crt /usr/local/share/ca-certificates/
-RUN update-ca-certificates
-RUN sed 's/SECLEVEL=2/SECLEVEL=1/' -i /etc/ssl/openssl.cnf
+repositories {
+	maven {
+		url 'http://nexus.sdsdev.co.kr:8081/repository/maven-public/'
+		allowInsecureProtocol = true
+	}
 
-RUN echo "Acquire::http::proxy \"http://70.10.15.10:8080/\";" >> /etc/apt/apt.conf.d/90proxy
-RUN echo "Acquire::https::proxy\"http://70.10.15.10:8080/\";" >> /etc/apt/apt.conf.d/90proxy
+	// SDS 사내망 시스템은 아래 repo 를 사용하실수 있습니다.
+	// You can use the following repo for the sds internal network system.
+	maven {
+		url 'http://70.121.224.52:8081/nexus/content/repositories/public'
+		allowInsecureProtocol = true
+	}
+	maven {
+		url 'http://70.121.224.52:8081/repository/maven-google'
+		allowInsecureProtocol = true
+	}
+	maven {
+		url 'http://70.121.224.52:8081/repository/maven-central'
+		allowInsecureProtocol = true
+	}
+	maven {
+		url 'http://70.121.224.52:8081/repository/jcenter'
+		allowInsecureProtocol = true
+	}
+	maven {
+		url 'http://70.121.224.52:8081/repository/anyframe-java-opensource'
+		allowInsecureProtocol = true
+	}
+	maven {
+		url 'http://70.121.224.52:8081/repository/lego'
+		allowInsecureProtocol = true
+	}
+
+	maven {
+		url 'http://70.121.224.52:8081/repository/jcenter/'
+		allowInsecureProtocol = true
+	}
+	maven {
+		url 'http://70.121.224.52:8081/repository/redhat-ea-all/'
+		allowInsecureProtocol = true
+	}
+	maven {
+		url 'http://70.121.224.52:8081/repository/gradle-plugin/'
+		allowInsecureProtocol = true
+	}
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+jib {
+	container {
+		mainClass = 'com.cvc.scanner.CVCScannerApplication'
+	}
+}
 
 
-RUN apt-get update && \
-    apt-get install -y curl ca-certificates telnet vim wget jq && \
-    rm -rf /var/lib/apt/lists/*
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
 
-# OpenTelemetry Java Agent 다운로드
-ENV OTEL_AGENT_VERSION=1.33.2
-RUN curl -L -o /opentelemetry-javaagent.jar \
-    https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar
+repositories {
+	mavenCentral()
+}
 
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-aop'
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	implementation files('libs/ahnlab_v3engine.jar')
 
-# 작업 디렉토리 설정
-WORKDIR /app
-COPY V3Scanner.properties /app/V3Scanner.properties
+	// Validation (javax -> jakarta)
+	implementation 'jakarta.validation:jakarta.validation-api:3.0.2'
+	implementation 'org.hibernate.validator:hibernate-validator:7.0.1.Final'
 
-# OpenTelemetry Java Agent 복사
-COPY opentelemetry-javaagent.jar /app/opentelemetry-javaagent.jar
+	// Lombok (이미 추가되어 있을 가능성 높음)
+	compileOnly 'org.projectlombok:lombok:1.18.28'
+	annotationProcessor 'org.projectlombok:lombok:1.18.28'
 
-# 환경변수 설정
-ENV JAVA_TOOL_OPTIONS="-javaagent:/app/opentelemetry-javaagent.jar"
-ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-ENV OTEL_METRICS_EXPORTER=otlp
-ENV OTEL_SERVICE_NAME=cvc-otel-agent
-# 트레이스, 로그도 추가 수집하려면 다음도 설정 가능:
-ENV OTEL_TRACES_EXPORTER=otlp
-ENV OTEL_LOGS_EXPORTER=otlp
-
-# Proxy 설정 제거
-RUN rm /etc/apt/apt.conf.d/90proxy
-RUN rm /usr/local/share/ca-certificates/sds.crt
-RUN update-ca-certificates --fresh
-RUN sed 's/SECLEVEL=1/SECLEVEL=2/' -i /etc/ssl/openssl.cnf
+	// Spring Boot Starter Web (기본적으로 포함되어야 함)
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+}
