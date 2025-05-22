@@ -1,27 +1,49 @@
-jib {
-    from {
-        image = "harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian"
-    }
-    to {
-        image = "harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner:${version}"
-    }
-    container {
-        jvmFlags = [
-            "-javaagent:/app/opentelemetry-javaagent.jar"
-        ]
-        mainClass = "com.cvc.scanner.CVCScannerApplication"
-        environment = [
-            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-collector:4317",
-            "OTEL_METRICS_EXPORTER"      : "otlp",
-            "OTEL_SERVICE_NAME"          : "cvc-otel-agent",
-            "OTEL_TRACES_EXPORTER"       : "otlp",
-            "OTEL_LOGS_EXPORTER"         : "otlp"
-        ]
-    }
-    extraDirectories {
-        paths = file("libs")
-        permissions = [
-            "/app/opentelemetry-javaagent.jar": "755"
-        ]
-    }
-}
+[otel.javaagent 2025-05-22 05:09:19:668 +0000] [OkHttp http://otel-collector:4317/...] WARN io.opentelemetry.exporter.internal.grpc.GrpcExporter - Failed to export metrics. Server responded with gRPC status code 2. Error message: F
+ailed to connect to otel-collector/172.18.0.3:4317
+[otel.javaagent 2025-05-22 05:10:19:667 +0000] [OkHttp http://otel-collector:4317/...] WARN io.opentelemetry.exporter.internal.grpc.GrpcExporter - Failed to export metrics. Server responded with gRPC status code 2. Error message: F
+ailed to connect to otel-collector/172.18.0.3:4317
+[root@d2-krw1a-dp-cvc-engine-02 cvc]# docker ps
+CONTAINER ID   IMAGE                                                                                                           COMMAND                  CREATED       STATUS       PORTS                                               
+                                                                                                                                                                                                                                       
+  NAMES
+7d7b579905a2   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0   "/otelcol-contrib --…"   2 hours ago   Up 2 hours   0.0.0.0:1888->1888/tcp, [::]:1888->1888/tcp, 0.0.0.0
+:4317-4318->4317-4318/tcp, [::]:4317-4318->4317-4318/tcp, 0.0.0.0:8888-8889->8888-8889/tcp, [::]:8888-8889->8888-8889/tcp, 0.0.0.0:13133->13133/tcp, [::]:13133->13133/tcp, 0.0.0.0:55679->55679/tcp, [::]:55679->55679/tcp, 55678/tcp 
+  cvc-otel-collector-1
+a75bdc21255b   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest                        "java -javaagent:/ap…"   2 hours ago   Up 2 hours   0.0.0.0:8081->8081/tcp, [::]:8081->8081/tcp         
+                                                                                                                                                                                                                                       
+  cvc-scanner-1
+[root@d2-krw1a-dp-cvc-engine-02 cvc]# cat docker-compose.yaml 
+services:
+  otel-collector:
+    user: "0:0"
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0
+    volumes:
+      - /cvc/otelcol-0.118.0.yaml:/etc/otelcol-contrib/config.yaml
+      - /var/lib/otelcol/file_storage/gateway:/var/lib/otelcol/file_storage/gateway
+    ports:
+      - 1888:1888 # pprof extension
+      - 8888:8888 # Prometheus metrics exposed by the Collector
+      - 8889:8889 # Prometheus exporter metrics
+      - 13133:13133 # health_check extension
+      - 4317:4317 # OTLP gRPC receiver
+      - 4318:4318 # OTLP http receiver
+      - 55679:55679 # zpages extension
+    extra_hosts:
+      - "cortex-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      - "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      - "object-store.private.kr-west1.dev2.samsungsdscloud.com:198.18.1.29"
+  scanner:
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest
+    ports:
+      - 8081:8081
+    volumes:
+      - /cvc/log:/cvc/log
+      - /tmp:/tmp
+    environment:
+      - CVC_KEYSTONE_ID=cvc-service
+      - CVC_KEYSTONE_PW=CVCscanner1!
+      - IAM_API_ENDPOINT=https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null
+    extra_hosts:
+      - "iam-i.kr-west1.dev2.samsungsdscloud.com:198.18.1.136"
+      - "identity-i.kr-west1.dev2.samsungsdscloud.com:198.18.1.136"
+      - "host.docker.internal:host-gateway"
