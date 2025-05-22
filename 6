@@ -1,101 +1,27 @@
-plugins {
-	id 'java'
-	id 'org.springframework.boot' version '3.4.1'
-	id 'io.spring.dependency-management' version '1.1.7'
-	id "com.google.cloud.tools.jib" version "3.3.0"
-}
-
-group = 'com.cvc'
-version = '1.0-SNAPSHOT'
-
-repositories {
-	maven {
-		url 'http://nexus.sdsdev.co.kr:8081/repository/maven-public/'
-		allowInsecureProtocol = true
-	}
-
-	// SDS 사내망 시스템은 아래 repo 를 사용하실수 있습니다.
-	// You can use the following repo for the sds internal network system.
-	maven {
-		url 'http://70.121.224.52:8081/nexus/content/repositories/public'
-		allowInsecureProtocol = true
-	}
-	maven {
-		url 'http://70.121.224.52:8081/repository/maven-google'
-		allowInsecureProtocol = true
-	}
-	maven {
-		url 'http://70.121.224.52:8081/repository/maven-central'
-		allowInsecureProtocol = true
-	}
-	maven {
-		url 'http://70.121.224.52:8081/repository/jcenter'
-		allowInsecureProtocol = true
-	}
-	maven {
-		url 'http://70.121.224.52:8081/repository/anyframe-java-opensource'
-		allowInsecureProtocol = true
-	}
-	maven {
-		url 'http://70.121.224.52:8081/repository/lego'
-		allowInsecureProtocol = true
-	}
-
-	maven {
-		url 'http://70.121.224.52:8081/repository/jcenter/'
-		allowInsecureProtocol = true
-	}
-	maven {
-		url 'http://70.121.224.52:8081/repository/redhat-ea-all/'
-		allowInsecureProtocol = true
-	}
-	maven {
-		url 'http://70.121.224.52:8081/repository/gradle-plugin/'
-		allowInsecureProtocol = true
-	}
-}
-
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(17)
-    }
-}
-
 jib {
-	container {
-		mainClass = 'com.cvc.scanner.CVCScannerApplication'
-	}
-}
-
-
-configurations {
-	compileOnly {
-		extendsFrom annotationProcessor
-	}
-}
-
-repositories {
-	mavenCentral()
-}
-
-dependencies {
-	implementation 'org.springframework.boot:spring-boot-starter-web'
-	implementation 'org.springframework.boot:spring-boot-starter-aop'
-	compileOnly 'org.projectlombok:lombok'
-	annotationProcessor 'org.projectlombok:lombok'
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-	implementation files('libs/ahnlab_v3engine.jar')
-
-	// Validation (javax -> jakarta)
-	implementation 'jakarta.validation:jakarta.validation-api:3.0.2'
-	implementation 'org.hibernate.validator:hibernate-validator:7.0.1.Final'
-
-	// Lombok (이미 추가되어 있을 가능성 높음)
-	compileOnly 'org.projectlombok:lombok:1.18.28'
-	annotationProcessor 'org.projectlombok:lombok:1.18.28'
-
-	// Spring Boot Starter Web (기본적으로 포함되어야 함)
-	implementation 'org.springframework.boot:spring-boot-starter-web'
-	implementation 'org.springframework.boot:spring-boot-starter-validation'
+    from {
+        image = "harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian"
+    }
+    to {
+        image = "harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner:${version}"
+    }
+    container {
+        jvmFlags = [
+            "-javaagent:/app/opentelemetry-javaagent.jar"
+        ]
+        mainClass = "com.cvc.scanner.CVCScannerApplication"
+        environment = [
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-collector:4317",
+            "OTEL_METRICS_EXPORTER"      : "otlp",
+            "OTEL_SERVICE_NAME"          : "cvc-otel-agent",
+            "OTEL_TRACES_EXPORTER"       : "otlp",
+            "OTEL_LOGS_EXPORTER"         : "otlp"
+        ]
+    }
+    extraDirectories {
+        paths = file("libs")
+        permissions = [
+            "/app/opentelemetry-javaagent.jar": "755"
+        ]
+    }
 }
