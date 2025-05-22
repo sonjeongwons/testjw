@@ -1,103 +1,133 @@
-아래 에러원인을 알려줘.
-
-[root@d2-krw1a-dp-cvc-engine-01 log]# docker logs 9bd0bff09472 
-Picked up JAVA_TOOL_OPTIONS: -javaagent:/app/opentelemetry-javaagent.jar
-OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
-[otel.javaagent 2025-05-21 03:25:05:738 +0000] [main] INFO io.opentelemetry.javaagent.tooling.VersionLogger - opentelemetry-javaagent - version: 1.33.2
-03:25:07.649 [main] ERROR org.springframework.boot.SpringApplication -- Application run failed
-java.lang.IllegalStateException: IO error on loading imports from [logback-spring.xml]
-at org.springframework.boot.context.config.ConfigDataImporter.resolveAndLoad(ConfigDataImporter.java:90)
-at org.springframework.boot.context.config.ConfigDataEnvironmentContributors.withProcessedImports(ConfigDataEnvironmentContributors.java:121)
-at org.springframework.boot.context.config.ConfigDataEnvironment.processInitial(ConfigDataEnvironment.java:245)
-at org.springframework.boot.context.config.ConfigDataEnvironment.processAndApply(ConfigDataEnvironment.java:232)
-at org.springframework.boot.context.config.ConfigDataEnvironmentPostProcessor.postProcessEnvironment(ConfigDataEnvironmentPostProcessor.java:96)
-at org.springframework.boot.context.config.ConfigDataEnvironmentPostProcessor.postProcessEnvironment(ConfigDataEnvironmentPostProcessor.java:89)
-at org.springframework.boot.env.EnvironmentPostProcessorApplicationListener.onApplicationEnvironmentPreparedEvent(EnvironmentPostProcessorApplicationListener.java:132)
-at org.springframework.boot.env.EnvironmentPostProcessorApplicationListener.onApplicationEvent(EnvironmentPostProcessorApplicationListener.java:115)
-at org.springframework.context.event.SimpleApplicationEventMulticaster.doInvokeListener(SimpleApplicationEventMulticaster.java:185)
-at org.springframework.context.event.SimpleApplicationEventMulticaster.invokeListener(SimpleApplicationEventMulticaster.java:178)
-at org.springframework.context.event.SimpleApplicationEventMulticaster.multicastEvent(SimpleApplicationEventMulticaster.java:156)
-at org.springframework.context.event.SimpleApplicationEventMulticaster.multicastEvent(SimpleApplicationEventMulticaster.java:138)
-at org.springframework.boot.context.event.EventPublishingRunListener.multicastInitialEvent(EventPublishingRunListener.java:136)
-at org.springframework.boot.context.event.EventPublishingRunListener.environmentPrepared(EventPublishingRunListener.java:81)
-at org.springframework.boot.SpringApplicationRunListeners.lambda$environmentPrepared$2(SpringApplicationRunListeners.java:64)
-at java.base/java.lang.Iterable.forEach(Iterable.java:75)
-at org.springframework.boot.SpringApplicationRunListeners.doWithListeners(SpringApplicationRunListeners.java:118)
-at org.springframework.boot.SpringApplicationRunListeners.doWithListeners(SpringApplicationRunListeners.java:112)
-at org.springframework.boot.SpringApplicationRunListeners.environmentPrepared(SpringApplicationRunListeners.java:63)
-at org.springframework.boot.SpringApplication.prepareEnvironment(SpringApplication.java:353)
-at org.springframework.boot.SpringApplication.run(SpringApplication.java:313)
-at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361)
-at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350)
-at com.cvc.scanner.CVCScannerApplication.main(CVCScannerApplication.java:34)
-Caused by: java.util.InvalidPropertiesFormatException: jdk.internal.org.xml.sax.SAXParseException; An XML properties document must contain the DOCTYPE declaration as defined by java.util.Properties.
-at java.base/jdk.internal.util.xml.PropertiesDefaultHandler.load(PropertiesDefaultHandler.java:85)
-at java.base/java.util.Properties.loadFromXML(Properties.java:960)
-at org.springframework.core.io.support.PropertiesLoaderUtils.fillProperties(PropertiesLoaderUtils.java:137)
-at org.springframework.core.io.support.PropertiesLoaderUtils.loadProperties(PropertiesLoaderUtils.java:123)
-at org.springframework.boot.env.PropertiesPropertySourceLoader.loadProperties(PropertiesPropertySourceLoader.java:67)
-at org.springframework.boot.env.PropertiesPropertySourceLoader.load(PropertiesPropertySourceLoader.java:49)
-at org.springframework.boot.context.config.StandardConfigDataLoader.load(StandardConfigDataLoader.java:54)
-at org.springframework.boot.context.config.StandardConfigDataLoader.load(StandardConfigDataLoader.java:36)
-at org.springframework.boot.context.config.ConfigDataLoaders.load(ConfigDataLoaders.java:96)
-at org.springframework.boot.context.config.ConfigDataImporter.load(ConfigDataImporter.java:132)
-at org.springframework.boot.context.config.ConfigDataImporter.resolveAndLoad(ConfigDataImporter.java:87)
-... 23 common frames omitted
-Caused by: jdk.internal.org.xml.sax.SAXParseException: An XML properties document must contain the DOCTYPE declaration as defined by java.util.Properties.
-at java.base/jdk.internal.util.xml.PropertiesDefaultHandler.startElement(PropertiesDefaultHandler.java:165)
-at java.base/jdk.internal.util.xml.impl.ParserSAX.parse(ParserSAX.java:470)
-at java.base/jdk.internal.util.xml.impl.ParserSAX.parse(ParserSAX.java:411)
-at java.base/jdk.internal.util.xml.impl.ParserSAX.parse(ParserSAX.java:374)
-at java.base/jdk.internal.util.xml.impl.SAXParserImpl.parse(SAXParserImpl.java:97)
+curl 값에 대해서 response 값은 아래와 같아.
+curl -vs -X GET -H "X-Auth-Token: gAAAAABoLvGeEgUEKdCMejFl8Dkdci_JuhShTWanD59xXFj_yMbhEYX758RtztRBrtU1Txh16Ye-qKjP1E2xmIM1phZigeAziSvdoSwkbZIO6YEOvskbBwZBWfQ7EvoQNS2yJckdam1tzunxAHejxQFNW-CEFJQ0f2_YBadyaCVXcjq5u09cZ1g" -H "X-Subject-Token: gAAAAABoLvAmOa76h5iqk__dhc1XkOKGTgYOAxZxsuTxSB7AMWXdZdqaXEct3B8ZSBrS_EjgDEUTS7O0o-bAXA5a0LOnoO_xJgs3SGVzSQ7e-0Dnh8HNk9VxdrO_EAPMP3QpNBqUtqetzMLLCaW0TiRRt9_3a339gMVrZu7LpgJBGeygJsibehA" \
+"https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null"
 
 
 
-참고로 설정되어있는 logback-spring.xml 파일과 application.properties 파일 내용은 아래와 같아.
+{
+  "token": {
+    "methods": [
+      "password"
+    ],
+    "user": {
+      "domain": {
+        "id": "0860cdd74e06475395d29f14848cba22",
+        "name": "service"
+      },
+      "id": "b5a83c42cf204d74842c6f0bc2fbb08a",
+      "name": "scf-service",
+      "password_expires_at": null
+    },
+    "audit_ids": [
+      "27g4UrWUTdOSPO439FlQvQ"
+    ],
+    "expires_at": "2025-05-22T21:36:38.000000Z",
+    "issued_at": "2025-05-22T09:36:38.000000Z",
+    "project": {
+      "domain": {
+        "id": "0860cdd74e06475395d29f14848cba22",
+        "name": "service"
+      },
+      "id": "33b532c466824bcf9324101a3c6f3015",
+      "name": "service-dp-scf"
+    },
+    "is_domain": false,
+    "roles": [
+      {
+        "id": "521b706a398243f281f7e4b98296f671",
+        "name": "admin"
+      },
+      {
+        "id": "a5c62ffa0e7a4ccca077094e64ecc35a",
+        "name": "reader"
+      },
+      {
+        "id": "cbf6c7f89b084734927bd40bf8ce0681",
+        "name": "member"
+      },
+      {
+        "id": "0b0467920fe04cbd9d479e2eab84575a",
+        "name": "manager"
+      }
+    ]
+  }
+}
 
-#logback-spring.xml
-<?xml version="1.0" encoding="UTF-8"?>
-<configuration>
 
-    <property name="LOG_PATH" value="/cvc/log"/>
-    <property name="LOG_FILE" value="scanner.log"/>
+자바코드에서 validateToken 메소드 수행 후에 위 response같은 값들을 전달받게되는데, response값이 지금처럼 2xx이고, roles 내 name이 admin이 있는 response인 경우에만 true를 반환하는 validateToken을 개선해봐
+package com.cvc.scanner.service;
 
-    <appender name="ROLLING_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/${LOG_FILE}.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/${LOG_FILE}-%d{yyyy-MM-dd}.log</fileNamePattern>
-            <maxHistory>365</maxHistory>
-            <maxFileSize>10MB</maxFileSize> <!-- 이 부분은 size-based rolling과 혼용 시 추가 설정 필요 -->
-        </rollingPolicy>
-        <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n</pattern>
-        </encoder>
-    </appender>
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.RestTemplate;
 
-    <root level="INFO">
-        <appender-ref ref="ROLLING_FILE" />
-    </root>
+import java.util.List;
+import java.util.Map;
 
-</configuration>
+@Service
+public class TokenService {
 
-#application.properties
-spring.application.name=demo
-server.port=8081
-spring.config.import=logback-spring.xml
-# log level for root logger
-logging.level.root=INFO
-# log level for com.example package
-logging.level.com.cvc.scanner=DEBUG
-# log pattern for console handler
-logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n
-# log pattern for file handler
-logging.pattern.file=%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n
-# log file location and name
-logging.file.name=/cvc/log/scanner.log
-#logging.logback.rollingpolicy.file-name-pattern=scanner-%d{yyyy-MM-dd}.log
-#logging.logback.rollingpolicy.max-file-size=10MB
-#logging.logback.rollingpolicy.max-history=365
-spring.servlet.multipart.max-file-size=1GB
-spring.servlet.multipart.max-request-size=1GB
-cvc.service.id=${CVC_KEYSTONE_ID}
-cvc.service.pw=${CVC_KEYSTONE_PW}
-iam.api.endpoint=${IAM_API_ENDPOINT}
+    @Value("${cvc.service.id}")
+    private String cvcServiceId;
+
+    @Value("${cvc.service.pw}")
+    private String cvcServicePw;
+
+    @Value("${iam.api.endpoint}")
+    private String iamApiEndpoint;
+
+    private final RestTemplate restTemplate;
+
+    public TokenService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    public String getCvcAdminToken() {
+        //String url = iamApiEndpoint + "/v3/auth/tokens?nocatalog=null";
+        String url = iamApiEndpoint;
+
+        Map<String, Object> body = Map.of(
+                "auth", Map.of(
+                        "identity", Map.of(
+                                "methods", List.of("password"),
+                                "password", Map.of(
+                                        "user", Map.of(
+                                                "name", cvcServiceId,
+                                                "domain", Map.of("name", "service"),
+                                                "password", cvcServicePw
+                                        )
+                                )
+                        )
+                )
+        );
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
+        return response.getHeaders().getFirst("X-Subject-Token");
+    }
+    public boolean validateToken(String userToken) {
+        //String url = iamApiEndpoint + "/v3/auth/tokens?nocatalog=null";
+        String url = iamApiEndpoint;
+        String adminToken = getCvcAdminToken();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Auth-Token", adminToken);
+        headers.set("X-Subject-Token", userToken);
+
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            return response.getStatusCode().is2xxSuccessful();
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            return false;
+        }
+    }
+}
