@@ -1,3 +1,51 @@
+root@j1-son002:~# cat Dockerfile
+FROM harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian
+
+# Proxy 설정
+ARG http_proxy=http://70.10.15.10:8080
+ARG https_proxy=http://70.10.15.10:8080
+
+ADD sds.crt /usr/local/share/ca-certificates/
+RUN update-ca-certificates
+RUN sed 's/SECLEVEL=2/SECLEVEL=1/' -i /etc/ssl/openssl.cnf
+
+RUN echo "Acquire::http::proxy \"http://70.10.15.10:8080/\";" >> /etc/apt/apt.conf.d/90proxy
+RUN echo "Acquire::https::proxy\"http://70.10.15.10:8080/\";" >> /etc/apt/apt.conf.d/90proxy
+
+
+RUN apt-get update && \
+    apt-get install -y curl ca-certificates telnet vim wget jq && \
+    rm -rf /var/lib/apt/lists/*
+
+# OpenTelemetry Java Agent 다운로드
+ENV OTEL_AGENT_VERSION=1.33.2
+RUN curl -L -o /opentelemetry-javaagent.jar \
+    https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar
+
+
+# 작업 디렉토리 설정
+WORKDIR /app
+COPY V3Scanner.properties /app/V3Scanner.properties
+
+# OpenTelemetry Java Agent 복사
+COPY opentelemetry-javaagent.jar /app/opentelemetry-javaagent.jar
+
+# 환경변수 설정
+ENV JAVA_TOOL_OPTIONS="-javaagent:/app/opentelemetry-javaagent.jar"
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+ENV OTEL_METRICS_EXPORTER=otlp
+ENV OTEL_SERVICE_NAME=cvc-otel-agent
+# 트레이스, 로그도 추가 수집하려면 다음도 설정 가능:
+ENV OTEL_TRACES_EXPORTER=otlp
+ENV OTEL_LOGS_EXPORTER=otlp
+
+# Proxy 설정 제거
+RUN rm /etc/apt/apt.conf.d/90proxy
+RUN rm /usr/local/share/ca-certificates/sds.crt
+RUN update-ca-certificates --fresh
+RUN sed 's/SECLEVEL=1/SECLEVEL=2/' -i /etc/ssl/openssl.cnf
+
+
 [otel.javaagent 2025-05-22 05:09:19:668 +0000] [OkHttp http://otel-collector:4317/...] WARN io.opentelemetry.exporter.internal.grpc.GrpcExporter - Failed to export metrics. Server responded with gRPC status code 2. Error message: F
 ailed to connect to otel-collector/172.18.0.3:4317
 [otel.javaagent 2025-05-22 05:10:19:667 +0000] [OkHttp http://otel-collector:4317/...] WARN io.opentelemetry.exporter.internal.grpc.GrpcExporter - Failed to export metrics. Server responded with gRPC status code 2. Error message: F
