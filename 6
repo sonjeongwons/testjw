@@ -1,126 +1,45 @@
-@Library('paas-common-shared-library') _
-def convertTag(Map args) {
-    def tagPattern = args.tagPattern ?: "{YYYYMMDD}.{HHMMSS}"
-    def now = new Date()
-    def sdf = new java.text.SimpleDateFormat("yyyyMMdd.HHmmss")
-    sdf.setTimeZone(TimeZone.getTimeZone("Asia/Seoul")) // 한국 시간대 지정
-    def formattedDate = sdf.format(now)
+FROM harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian
 
-    return tagPattern.replace("{YYYYMMDD}.{HHMMSS}", formattedDate)
-}
+# Proxy 설정
+ARG http_proxy=http://70.10.15.10:8080
+ARG https_proxy=http://70.10.15.10:8080
 
-def getMailReceivers(Map args) {
-    def recipients_list = []
+ADD sds.crt /usr/local/share/ca-certificates/
+RUN update-ca-certificates
+RUN sed 's/SECLEVEL=2/SECLEVEL=1/' -i /etc/ssl/openssl.cnf
 
-    // 환경에 따른 메일 주소 매핑
-    def recipients_email = [
-        '박운한': 'cloud.park@samsung.com',
-        '최경열': 'chl4651.choi@samsung.com',
-        '손정원': 'j1.son@samsung.com',
-    ]
-    def recipients = args.recipients
-
-    if (recipients){
-        if (recipients.trim() == 'SCF_ALL') {
-            recipients_list.addAll(recipients_email.values())
-        } else {
-            if (recipients_email.containsKey(recipients)){
-                recipients_list.add(recipients_email[recipients])
-            }
-
-        }
-    }
-
-    return recipients_list.unique().join(', ')
-}
-
-pipeline {
-    agent {
-        label  'java-image'
-    }
-
-	parameters {
-	    string(name: 'branch', defaultValue: 'develop', description: 'branch')
-	    string(name: 'image_tag', defaultValue: 'latest', description: 'image_tag')
-	    string(name: 'vm_tag', defaultValue: '{YYYYMMDD}.{HHMMSS}', description: 'tag')
-	    choice(
-            name: 'build_alert_recipients',
-            choices: ['최경열','박운한','손정원','SCF_ALL'],
-            description: '빌드 결과에 대한 메일을 받습니다.'
-        )
-	}
-
-	environment {
-
-	    PROJECT_ID = 'dev'
-	    GIT_CREDENTIAL_ID = 'github-token'
-        GIT_REPO = 'https://code.sdsdev.co.kr/sdspaas/cvc-scanner.git/'
-        HARBOR_CREDENTIAL = credentials('harbor@cvc+cvc-robot')
-
-        IMAGE_HARBOR_URL = 'harbor-paasdev.samsungsdscloud.com'
-        IMAGE_REPO = 'cvc'
-        IMAGE_NAME = 'cvc-scanner'
-        IMAGE_LOC = "${IMAGE_HARBOR_URL}/${IMAGE_REPO}/${IMAGE_NAME}:${params.image_tag}"
-        BASE_IMAGE_LOC = "${IMAGE_HARBOR_URL}/${IMAGE_REPO}/${IMAGE_REPO}-scanner-base:17-debian-otelagent"
+RUN echo "Acquire::http::proxy \"http://70.10.15.10:8080/\";" >> /etc/apt/apt.conf.d/90proxy
+RUN echo "Acquire::https::proxy\"http://70.10.15.10:8080/\";" >> /etc/apt/apt.conf.d/90proxy
 
 
+RUN apt-get update && \
+    apt-get install -y curl ca-certificates telnet vim wget jq && \
+    rm -rf /var/lib/apt/lists/*
+
+# OpenTelemetry Java Agent 다운로드
+ENV OTEL_AGENT_VERSION=1.33.2
+RUN curl -L -o /opentelemetry-javaagent.jar \
+    https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar
 
 
+# 작업 디렉토리 설정
+WORKDIR /app
+COPY V3Scanner.properties /app/V3Scanner.properties
 
+# OpenTelemetry Java Agent 복사
+COPY opentelemetry-javaagent.jar /app/opentelemetry-javaagent.jar
 
-	}
+# 환경변수 설정
+ENV JAVA_TOOL_OPTIONS="-javaagent:/app/opentelemetry-javaagent.jar"
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+ENV OTEL_METRICS_EXPORTER=otlp
+ENV OTEL_SERVICE_NAME=cvc-otel-agent
+# 트레이스, 로그도 추가 수집하려면 다음도 설정 가능:
+ENV OTEL_TRACES_EXPORTER=otlp
+ENV OTEL_LOGS_EXPORTER=otlp
 
-    stages {
-
-		// Checkout Stage : Checkout from Git Repository
-		stage('Checkout') {
-		    steps {
-		        git(branch: params.branch, credentialsId:"${GIT_CREDENTIAL_ID}", url:"${GIT_REPO}")
-		    }
-		}
-
-
-		// Build Stage : Build application
-		stage('Build') {
-		    tools {
-			    jdk 'JDK17'
-			    gradle 'GRADLE7.6'
-			}
-
-		    steps {
-		        container('java') {
-                  sh "gradle jib --no-daemon \
-                    -Djib.console=plain \
-                    -Djib.from.image=${BASE_IMAGE_LOC} \
-                    -Djib.from.auth.username=${HARBOR_CREDENTIAL_USR} \
-                    -Djib.from.auth.password=${HARBOR_CREDENTIAL_PSW} \
-                    -Djib.to.image=${IMAGE_LOC} \
-                    -Djib.to.auth.username=${HARBOR_CREDENTIAL_USR} \
-                    -Djib.to.auth.password=${HARBOR_CREDENTIAL_PSW} \
-                    --build-cache"
-                    }
-            }
-		}
-
-
-
-    } //end stages
-
-
-
-	post {
-	    always {
-	        script {
-	            def mailRecipients = getMailReceivers(recipients: params.build_alert_recipients)
-                    echo "선택된 발송대상자: ${params.build_alert_recipients}"
-                    echo "발송 대상 이메일: ${mailRecipients}"
-                sendPaasMail (
-	                    to: mailRecipients
-	                )
-	            }
-
-	    }
-
-	}
-
-}
+# Proxy 설정 제거
+RUN rm /etc/apt/apt.conf.d/90proxy
+RUN rm /usr/local/share/ca-certificates/sds.crt
+RUN update-ca-certificates --fresh
+RUN sed 's/SECLEVEL=1/SECLEVEL=2/' -i /etc/ssl/openssl.cnf
