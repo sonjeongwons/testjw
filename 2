@@ -1,39 +1,10 @@
-apiVersion: v1
-clusters:
-- cluster:
-    certificate-authority-data: |
-      LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURCekNDQWUrZ0F3SUJBZ0lJUTVjdTNJMEdZa2N3RFFZSktvWklodmNOQVFFTEJRQXdGVEVUTUJFR0ExVUUKQXhNS2EzVmlaWEp1WlhSbGN6QWdGdzB5TkRFd01qSXdOVEk1TkRaYUdBOHlNRFUwTVRBeE5UQTFNelEwTmxvdwpGVEVUTUJFR0ExVUVBeE1LYTNWaVpYSnVaWFJsY3pDQ0FTSXdEUVlKS29aSWh2Y05BUUVCQlFBRGdnRVBBRENDCkFRb0NnZ0VCQUxrbXhVaExDUE5SWGFkWUs1clJXaTZGS3FtNVIxZW5tNndMbHRqdXJicEFIL2p4dnZmOHBycUIKMjhaTk9ub0VjNmRsVkJBbXQ4SmRINldVQ0dKTTJjQUFrV2RoZ0tRSDFibmR3SzVzWjhTOVdOQlp2amEyMVhLdAp2STRPajh6azVFWDQwdzZ5c0FzZHVsbk5lWG5jbTZ4cGljSXA0eGFOYlRhcG9GS0NON0plQklNUUMzQjhPdE4zClRsamIrWURiTXh2R1Yvai9KcGlMb2FmYkZGSDBPKzJjeE16VjFTWHVNa0xyczZGN0d1aEhIYjB4SzRielF4NFUKaTQ4Z0lRUHZOUk5hSkpZaUJucUpldnlCS0doK2pRcjRaWHRlWkZTZ1FHM3Y4UDlzU2NCNE5xSSs2aFE5QTJKdwp2aDc0NTRoNUk0UklxMUJvU2p1R1BhUWdINDF0RXI4Q0F3RUFBYU5aTUZjd0RnWURWUjBQQVFIL0JBUURBZ0trCk1BOEdBMVVkRXdFQi93UUZNQU1CQWY4d0hRWURWUjBPQkJZRUZLZU1jUWtwYTVPY3FoSFJkM0ZnYWdrTkNFaWsKTUJVR0ExVWRFUVFPTUF5Q0NtdDFZbVZ5Ym1WMFpYTXdEUVlKS29aSWh2Y05BUUVMQlFBRGdnRUJBS29JWjloYwptUVlVRGp5OU4veExGM2VqZVNCSmhzTGpkeXNiMFR0OW9wYzNtd0Z4dFp4QW9KeVgwVHh0WnpXTmtUeDNNM0F5CjhBMERTaVFHczJSMzNwV25aRkRMUEFjSy84L1pjdkhGaDVnZkNURWdiWEdjWHFrcGhIWGNXcm1DV1lZWGZjRzMKMnhNNmNsZ1I4Qm1GbG5ORVlxNHVEQnI0TGEwdUZjTmh0RFhra3lZTkJuOTRJYlYrTmNGME94a2NUZGM2bDZWZgpKWVNoVUFZc0R2eDFZVkVPaGVxMW44ZHdEVFJMOG5CQVlTM3dBdXJUN2UwMkFJNkJkNGhxajBObDY3c3kwS0RlCnJhME4wN0Y0ZVNtKzJNMHE1L2xmdXl3VlVzMWlHYkN0TC8xditBREVJaEtGLzhvZFRGK3BMeDFEcnJPTlR1VTYKYUlCMU50bXVSKzVHSVY0PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
-    server: https://d2-krw1a-scf.ske.private.kr-west1.dev2.samsungsdscloud.com:6443
-  name: d2-krw1a-scf
-contexts:
-- context:
-    cluster: d2-krw1a-scf
-    user: user
-  name: user@d2-krw1a-scf
-current-context: user@d2-krw1a-scf
-kind: Config
-preferences: {}
-users:
-- name: user
-  user:
-    client-certificate-data: |
-      -----BEGIN CERTIFICATE-----
-      MIIDFTCCAf2gAwIBAgID9jWtGXeBKgwDQYJKoZIhvcNAQELBQAwFTETMBEGA1UE
-      AxMKa3ViZXJuZXRlczAgFw0yNDEwMjIwNTI5NDZaGA8yMDU0MTAxNTA1MzQ0Nlow
-      RjAVBgNVBAUTDkNrbXlYMVpZZWVkTXIJQxDANBgkqhkiG9w0BAQsFAAOCAQ8AMIIB
-      CgKCAQEAxS9rADIyY/7zzTTd6WY5Sm/stuL2ek3Kore+wlV1YUPByJLkP15vRQZa
-      RQMWLk6FogmwMFNcwfOAHYEt9UtWbeKqpJ7w7u2DCginfj9XLYAuOzyPnVux8zv4H
-      QywVlxkyZBqRZppNWsDAOrNdqQo5X+iB1OEGx6EvPAco4g0pymzoxLfX9cZWvv1DK
-      48/malhbiRP8RbCUbjjKjRJ3JnLcaxiH/4p81bgGV67VxdxD8aMLx2sCKzUU8YDq
-      BHycikufeINTdUOs/kV/SVnM1Zaux5Ne+6FHMhnVl8AbhjRmEM7IOvZJpqREkmqW0
-      4ki+oB7DnAHL3FskigMdLgy4rwIDAQAB
-      -----END CERTIFICATE-----
-    client-key-data: |
-      -----BEGIN RSA PRIVATE KEY-----
-      MIIEpAIBAAKCAQEAxS9rADIyY/7zzTTd6WY5Sm/stuL2ek3Kore+wlV1YUPByJLk
-      P15vRQZaRQMWLk6FogmwMFNcwfOAHYEt9UtWbeKqpJ7w7u2DCginfj9XLYAuOzyP
-      nVux8zv4HQywVlxkyZBqRZppNWsDAOrNdqQo5X+iB1OEGx6EvPAco4g0pymzoxLfX
-      9cZWvv1DK48/malhbiRP8RbCUbjjKjRJ3JnLcaxiH/4p81bgGV67VxdxD8aMLx2sC
-      KzUU8YDqBHycikufeINTdUOs/kV/SVnM1Zaux5Ne+6FHMhnVl8AbhjRmEM7IOvZJp
-      qREkmqW04ki+oB7DnAHL3FskigMdLgy4rwIDAQAB
-      -----END RSA PRIVATE KEY-----
+func checkLBDnsConnectivity(ctx context.Context, urlEndpoint string) (string, error) {
+	logger := log.FromContext(ctx)
+	// nslookup 대체로 net.LookupHost 사용
+	_, err := net.LookupHost(urlEndpoint)
+	if err != nil {
+		logger.Error(err, "Failed to connext DNS")
+		return StatusFail, err
+	}
+	return StatusSuccess, nil
+}
