@@ -1,120 +1,40 @@
-[root@d2-krw1a-dp-cvc-engine-01 sdspaas]# curl -vs -X POST -H "Content-Type:application/json" \
--d '
-{
-    "auth": {
-        "identity": {
-            "methods": [
-                "password"
-            ],
-            "password": {
-                "user": {
-                    "name": "cvc-service",
-                    "domain": {
-                        "name": "service"
-                    },
-                    "password": "CVCscanner1!"
-                }
-            }
-        }
-    }
-}' \
-"https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null" 1> /dev/null
-
-* TLSv1.3 (OUT), TLS handshake, Finished (20):
-} [52 bytes data]
-* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384
-* ALPN, server accepted to use http/1.1
-* Server certificate:
-*  subject: C=KR; ST=Seoul; O=Samsung SDS Co.,Ltd.; CN=*.kr-west1.dev2.samsungsdscloud.com
-*  start date: Aug  2 00:00:00 2024 GMT
-*  expire date: Sep  2 23:59:59 2025 GMT
-*  subjectAltName: host "identity-i.kr-west1.dev2.samsungsdscloud.com" matched cert's "*.kr-west1.dev2.samsungsdscloud.com"
-*  issuer: C=GB; ST=Greater Manchester; L=Salford; O=Sectigo Limited; CN=Sectigo RSA Organization Validation Secure Server CA
-*  SSL certificate verify ok.
-} [5 bytes data]
-* TLSv1.3 (OUT), TLS app data, [no content] (0):
-} [1 bytes data]
-> POST /v3/auth/tokens?nocatalog=null HTTP/1.1
-> Host: identity-i.kr-west1.dev2.samsungsdscloud.com
-> User-Agent: curl/7.61.1
-> Accept: */*
-> Content-Type:application/json
-> Content-Length: 394
-> 
-} [394 bytes data]
-* upload completely sent off: 394 out of 394 bytes
-{ [5 bytes data]
-* TLSv1.3 (IN), TLS handshake, [no content] (0):
-{ [1 bytes data]
-* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
-{ [297 bytes data]
-* TLSv1.3 (IN), TLS handshake, [no content] (0):
-{ [1 bytes data]
-* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
-{ [297 bytes data]
-* TLSv1.3 (IN), TLS app data, [no content] (0):
-{ [1 bytes data]
-< HTTP/1.1 201 CREATED
-< Date: Fri, 09 May 2025 02:45:25 GMT
-< Content-Type: application/json
-< Content-Length: 776
-< Connection: keep-alive
-< Set-Cookie: scp-session=1746758726.262.2346704.444269|ea36d40165ecd08fc85f7eda8b76c8dc; Expires=Fri, 09-May-25 03:15:25 GMT; Max-Age=1800; Path=/; Secure; HttpOnly
-< X-Subject-Token: gAAAAABoHWxFq9KgBOQJUToRESw0WOFBFKY47zhFIivv9dUu85Jjyf3Nyw63z4sfZ5tiAETBXKwfHU5Qts5KOlKagdGyX-MB_0ZqbJXeTk_VOqsyAGT8hsuHjObTR-4KVYXsluTZUfk-F4yp9a8fe81NSzCOiI8W0XX6hIxqdskawtH_PDemQMw
-< Vary: X-Auth-Token
-< x-openstack-request-id: req-e2bcffaa-2a03-430e-abec-ddb49a7b4112
-< 
-{ [776 bytes data]
-* Connection #0 to host identity-i.kr-west1.dev2.samsungsdscloud.com left intact
-
-
-
-
-
-
-
-
-
-
-[root@d2-krw1a-dp-cvc-engine-01 sdspaas]# curl -vs -X GET -H "X-Auth-Token: gAAAAABoHWkDs1h-h_9aENAAiwaZagQ5jzhLWx8EIw60stXx4KgQqi4rYiug7bZ6p42LPkxM-v9ee8k2b0LtHQY8NAeA_ZFmdiO6Zh7Ea5V2aIDVt_t1iyDTy_iEgn-LYTajvQFzlPERLlG3cBr-1G_vo7y
-9uLLJNYKrV7Bh9L6QpSItPRizxgc" -H "X-Subject-Token: gAAAAABoHWxFq9KgBOQJUToRESw0WOFBFKY47zhFIivv9dUu85Jjyf3Nyw63z4sfZ5tiAETBXKwfHU5Qts5KOlKagdGyX-MB_0ZqbJXeTk_VOqsyAGT8hsuHjObTR-4KVYXsluTZUfk-F4yp9a8fe81NSzCOiI8W0XX6hIxqdskawtH_PDem
-QMw" "https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null"
-
-* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384
-* ALPN, server accepted to use http/1.1
-* Server certificate:
-*  subject: C=KR; ST=Seoul; O=Samsung SDS Co.,Ltd.; CN=*.kr-west1.dev2.samsungsdscloud.com
-*  start date: Aug  2 00:00:00 2024 GMT
-*  expire date: Sep  2 23:59:59 2025 GMT
-*  subjectAltName: host "identity-i.kr-west1.dev2.samsungsdscloud.com" matched cert's "*.kr-west1.dev2.samsungsdscloud.com"
-*  issuer: C=GB; ST=Greater Manchester; L=Salford; O=Sectigo Limited; CN=Sectigo RSA Organization Validation Secure Server CA
-*  SSL certificate verify ok.
-* TLSv1.3 (OUT), TLS app data, [no content] (0):
-> GET /v3/auth/tokens?nocatalog=null HTTP/1.1
-> Host: identity-i.kr-west1.dev2.samsungsdscloud.com
-> User-Agent: curl/7.61.1
-> Accept: */*
-> X-Auth-Token: gAAAAABoHWkDs1h-h_9aENAAiwaZagQ5jzhLWx8EIw60stXx4KgQqi4rYiug7bZ6p42LPkxM-v9ee8k2b0LtHQY8NAeA_ZFmdiO6Zh7Ea5V2aIDVt_t1iyDTy_iEgn-LYTajvQFzlPERLlG3cBr-1G_vo7y9uLLJNYKrV7Bh9L6QpSItPRizxgc
-> X-Subject-Token: gAAAAABoHWxFq9KgBOQJUToRESw0WOFBFKY47zhFIivv9dUu85Jjyf3Nyw63z4sfZ5tiAETBXKwfHU5Qts5KOlKagdGyX-MB_0ZqbJXeTk_VOqsyAGT8hsuHjObTR-4KVYXsluTZUfk-F4yp9a8fe81NSzCOiI8W0XX6hIxqdskawtH_PDemQMw
-> 
-* TLSv1.3 (IN), TLS handshake, [no content] (0):
-* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
-* TLSv1.3 (IN), TLS handshake, [no content] (0):
-* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
-* TLSv1.3 (IN), TLS app data, [no content] (0):
-< HTTP/1.1 200 OK
-< Date: Fri, 09 May 2025 02:45:50 GMT
-< Content-Type: application/json
-< Content-Length: 776
-< Connection: keep-alive
-< Set-Cookie: scp-session=1746758751.878.2346237.140956|ea36d40165ecd08fc85f7eda8b76c8dc; Expires=Fri, 09-May-25 03:15:50 GMT; Max-Age=1800; Path=/; Secure; HttpOnly
-< X-Subject-Token: gAAAAABoHWxFq9KgBOQJUToRESw0WOFBFKY47zhFIivv9dUu85Jjyf3Nyw63z4sfZ5tiAETBXKwfHU5Qts5KOlKagdGyX-MB_0ZqbJXeTk_VOqsyAGT8hsuHjObTR-4KVYXsluTZUfk-F4yp9a8fe81NSzCOiI8W0XX6hIxqdskawtH_PDemQMw
-< Vary: X-Auth-Token
-< x-openstack-request-id: req-05c7ccc0-910c-4b6e-95cd-8776b2008340
-< 
-* Connection #0 to host identity-i.kr-west1.dev2.samsungsdscloud.com left intact
-{"token": {"methods": ["password"], "user": {"domain": {"id": "0860cdd74e06475395d29f14848cba22", "name": "service"}, "id": "b5a83c42cf204d74842c6f0bc2fbb08a", "name": "scf-service", "password_expires_at": null}, "audit_ids": ["Tar
-ROMKlTASXwhva9NMfxw"], "expires_at": "2025-05-09T14:45:25.000000Z", "issued_at": "2025-05-09T02:45:25.000000Z", "project": {"domain": {"id": "0860cdd74e06475395d29f14848cba22", "name": "service"}, "id": "33b532c466824bcf9324101a3c6
-f3015", "name": "service-dp-scf"}, "is_domain": false, "roles": [{"id": "a5c62ffa0e7a4ccca077094e64ecc35a", "name": "reader"}, {"id": "cbf6c7f89b084734927bd40bf8ce0681", "name": "member"}, {"id": "0b0467920fe04cbd9d479e2eab84575a",
- "name": "manager"}, {"id": "521b706a398243f281f7e4b98296f671", "name": "admin"}]}}[root@d2-krw1a-dp-cvc-engine-01 sdspaas]# 
-
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURCekNDQWUrZ0F3SUJBZ0lJUTVjdTNJMEdZa2N3RFFZSktvWklodmNOQVFFTEJRQXdGVEVUTUJFR0ExVUUKQXhNS2EzVmlaWEp1WlhSbGN6QWdGdzB5TkRFd01qSXdOVEk1TkRaYUdBOHlNRFUwTVRBeE5UQT
+FNelEwTmxvdwpGVEVUTUJFR0ExVUVBeE1LYTNWaVpYSnVaWFJsY3pDQ0FTSXdEUVlKS29aSWh2Y05BUUVCQlFBRGdnRVBBRENDCkFRb0NnZ0VCQUxrbXhVaExDUE5SWGFkWUs1clJXaTZGS3FtNVIxZW5tNndMbHRqdXJicEFIL2p4dnZmOHBycUIKMjhaTk9ub0VjNmRsVkJBbXQ4SmRINldVQ0dKTTJjQUFr
+V2RoZ0tRSDFibmR3SzVzWjhTOVdOQlp2amEyMVhLdAp2STRPajh6azVFWDQwdzZ5c0FzZHVsbk5lWG5jbTZ4cGljSXA0eGFOYlRhcG9GS0NON0plQklNUUMzQjhPdE4zClRsamIrWURiTXh2R1Yvai9KcGlMb2FmYkZGSDBPKzJjeE16VjFTWHVNa0xyczZGN0d1aEhIYjB4SzRielF4NFUKaTQ4Z0lRUHZOUk
+5hSkpZaUJucUpldnlCS0doK2pRcjRaWHRlWkZTZ1FHM3Y4UDlzU2NCNE5xSSs2aFE5QTJKdwp2aDc0NTRoNUk0UklxMUJvU2p1R1BhUWdINDF0RXI4Q0F3RUFBYU5aTUZjd0RnWURWUjBQQVFIL0JBUURBZ0trCk1BOEdBMVVkRXdFQi93UUZNQU1CQWY4d0hRWURWUjBPQkJZRUZLZU1jUWtwYTVPY3FoSFJk
+M0ZnYWdrTkNFaWsKTUJVR0ExVWRFUVFPTUF5Q0NtdDFZbVZ5Ym1WMFpYTXdEUVlKS29aSWh2Y05BUUVMQlFBRGdnRUJBS29JWjloYwptUVlVRGp5OU4veExGM2VqZVNCSmhzTGpkeXNiMFR0OW9wYzNtd0Z4dFp4QW9KeVgwVHh0WnpXTmtUeDNNM0F5CjhBMERTaVFHczJSMzNwV25aRkRMUEFjSy84L1pjdk
+hGaDVnZkNURWdiWEdjWHFrcGhIWGNXcm1DV1lZWGZjRzMKMnhNNmNsZ1I4Qm1GbG5ORVlxNHVEQnI0TGEwdUZjTmh0RFhra3lZTkJuOTRJYlYrTmNGME94a2NUZGM2bDZWZgpKWVNoVUFZc0R2eDFZVkVPaGVxMW44ZHdEVFJMOG5CQVlTM3dBdXJUN2UwMkFJNkJkNGhxajBObDY3c3kwS0RlCnJhME4wN0Y0
+ZVNtKzJNMHE1L2xmdXl3VlVzMWlHYkN0TC8xditBREVJaEtGLzhvZFRGK3BMeDFEcnJPTlR1VTYKYUlCMU50bXVSKzVHSVY0PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+    server: https://d2-krw1a-scf.ske.private.kr-west1.dev2.samsungsdscloud.com:6443
+  name: d2-krw1a-scf
+contexts:
+- context:
+    cluster: d2-krw1a-scf
+    user: user
+  name: user@d2-krw1a-scf
+current-context: user@d2-krw1a-scf
+kind: Config
+preferences: {}
+users:
+- name: user
+  user:
+    client-certificate-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURGVENDQWYyZ0F3SUJBZ0lJRDlqV3RHWGVCS2d3RFFZSktvWklodmNOQVFFTEJRQXdGVEVUTUJFR0ExVUUKQXhNS2EzVmlaWEp1WlhSbGN6QWVGdzB5TkRFd01qSXdOVEk1TkRaYUZ3MHpOREV3TWpBd05UTTBOR
+GxhTUNneApGekFWQmdOVkJBb1REbk41YzNSbGJUcHRZWE4wWlhKek1RMHdDd1lEVlFRREV3UjFjMlZ5TUlJQklqQU5CZ2txCmhraUc5dzBCQVFFRkFBT0NBUThBTUlJQkNnS0NBUUVBeFM5ckFESXlZLzd6elRUZDZXWTVTbS9zdHVMMmVrM0sKb3JlK3dsVjFZVVBCeUpMa1AxNXZSUVphUlFNV0xrNkZvZ21
+3bUZOY3dmT0FIWUV0OVV0V2JlS3FwSjd3N3UyRApDZ2luZmo5WExZQXVPWnlQblZ1eDh6djRIUXl3Vmx4a3laQnFSWnBwTldzREFPck5kcVFvNVgraWIxT0VHeDZFCnZQQWNvNGc4MHB5TXpveExmWDljWld2djFESzQ4L21hbGhiSXJQOFJiY1ViampLalJKM0puTGNheGlILzRwODEKYmdHVjY3VnhkeEQ4Y
+U1MeDJzQ0t6VVU4WURxQkh5Y2lrdWZlSU5TZFVPcy9rVi9TVm5NMVpadXg1TmUrNkZITQpoblZsOEFiaGpSbUVNN0lPYlpKcHFSRWttcVcwNGtpK29CN0RuQUhMM0Zza2lnTWRMZ3k0cndJREFRQUJvMVl3ClZEQU9CZ05WSFE4QkFmOEVCQU1DQmFBd0V3WURWUjBsQkF3d0NnWUlLd1lCQlFVSEF3SXdEQVl
+EVlIwVEFRSC8KQkFJd0FEQWZCZ05WSFNNRUdEQVdnQlNuakhFSktXdVRuS29SMFhkeFlHb0pEUWhJcERBTkJna3Foa2lHOXcwQgpBUXNGQUFPQ0FRRUFPaUlnNlpveWltYmNoL1o0WVhqVm1iVkl5TkFqZ1JIdkJhT3NXQW8vbExyeXhpTEpNNmVYClJ6RW9zbUZaQmFyMUdHQk80bEF4d1JSOFg2Mlp2UkJzS
+FowWEJOVXROSGlzS2JYWlhNc2g1TDVzaVF3dU1UbEwKeGQvQ1RQRTRRTzkzWW1lYjdVbmY2K0VoRzRzT3pGb01BQ3l5bjlqUit4M3VncUxUdC8xeVFiSCszbExTeVdndAptZ2JBMmFRaXhKMWpTVEFUY0hYM1g4OVJrNHprdzk4ckkzZTgrcHdDZVAraWJpaFFrMzBsVE5KZCtleTh5SVFvClhLdGJaR3J4cWR
+OUkhURXQvQkpTVUJPWndlQk82eEtteTcycjREU2JWTHVKeThuYVNkRVNkMWtWZXdiWDh2MmEKcDYrN2srMS9sZzV4bjRVUzVpU1VYSUdacXM1czZWdjR3Zz09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+    client-key-data: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcEFJQkFBS0NBUUVBeFM5ckFESXlZLzd6elRUZDZXWTVTbS9zdHVMMmVrM0tvcmUrd2xWMVlVUEJ5SkxrClAxNXZSUVphUlFNV0xrNkZvZ213bUZOY3dmT0FIWUV0OVV0V2JlS3FwSjd3N3UyRENnaW5majlYTFlBd
+U9aeVAKblZ1eDh6djRIUXl3Vmx4a3laQnFSWnBwTldzREFPck5kcVFvNVgraWIxT0VHeDZFdlBBY280ZzgwcHlNem94TApmWDljWld2djFESzQ4L21hbGhiSXJQOFJiY1ViampLalJKM0puTGNheGlILzRwODFiZ0dWNjdWeGR4RDhhTUx4CjJzQ0t6VVU4WURxQkh5Y2lrdWZlSU5TZFVPcy9rVi9TVm5NMVp
+adXg1TmUrNkZITWhuVmw4QWJoalJtRU03SU8KYlpKcHFSRWttcVcwNGtpK29CN0RuQUhMM0Zza2lnTWRMZ3k0cndJREFRQUJBb0lCQUIvVks5ejRQWkpQRW1USwphQmpKMiszY2E4YUtsV2ZoTHhsZHVIbisrZGdkN0NiSkwvZmE4dk9kdHV6MU5wdDdLYStqQ05OT2dlYjl2RzBHCjhiaHIxU1FnTjVRajVKb
+HQxbjNFTCtYOXE4RTR0RDJ3dks2V292KzFhclNsMjhIVllKLzVwRzVnSXlQd2hxZWIKUUZncTREOU1mNWloVHU1aDJ1UDFqMm9IRUdxZmVzRGJERzExaFZRYWRjbno3Z1VKbllWZGdsWGZyN1hSSGRPSwpnaTVSMUtVUGh3dUdaZmRSN1lnQk54ckIyZzRUNWo5bnI1UlBwM0RtL1NRSWp2N1czWG5nbk14cVJ
+ucFg0WTZDClpwZTVySGJGWG9LVzVhNmNMVHlLYUVoSFRFRGk5Nmx2ZXM0Y0JuYzRseU5BOHM0QmNYcWROTW5XL3B3ckxBNjIKa0VnRWgwRUNnWUVBNENiNk0xOEt6N2pxTWs4M1d4YjhEczluaXNFVHBjT1pzSTdRZXNkSmFaMFlKdDZEYi83SwpKTzlTY29rQ3FrQ252bFNrdkJzbERaUzJGbjN6aWpUZFk4R
+VhTQ3d3NWJ3b2hTeGU3azBoOW1ReU9maGcyRy93CnVtRWttOVRtZXR5azc5QXpqdmFBOEhLRW9HMnVidHdKOHZsVUlNc0lFeUY3M0lUYUVNbUd3d2NDZ1lFQTRUT1QKdFdKeTd2Z3k2UkEzUnpFYlMxZE9qenl2OUpUQ2dwajVyeGx5SFF5V0M3eTFSVktudjNBWmh5eElBTTFadjdGQQpsL3laOGxHcU11Qit
+jbFVZWUc5VkhrMkRCN1NMMmthMTJzcE5rRXVhVUloYWNFSHd0S0g4TGFKWTZWaXdZVjlhClpBaytkeG9kMVJmRWdmWGg1Sjc3MFdUR0J0dFphNWVJNUNueXF4a0NnWUVBbE4ydUMxSVN0eFFqRGRpSWRnbVUKeXkwNW9mQks0U3MvdGYrVFBBZUFuUkRGQ29ON0hYVkV3VFRrTjhjQXF4dVhqQk5nK01DNllnT
+2l6dHRGVkVONQp5UmRqSS82ZFZ1WVlyeUZoeHJnWlZ5OENJSGZ4c2F6ZVhwbkhtMnJReTBZZ2tGaGc5WkNHMzZuZXBVRlN1TE9RCk0vc2N3VTYyQlNhV3dVVEdJcUlFeXg4Q2dZRUF2R201aUFVUkljdzRVL1FFTzZUak1CcWdtSWh1c2xPUGxWSkYKZS9EdkgweTdjS0Iyak1SRm9vNDRYWFozMjJ2elRjVVB
+4TmxMTjRpSnZEMUVyWVZ5ZXFSSzg2cG9HUmM5OXVZNApHaEF0NnE3R01lQ1N3ZDc1Y3pjZlZGTEN6cUFzR1p0OGRidWlMbVdFVmhlbmlnL2M2YmoxK0UrMnVsL2twWGJICnloVXFlV2tDZ1lBVFFTaGpjdTJKbUx3UTh4WFlwUktWbzFxNXV0U0VwbHRKMmZYK1dESmhzSFlwR0IvWFVoZzAKUW1XVVVyL3N0W
+kRUV3YyQVBCZHJFZHlJK3IydzdoSHM3dkh1QUJXanBUS3UvTmNJQlluOXNHZFBpRVJ5UFF2SApoYWRZelMzT05PN3JCRFNxeGNoMC9YMEg5cjk2NStZT01ZYk16eE9ZaFJ3eHNyemVtQ3EzNEE9PQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
