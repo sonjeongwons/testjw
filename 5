@@ -194,61 +194,71 @@ func (r *ScfWatcherReconciler) checkAndNotifyNatIP(ctx context.Context, scfWatch
 
 
 
-func (r *ScfWatcherReconciler) checkAndNotifyNATIP(
-	ctx context.Context,
-	namespace string,
-	configMapName string,
-) error {
+func (r *ScfWatcherReconciler) checkAndNotifyNatIP(ctx context.Context, scfWatcher *modulev1.ScfWatcher) error {
 	logger := log.FromContext(ctx)
 
+	// 해당 function에 대한 ConfigMap 조회
 	var configMap corev1.ConfigMap
-	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &configMap); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Namespace: "scf-watcher", Name: scfWatcher.Spec.KsvcName}, &configMap); err != nil {
 		return fmt.Errorf("failed to get ConfigMap: %w", err)
 	}
 
-	// 1. FUNCTION_URL_ENABLED 확인
-	if configMap.Data["FUNCTION_URL_ENABLED"] != "True" {
+	// FUNCTION_URL_ENABLED 값이 True일 때에만 NAT IP 로직 실행
+	if enabled, ok := configMap.Data["FUNCTION_URL_ENABLED"]; !ok || enabled != "True" {
 		logger.Info("FUNCTION_URL_ENABLED is not True. Skipping NAT IP check.")
 		return nil
 	}
 
+	// ConfigMap 필수 값 조회
 	lbName := configMap.Data["LB_SERVICE_NAME"]
 	lbNamespace := configMap.Data["LB_SERVICE_NAMESPACE"]
 	functionKey := configMap.Data["FUNCTION_KEY"]
 
-	for attempt := 1; attempt <= NatIPCheckMaxRetry; attempt++ {
-		var svc corev1.Service
+	var svc corev1.Service
+	var foundNatIP string
+	var retryCount int
+
+	for retryCount = 1; retryCount <= NatIPCheckMaxRetry; retryCount++ {
 		if err := r.Get(ctx, client.ObjectKey{Namespace: lbNamespace, Name: lbName}, &svc); err != nil {
-			logger.Error(err, "Failed to get LB Service", "attempt", attempt)
+			logger.Error(err, "LoadBalancer Service 조회 실패", "retry", retryCount)
 			time.Sleep(NatIPCheckInterval)
 			continue
 		}
 
-		ingresses := svc.Status.LoadBalancer.Ingress
-		if len(ingresses) >= 2 && ingresses[1].IP != "" {
-			logger.Info("Found NAT IP", "NAT IP", ingresses[1].IP)
-
-			// Manager에 API 알림
-			url := NotifyManagerDomainEndpoint + functionKey
-			req, err := http.NewRequest(http.MethodPut, url, nil)
-			if err != nil {
-				return fmt.Errorf("failed to create request: %w", err)
-			}
-			req.Header.Set("Content-Type", "application/json")
-
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil || resp.StatusCode != http.StatusOK {
-				return fmt.Errorf("failed to notify manager: %v", err)
-			}
-			logger.Info("Successfully notified Manager about NAT IP assignment.")
-			return nil
+		if len(svc.Status.LoadBalancer.Ingress) >= 2 && svc.Status.LoadBalancer.Ingress[1].IP != "" {
+			foundNatIP = svc.Status.LoadBalancer.Ingress[1].IP
+			break
 		}
 
-		logger.Info("NAT IP not found. Retrying...", "attempt", attempt)
+		logger.Info("NAT IP 미할당 상태, 재시도 대기", "retry", retryCount)
 		time.Sleep(NatIPCheckInterval)
 	}
 
-	logger.Info("NAT IP was not assigned after all retries.")
+	// NAT IP 상태를 CR Status에 업데이트
+	scfWatcher.Status.NatIPAllocated = foundNatIP != ""
+	scfWatcher.Status.NatIPValue = foundNatIP
+	scfWatcher.Status.NatIPLastCheckedTime = metav1.Now()
+	scfWatcher.Status.NatIPCheckRetryCount = retryCount
+
+	if updateErr := r.Status().Update(ctx, scfWatcher); updateErr != nil {
+		logger.Error(updateErr, "ScfWatcher Status 업데이트 실패")
+	}
+
+	// NAT IP가 발견되었을 경우, Manager 알림
+	if foundNatIP != "" {
+		url := NotifyManagerDomainEndpoint + functionKey
+		req, err := http.NewRequest(http.MethodPut, url, nil)
+		if err != nil {
+			return fmt.Errorf("요청 생성 실패: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("Manager NAT IP 알림 실패: %v", err)
+		}
+		logger.Info("Manager 알림 성공", "NAT IP", foundNatIP)
+	}
+
 	return nil
 }
 
