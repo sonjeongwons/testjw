@@ -1,203 +1,188 @@
-package v1
+/*
+Copyright 2024.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+package controller
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
+	modulev1 "scf.scp.samsungsds.com/crd/api/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-// ScfWatcherSpec defines the desired state of ScfWatcher
-type ScfWatcherSpec struct {
-	KsvcName      string `json:"ksvcName,omitempty"`
-	KsvcNamespace string `json:"ksvcNamespace,omitempty"`
+// ScfWatcherReconciler reconciles a ScfWatcher object
+type ScfWatcherReconciler struct {
+	client.Client
+	Scheme *runtime.Scheme
 }
 
-// ScfWatcherStatus defines the observed state of ScfWatcher
-type ScfWatcherStatus struct {
-	LastKsvcStatus                   string      `json:"lastKsvcStatus,omitempty"`
-	LastReportedTime                metav1.Time `json:"lastReportedTime,omitempty"`
-	LoadBalancerEndpointDnsConnected string      `json:"loadBalancerEndpointDnsConnected,omitempty"`
-	DnsLookupRetryCount             int         `json:"dnsLookupRetryCount,omitempty"`
-
-	NatIPAllocated       bool        `json:"natIpAllocated,omitempty"`
-	NatIPValue           string      `json:"natIpValue,omitempty"`
-	NatIPLastCheckedTime metav1.Time `json:"natIpLastCheckedTime,omitempty"`
-	NatIPCheckRetryCount int         `json:"natIpCheckRetryCount,omitempty"`
+// Function Status JSON Data
+type FunctionStatusData struct {
+	functionStatus string
 }
-
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-
-type ScfWatcher struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	Spec   ScfWatcherSpec   `json:"spec,omitempty"`
-	Status ScfWatcherStatus `json:"status,omitempty"`
-}
-
-//+kubebuilder:object:root=true
-
-type ScfWatcherList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []ScfWatcher `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&ScfWatcher{}, &ScfWatcherList{})
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 const (
-	NatIPCheckMaxRetry           = 3
-	NatIPCheckInterval           = 15 * time.Second
-	NotifyManagerDomainEndpoint  = "http://cp-scf-manager.scf-manager-cp:8080/api/v2/function/domain/"
+	NatIPCheckMaxRetry          = 3
+	NatIPCheckInterval          = 15 * time.Second
+	NotifyManagerDomainEndpoint = "http://cp-scf-manager.scf-manager-cp:8080/api/v2/function/domain/"
 )
 
+// +kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=serving.knative.dev,resources=services,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
+// Reconcile is part of the main kubernetes reconciliation loop which aims to
+// move the current state of the cluster closer to the desired state.
+// TODO(user): Modify the Reconcile function to compare the state specified by
+// the ScfWatcher object against the actual cluster state, and then
+// perform operations to make the cluster state reflect the state specified by
+// the user.
+//
+// For more details, check Reconcile and its Result here:
+// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.18.4/pkg/reconcile
 func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconcile 시작")
-
+	// TODO(user): your logic here
+	// 1. ScfWatcher CR 객체 가져오기
 	var scfWatcher modulev1.ScfWatcher
 	if err := r.Get(ctx, req.NamespacedName, &scfWatcher); err != nil {
 		logger.Error(err, "Unable to fetch ScfWatcher")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
+	// 2. 관련된 Knative Service 가져오기
 	var ksvc servingv1.Service
 	if err := r.Get(ctx, client.ObjectKey{Namespace: scfWatcher.Spec.KsvcNamespace, Name: scfWatcher.Spec.KsvcName}, &ksvc); err != nil {
 		logger.Error(err, "Unable to fetch Knative Service")
 		return ctrl.Result{}, err
 	}
-
+	// 3. 현재 상태와 이전 상태를 비교합니다.
 	currentStatus := getStatusFromKsvc(ksvc)
-	if scfWatcher.Status.LastKsvcStatus != currentStatus {
-		// 생략된 기존 상태 처리 및 전송 로직...
+	logger.Info("기존상태 : " + scfWatcher.Status.LastKsvcStatus)
+	logger.Info("신규상태" + currentStatus)
+	if scfWatcher.Status.LastKsvcStatus == currentStatus {
+		// 상태에 변화가 없으면 Reconcile을 반복하지 않음
+		return ctrl.Result{}, nil
+	}
+	logger.Info("상태비교 끝")
+	// 4. Watcher ConfigMap 정보 불러오기
+	//var configMap corev1.ConfigMap
+	//if err := r.Get(ctx, client.ObjectKey{Namespace: "scf-watcher", Name: "watcher-config"}, &configMap); err != nil {
+	//logger.Error(err, "Unable to fetch Watcher ConfigMap")
+	//return ctrl.Result{}, err
+	//}
+	logger.Info("scf-manager 엔드포인트 불러오기")
+	// 5. Watcher ConfigMap으로 부터 MANAGER_ENDPOINT 정보 불러오기
+	//managerEndpoint := configMap.Data["MANAGER_ENDPOINT"]
+	managerEndpoint := "http://cp-scf-manager.scf-manager-cp:8080/api/v2/function/status/"
 
-		scfWatcher.Status.LastKsvcStatus = currentStatus
-		scfWatcher.Status.LastReportedTime = metav1.Now()
-		if err := r.Client.Status().Update(ctx, &scfWatcher); err != nil {
-			logger.Error(err, "Unable to update ScfWatcher status")
-			return ctrl.Result{}, err
-		}
+	// 6. ScfWatcher의 상태를 업데이트
+	scfWatcher.Status.LastKsvcStatus = currentStatus
+	scfWatcher.Status.LastReportedTime = metav1.Now()
+	logger.Info("ScfWatcher CR Status 업데이트 완료")
+	logger.Info("ScfWatcher CR Status 업데이트 값 : " + currentStatus)
+	if err := r.Client.Status().Update(ctx, &scfWatcher); err != nil {
+		logger.Error(err, "Unable to update ScfWatcher status")
+		return ctrl.Result{}, err
 	}
 
 	// NAT IP 확인 로직 수행
-	err := r.checkAndNotifyNatIP(ctx, &scfWatcher)
+	err := r.checkAndNotifyNATIP(ctx, &scfWatcher)
 	if err != nil {
 		logger.Error(err, "NAT IP 확인 및 알림 실패")
 	}
 
+	// scf-manager에게 상태 업데이트 전송
+	returnStatus := "DEPLOYING"
+	if currentStatus == "True" {
+		returnStatus = "READY"
+	} else if currentStatus == "False" {
+		returnStatus = "NOT_READY"
+	}
+	statusMessage := map[string]string{"functionStatus": returnStatus}
+	if err := sendStatusToManager(managerEndpoint, statusMessage, scfWatcher.Spec.KsvcName); err != nil {
+		logger.Error(err, "Failed to send status update to manager")
+		return ctrl.Result{}, err
+	}
+	logger.Info("ScfWatcher -> Manager 상태전송 완료")
+	logger.Info("ScfWatcher -> Manager 상태전송 값 : " + returnStatus)
+
 	return ctrl.Result{}, nil
 }
 
-func (r *ScfWatcherReconciler) checkAndNotifyNatIP(ctx context.Context, scfWatcher *modulev1.ScfWatcher) error {
-	logger := log.FromContext(ctx)
+// getStatusFromKsvc 함수는 Knative 서비스의 현재 상태를 확인
+func getStatusFromKsvc(ksvc servingv1.Service) string {
+	for _, condition := range ksvc.Status.Conditions {
+		if condition.Type == "Ready" {
+			if condition.Status == corev1.ConditionTrue {
+				return "True"
+			} else if condition.Status == corev1.ConditionFalse {
+				return "False"
+			} else {
+				return "Unknown"
+			}
+		}
+	}
+	return "Unknown"
+}
 
-	var configMap corev1.ConfigMap
-	if err := r.Get(ctx, client.ObjectKey{Namespace: "scf-watcher", Name: scfWatcher.Spec.KsvcName}, &configMap); err != nil {
+// sendStatusToManager 함수는 상태를 Manager endpoint로 전송
+func sendStatusToManager(endpoint string, status map[string]string, ksvcName string) error {
+	statusJSON, err := json.Marshal(status)
+	if err != nil {
 		return err
 	}
-
-	if configMap.Data["FUNCTION_URL_ENABLED"] != "True" {
-		logger.Info("FUNCTION_URL_ENABLED이 False이므로 NAT IP 확인 생략")
-		return nil
+	//resp, err := http.Post(endpoint+":"+ksvcName, "application/json", bytes.NewBuffer(statusJSON))
+	req, err := http.NewRequest(http.MethodPut, endpoint+ksvcName, bytes.NewBuffer(statusJSON))
+	log.Log.Info("Here is endpoint : " + endpoint + ksvcName)
+	//log.Log.Info("Here is JsonBody : "+statusJSON)
+	if err != nil {
+		return err
 	}
-
-	lbName := configMap.Data["LB_SERVICE_NAME"]
-	lbNamespace := configMap.Data["LB_SERVICE_NAMESPACE"]
-	functionKey := configMap.Data["FUNCTION_KEY"]
-
-	var svc corev1.Service
-	var foundNatIP string
-	var retryCount int
-
-	for retryCount = 1; retryCount <= NatIPCheckMaxRetry; retryCount++ {
-		if err := r.Get(ctx, client.ObjectKey{Namespace: lbNamespace, Name: lbName}, &svc); err != nil {
-			logger.Error(err, "LoadBalancer Service 조회 실패", "retry", retryCount)
-			time.Sleep(NatIPCheckInterval)
-			continue
-		}
-
-		if len(svc.Status.LoadBalancer.Ingress) >= 2 && svc.Status.LoadBalancer.Ingress[1].IP != "" {
-			foundNatIP = svc.Status.LoadBalancer.Ingress[1].IP
-			break
-		}
-
-		logger.Info("NAT IP 미할당 상태, 재시도 대기", "retry", retryCount)
-		time.Sleep(NatIPCheckInterval)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
 	}
-
-	// Status 업데이트
-	scfWatcher.Status.NatIPAllocated = foundNatIP != ""
-	scfWatcher.Status.NatIPValue = foundNatIP
-	scfWatcher.Status.NatIPLastCheckedTime = metav1.Now()
-	scfWatcher.Status.NatIPCheckRetryCount = retryCount
-
-	if updateErr := r.Status().Update(ctx, scfWatcher); updateErr != nil {
-		logger.Error(updateErr, "ScfWatcher Status 업데이트 실패")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to report status: %v", resp.Status)
 	}
-
-	// NAT IP 할당되어 있으면 Manager에 알림
-	if foundNatIP != "" {
-		logger.Info("할당된 NAT IP 확인됨, Manager에 알림 수행", "ip", foundNatIP)
-		url := NotifyManagerDomainEndpoint + functionKey
-		req, err := http.NewRequest(http.MethodPut, url, nil)
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil || resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("Manager에 NAT IP 알림 실패: %v", err)
-		}
-		logger.Info("Manager 알림 성공", "url", url)
-	}
-
 	return nil
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-func (r *ScfWatcherReconciler) checkAndNotifyNatIP(ctx context.Context, scfWatcher *modulev1.ScfWatcher) error {
+func (r *ScfWatcherReconciler) checkAndNotifyNATIP(
+	ctx context.Context, scfWatcher *modulev1.ScfWatcher,
+) error {
 	logger := log.FromContext(ctx)
 
-	// 해당 function에 대한 ConfigMap 조회
 	var configMap corev1.ConfigMap
 	if err := r.Get(ctx, client.ObjectKey{Namespace: "scf-watcher", Name: scfWatcher.Spec.KsvcName}, &configMap); err != nil {
 		return fmt.Errorf("failed to get ConfigMap: %w", err)
@@ -205,11 +190,20 @@ func (r *ScfWatcherReconciler) checkAndNotifyNatIP(ctx context.Context, scfWatch
 
 	// FUNCTION_URL_ENABLED 값이 True일 때에만 NAT IP 로직 실행
 	if enabled, ok := configMap.Data["FUNCTION_URL_ENABLED"]; !ok || enabled != "True" {
+
+		// NAT IP 초기화를 CR Status에 업데이트
+		scfWatcher.Status.NatIPAllocated = false
+		scfWatcher.Status.NatIPValue = ""
+		scfWatcher.Status.NatIPLastCheckedTime = metav1.Now()
+		scfWatcher.Status.NatIPCheckRetryCount = 0
+
+		if updateErr := r.Status().Update(ctx, scfWatcher); updateErr != nil {
+			logger.Error(updateErr, "ScfWatcher Status 업데이트 실패")
+		}
 		logger.Info("FUNCTION_URL_ENABLED is not True. Skipping NAT IP check.")
 		return nil
 	}
 
-	// ConfigMap 필수 값 조회
 	lbName := configMap.Data["LB_SERVICE_NAME"]
 	lbNamespace := configMap.Data["LB_SERVICE_NAMESPACE"]
 	functionKey := configMap.Data["FUNCTION_KEY"]
@@ -235,7 +229,7 @@ func (r *ScfWatcherReconciler) checkAndNotifyNatIP(ctx context.Context, scfWatch
 	}
 
 	// NAT IP 상태를 CR Status에 업데이트
-	scfWatcher.Status.NatIPAllocated = foundNatIP != ""
+	scfWatcher.Status.NatIPAllocated = true
 	scfWatcher.Status.NatIPValue = foundNatIP
 	scfWatcher.Status.NatIPLastCheckedTime = metav1.Now()
 	scfWatcher.Status.NatIPCheckRetryCount = retryCount
@@ -244,6 +238,7 @@ func (r *ScfWatcherReconciler) checkAndNotifyNatIP(ctx context.Context, scfWatch
 		logger.Error(updateErr, "ScfWatcher Status 업데이트 실패")
 	}
 
+	
 	// NAT IP가 발견되었을 경우, Manager 알림
 	if foundNatIP != "" {
 		url := NotifyManagerDomainEndpoint + functionKey
@@ -259,6 +254,33 @@ func (r *ScfWatcherReconciler) checkAndNotifyNatIP(ctx context.Context, scfWatch
 		logger.Info("Manager 알림 성공", "NAT IP", foundNatIP)
 	}
 
+	logger.Info("NAT IP was not assigned after all retries.")
 	return nil
 }
 
+// SetupWithManager sets up the controller with the Manager.
+func (r *ScfWatcherReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&modulev1.ScfWatcher{}).                                                                       // ScfWatcher 리소스를 관찰
+		Watches(&servingv1.Service{}, handler.EnqueueRequestsFromMapFunc(r.findObjectsForKnativeService)). // Knative Service 리소스를 관찰
+		Complete(r)
+}
+func (r *ScfWatcherReconciler) findObjectsForKnativeService(ctx context.Context, obj client.Object) []reconcile.Request {
+	scfWatchers := &modulev1.ScfWatcherList{}
+	err := r.List(ctx, scfWatchers)
+	if err != nil {
+		return []reconcile.Request{}
+	}
+	var requests []reconcile.Request
+	for _, scfWatcher := range scfWatchers.Items {
+		if scfWatcher.Spec.KsvcName == obj.GetName() && scfWatcher.Spec.KsvcNamespace == obj.GetNamespace() {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      scfWatcher.Name,
+					Namespace: scfWatcher.Namespace,
+				},
+			})
+		}
+	}
+	return requests
+}
