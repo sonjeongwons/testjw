@@ -1,37 +1,174 @@
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+package v1
 
-public boolean validateToken(String userToken) {
-    String url = iamApiEndpoint;
-    String adminToken = getCvcAdminToken();
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
-    HttpHeaders headers = new HttpHeaders();
-    headers.set("X-Auth-Token", adminToken);
-    headers.set("X-Subject-Token", userToken);
+// ScfWatcherSpec defines the desired state of ScfWatcher
+type ScfWatcherSpec struct {
+	KsvcName      string `json:"ksvcName,omitempty"`
+	KsvcNamespace string `json:"ksvcNamespace,omitempty"`
+}
 
-    HttpEntity<Void> request = new HttpEntity<>(headers);
+// ScfWatcherStatus defines the observed state of ScfWatcher
+type ScfWatcherStatus struct {
+	LastKsvcStatus                   string      `json:"lastKsvcStatus,omitempty"`
+	LastReportedTime                metav1.Time `json:"lastReportedTime,omitempty"`
+	LoadBalancerEndpointDnsConnected string      `json:"loadBalancerEndpointDnsConnected,omitempty"`
+	DnsLookupRetryCount             int         `json:"dnsLookupRetryCount,omitempty"`
 
-    try {
-        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
-        
-        if (!response.getStatusCode().is2xxSuccessful()) {
-            return false;
-        }
+	NatIPAllocated       bool        `json:"natIpAllocated,omitempty"`
+	NatIPValue           string      `json:"natIpValue,omitempty"`
+	NatIPLastCheckedTime metav1.Time `json:"natIpLastCheckedTime,omitempty"`
+	NatIPCheckRetryCount int         `json:"natIpCheckRetryCount,omitempty"`
+}
 
-        String responseBody = response.getBody();
-        ObjectMapper objectMapper = new ObjectMapper();
-        JsonNode root = objectMapper.readTree(responseBody);
-        JsonNode roles = root.path("token").path("roles");
+//+kubebuilder:object:root=true
+//+kubebuilder:subresource:status
 
-        for (JsonNode role : roles) {
-            String roleName = role.path("name").asText();
-            if ("admin".equalsIgnoreCase(roleName)) {
-                return true;
-            }
-        }
+type ScfWatcher struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-        return false;
-    } catch (Exception e) {
-        return false;
-    }
+	Spec   ScfWatcherSpec   `json:"spec,omitempty"`
+	Status ScfWatcherStatus `json:"status,omitempty"`
+}
+
+//+kubebuilder:object:root=true
+
+type ScfWatcherList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []ScfWatcher `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&ScfWatcher{}, &ScfWatcherList{})
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const (
+	NatIPCheckMaxRetry           = 3
+	NatIPCheckInterval           = 15 * time.Second
+	NotifyManagerDomainEndpoint  = "http://cp-scf-manager.scf-manager-cp:8080/api/v2/function/domain/"
+)
+
+func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconcile 시작")
+
+	var scfWatcher modulev1.ScfWatcher
+	if err := r.Get(ctx, req.NamespacedName, &scfWatcher); err != nil {
+		logger.Error(err, "Unable to fetch ScfWatcher")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	var ksvc servingv1.Service
+	if err := r.Get(ctx, client.ObjectKey{Namespace: scfWatcher.Spec.KsvcNamespace, Name: scfWatcher.Spec.KsvcName}, &ksvc); err != nil {
+		logger.Error(err, "Unable to fetch Knative Service")
+		return ctrl.Result{}, err
+	}
+
+	currentStatus := getStatusFromKsvc(ksvc)
+	if scfWatcher.Status.LastKsvcStatus != currentStatus {
+		// 생략된 기존 상태 처리 및 전송 로직...
+
+		scfWatcher.Status.LastKsvcStatus = currentStatus
+		scfWatcher.Status.LastReportedTime = metav1.Now()
+		if err := r.Client.Status().Update(ctx, &scfWatcher); err != nil {
+			logger.Error(err, "Unable to update ScfWatcher status")
+			return ctrl.Result{}, err
+		}
+	}
+
+	// NAT IP 확인 로직 수행
+	err := r.checkAndNotifyNatIP(ctx, &scfWatcher)
+	if err != nil {
+		logger.Error(err, "NAT IP 확인 및 알림 실패")
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *ScfWatcherReconciler) checkAndNotifyNatIP(ctx context.Context, scfWatcher *modulev1.ScfWatcher) error {
+	logger := log.FromContext(ctx)
+
+	var configMap corev1.ConfigMap
+	if err := r.Get(ctx, client.ObjectKey{Namespace: "scf-watcher", Name: scfWatcher.Spec.KsvcName}, &configMap); err != nil {
+		return err
+	}
+
+	if configMap.Data["FUNCTION_URL_ENABLED"] != "True" {
+		logger.Info("FUNCTION_URL_ENABLED이 False이므로 NAT IP 확인 생략")
+		return nil
+	}
+
+	lbName := configMap.Data["LB_SERVICE_NAME"]
+	lbNamespace := configMap.Data["LB_SERVICE_NAMESPACE"]
+	functionKey := configMap.Data["FUNCTION_KEY"]
+
+	var svc corev1.Service
+	var foundNatIP string
+	var retryCount int
+
+	for retryCount = 1; retryCount <= NatIPCheckMaxRetry; retryCount++ {
+		if err := r.Get(ctx, client.ObjectKey{Namespace: lbNamespace, Name: lbName}, &svc); err != nil {
+			logger.Error(err, "LoadBalancer Service 조회 실패", "retry", retryCount)
+			time.Sleep(NatIPCheckInterval)
+			continue
+		}
+
+		if len(svc.Status.LoadBalancer.Ingress) >= 2 && svc.Status.LoadBalancer.Ingress[1].IP != "" {
+			foundNatIP = svc.Status.LoadBalancer.Ingress[1].IP
+			break
+		}
+
+		logger.Info("NAT IP 미할당 상태, 재시도 대기", "retry", retryCount)
+		time.Sleep(NatIPCheckInterval)
+	}
+
+	// Status 업데이트
+	scfWatcher.Status.NatIPAllocated = foundNatIP != ""
+	scfWatcher.Status.NatIPValue = foundNatIP
+	scfWatcher.Status.NatIPLastCheckedTime = metav1.Now()
+	scfWatcher.Status.NatIPCheckRetryCount = retryCount
+
+	if updateErr := r.Status().Update(ctx, scfWatcher); updateErr != nil {
+		logger.Error(updateErr, "ScfWatcher Status 업데이트 실패")
+	}
+
+	// NAT IP 할당되어 있으면 Manager에 알림
+	if foundNatIP != "" {
+		logger.Info("할당된 NAT IP 확인됨, Manager에 알림 수행", "ip", foundNatIP)
+		url := NotifyManagerDomainEndpoint + functionKey
+		req, err := http.NewRequest(http.MethodPut, url, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("Manager에 NAT IP 알림 실패: %v", err)
+		}
+		logger.Info("Manager 알림 성공", "url", url)
+	}
+
+	return nil
 }
