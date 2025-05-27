@@ -172,3 +172,83 @@ func (r *ScfWatcherReconciler) checkAndNotifyNatIP(ctx context.Context, scfWatch
 
 	return nil
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+func (r *ScfWatcherReconciler) checkAndNotifyNATIP(
+	ctx context.Context,
+	namespace string,
+	configMapName string,
+) error {
+	logger := log.FromContext(ctx)
+
+	var configMap corev1.ConfigMap
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &configMap); err != nil {
+		return fmt.Errorf("failed to get ConfigMap: %w", err)
+	}
+
+	// 1. FUNCTION_URL_ENABLED 확인
+	if configMap.Data["FUNCTION_URL_ENABLED"] != "True" {
+		logger.Info("FUNCTION_URL_ENABLED is not True. Skipping NAT IP check.")
+		return nil
+	}
+
+	lbName := configMap.Data["LB_SERVICE_NAME"]
+	lbNamespace := configMap.Data["LB_SERVICE_NAMESPACE"]
+	functionKey := configMap.Data["FUNCTION_KEY"]
+
+	for attempt := 1; attempt <= NatIPCheckMaxRetry; attempt++ {
+		var svc corev1.Service
+		if err := r.Get(ctx, client.ObjectKey{Namespace: lbNamespace, Name: lbName}, &svc); err != nil {
+			logger.Error(err, "Failed to get LB Service", "attempt", attempt)
+			time.Sleep(NatIPCheckInterval)
+			continue
+		}
+
+		ingresses := svc.Status.LoadBalancer.Ingress
+		if len(ingresses) >= 2 && ingresses[1].IP != "" {
+			logger.Info("Found NAT IP", "NAT IP", ingresses[1].IP)
+
+			// Manager에 API 알림
+			url := NotifyManagerDomainEndpoint + functionKey
+			req, err := http.NewRequest(http.MethodPut, url, nil)
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil || resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("failed to notify manager: %v", err)
+			}
+			logger.Info("Successfully notified Manager about NAT IP assignment.")
+			return nil
+		}
+
+		logger.Info("NAT IP not found. Retrying...", "attempt", attempt)
+		time.Sleep(NatIPCheckInterval)
+	}
+
+	logger.Info("NAT IP was not assigned after all retries.")
+	return nil
+}
+
