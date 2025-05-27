@@ -1,32 +1,186 @@
-import requests
-import json
+아래 ScfWatcher CRD에 NatIpCheckRetryCount를 넣어 NatIP 체크하는 재시도 회수를 추적하는 것을 추가하고, NatIPNotified를 넣어 NAT IP 할당이 확인되었는지 아닌지에 대해 넣고싶어.
+그리고 또한 ConfigMap에는 NAT_IP_CHECK_MAX_RETRY_COUNT: "3", NAT_IP_CHECK_INTERVAL_SECOND: "20"
+와 같은 항목을 추가하여 최대 재시도 회수 및재시도 간격 초시간을 설정하여 실제로 코드에서 NAT IP가 확인안될 시 로직을 수행하는 로직을 추가하고싶어. reconcile이 아니라 NAT IP만 다시 체크하게 해줘
 
-API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMGI0NmFiMi05Yzk4LTQyYTEtYmU4Ni01MDNiZWE3YjIzNmQiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzQ3OTc0OTk1LCJleHAiOjE3NTA1NjQ4MDB9.nI662CbPtBujYD8ifHRAPflxz5R_z7rTxSkow976_tE"
-WORKFLOW_ID = "I05eXYgiwBt6FAvz"
-DETAIL_URL = f"https://n8n.modelgrade.net/api/v1/workflows/{WORKFLOW_ID}"
 
-headers = {
-    "X-N8N-API-KEY": API_KEY,
-    "accept": "application/json"
+## scfwatcher_types.go
+
+/*
+Copyright 2024.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package v1
+
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// ScfWatcherSpec defines the desired state of ScfWatcher
+type ScfWatcherSpec struct {
+	// ksvcName은 감시할 Knative 서비스의 이름
+	// KsvcName is the name of the Knative Service to watch
+	KsvcName string `json:"ksvcName,omitempty"`
+
+	// ksvcNamespace는 해당 Knative 서비스가 속한 네임스페이스
+	// KsvcNamespace is the namespace of the Knative Service
+	KsvcNamespace string `json:"ksvcNamespace,omitempty"`
 }
 
-response = requests.get(DETAIL_URL, headers=headers)
+// ScfWatcherStatus defines the observed state of ScfWatcher
+type ScfWatcherStatus struct {
+	// lastKsvcStatus는 마지막으로 감지된 Knative 서비스의 상태
+	// KsvcStatus represents the current status of the watched Knative Service
+	LastKsvcStatus string `json:"lastKsvcStatus,omitempty"`
 
-if response.status_code == 200:
-    workflow = response.json()
+	// lastReportedTime은 마지막으로 상태가 보고된 시간
+	// LastUpdated is the timestamp of the last status update
+	LastReportedTime metav1.Time `json:"lastReportedTime,omitempty"`
 
-    print(f"\n✅ Workflow: {workflow['name']} (ID: {workflow['id']})")
-    print("📦 Tags:", workflow.get('tags', []))
-    print("📅 Created:", workflow.get('createdAt'))
-    print("📝 Updated:", workflow.get('updatedAt'))
+	// 추가: LB 엔드포인트 DNS통신 연결 성공 여부 (Success, Fail)
+	LoadBalancerEndpointDnsConnectivity string `json:"loadBalancerEndpointDnsConnectivity,omitempty"`
 
-    print("\n📌 Nodes:")
-    for node in workflow.get("nodes", []):
-        print(f" - {node['name']} ({node['type']})")
+	// 추가: DNS Lookup 재시도 횟수 추적
+	DnsLookupRetryCount int `json:"dnsLookupRetryCount,omitempty"`
+}
 
-    print("\n🧾 Full Workflow JSON:")
-    print(json.dumps(workflow, indent=2))
+//+kubebuilder:object:root=true
+//+kubebuilder:subresource:status
 
-else:
-    print("❌ Error:", response.status_code)
-    print(response.text)
+// ScfWatcher is the Schema for the scfwatchers API
+type ScfWatcher struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   ScfWatcherSpec   `json:"spec,omitempty"`
+	Status ScfWatcherStatus `json:"status,omitempty"`
+}
+
+//+kubebuilder:object:root=true
+
+// ScfWatcherList contains a list of ScfWatcher
+type ScfWatcherList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []ScfWatcher `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&ScfWatcher{}, &ScfWatcherList{})
+}
+
+
+
+
+
+
+## CRD
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.1
+  name: scfwatchers.module.scf.scp.samsungsds.com
+spec:
+  group: module.scf.scp.samsungsds.com
+  names:
+    kind: ScfWatcher
+    listKind: ScfWatcherList
+    plural: scfwatchers
+    singular: scfwatcher
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        description: ScfWatcher is the Schema for the scfwatchers API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ScfWatcherSpec defines the desired state of ScfWatcher
+            properties:
+              ksvcName:
+                description: |-
+                  ksvcName은 감시할 Knative 서비스의 이름
+                  KsvcName is the name of the Knative Service to watch
+                type: string
+              ksvcNamespace:
+                description: |-
+                  ksvcNamespace는 해당 Knative 서비스가 속한 네임스페이스
+                  KsvcNamespace is the namespace of the Knative Service
+                type: string
+            type: object
+          status:
+            description: ScfWatcherStatus defines the observed state of ScfWatcher
+            properties:
+              dnsLookupRetryCount:
+                description: '추가: DNS Lookup 재시도 횟수 추적'
+                type: integer
+              lastKsvcStatus:
+                description: |-
+                  lastKsvcStatus는 마지막으로 감지된 Knative 서비스의 상태
+                  KsvcStatus represents the current status of the watched Knative Service
+                type: string
+              lastReportedTime:
+                description: |-
+                  lastReportedTime은 마지막으로 상태가 보고된 시간
+                  LastUpdated is the timestamp of the last status update
+                format: date-time
+                type: string
+              loadBalancerEndpointDnsConnectivity:
+                description: '추가: LB 엔드포인트 DNS통신 연결 성공 여부 (Success, Fail)'
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+
+
+
+
+
+## ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: <함수별 Knative명>
+  namespace: scf-watcher
+data:
+  FUNCTION_KEY: "dhfjrghhgsdfgasdfgasdfasdfasdfasdfasdf"
+  FUNCTION_URL_ENABLED: "False"
+  FUNCTION_URL_ENDPOINT: "function.example.com"
+  DNS_LOOKUP_MAX_RETRY_COUNT: "5"
+  DNS_LOOKUP_INTERVAL_SECOND: "60"
+  LB_SERVICE_NAME: "LB서비스명"
+  LB_SERVICE_NAMESPACE: "LB서비스네임스페이스"
