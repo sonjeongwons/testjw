@@ -1,3 +1,7 @@
+아래와 같이 k8s operator 코드를 작성했어. 맨 밑에는 이 operator가 concile마다 불러올 ConfigMap정보를 기재할게. 
+내가 하고싶어하는것은 이 다음 채팅에 자세히 얘기할게 아래 코드들을 자세히 숙지해봐.
+
+
 /*
 Copyright 2024.
 
@@ -125,31 +129,37 @@ func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, fmt.Errorf("FUNCTION_URL_ENABLED not found in ConfigMap")
 	}
 
-	// 현재 상태와 이전 상태를 비교
-	if scfWatcher.Status.LastKsvcStatus == currentStatus && scfWatcher.Status.LoadBalancerEndpointDnsConnectivity == StatusSuccess {
-		// 상태에 변화가 없으면 Reconcile을 반복하지 않음
-		logger.Info("상태에 변화가 없음. 상태비교 끝")
-		return ctrl.Result{}, nil
-	}
-
-	if scfWatcher.Status.LastKsvcStatus != currentStatus {
-
-		// ksvc 상태 관련 ScfWatcher의 상태를 업데이트
-		scfWatcher.Status.LastKsvcStatus = currentStatus
-		scfWatcher.Status.LastReportedTime = metav1.Now()
-		if err := r.Client.Status().Update(ctx, &scfWatcher); err != nil {
-			logger.Error(err, "Unable to update ScfWatcher status")
-			return ctrl.Result{}, err
+	if functionUrlEnabled == StatusTrue {
+		// 현재 상태와 이전 상태를 비교
+		if scfWatcher.Status.LastKsvcStatus == currentStatus && scfWatcher.Status.LoadBalancerEndpointDnsConnectivity == StatusSuccess {
+			// 상태에 변화가 없으면 Reconcile을 반복하지 않음
+			logger.Info("상태에 변화가 없음. 상태비교 끝")
+			return ctrl.Result{}, nil
 		}
-		logger.Info("ScfWatcher CR Knative Status 업데이트 완료")
-		logger.Info("ScfWatcher CR Knative Status 업데이트 값 : ", "currentStatus", currentStatus)
-
-		// 상태에 변화있으면 재시도 횟수 초기화
-		scfWatcher.Status.DnsLookupRetryCount = 0
-		scfWatcher.Status.LoadBalancerEndpointDnsConnectivity = StatusFail
-		logger.Info("상태변화 있음. reconcile 재시도 초기화", "scfWatcher.Status.DnsLookupRetryCount", scfWatcher.Status.DnsLookupRetryCount, "scfWatcher.Status.LoadBalancerEndpointDnsConnectivity", scfWatcher.Status.LoadBalancerEndpointDnsConnectivity)
-		_ = r.Client.Status().Update(ctx, &scfWatcher)
+	} else {
+		// 현재 상태와 이전 상태를 비교
+		if scfWatcher.Status.LastKsvcStatus == currentStatus {
+			// 상태에 변화가 없으면 Reconcile을 반복하지 않음
+			logger.Info("상태에 변화가 없음. 상태비교 끝")
+			return ctrl.Result{}, nil
+		}
 	}
+
+	// ksvc 상태 관련 ScfWatcher의 상태를 업데이트
+	scfWatcher.Status.LastKsvcStatus = currentStatus
+	scfWatcher.Status.LastReportedTime = metav1.Now()
+	if err := r.Client.Status().Update(ctx, &scfWatcher); err != nil {
+		logger.Error(err, "Unable to update ScfWatcher status")
+		return ctrl.Result{}, err
+	}
+	logger.Info("ScfWatcher CR Knative Status 업데이트 완료")
+	logger.Info("ScfWatcher CR Knative Status 업데이트 값 : ", "currentStatus", currentStatus)
+
+	// 상태에 변화있으면 재시도 횟수 초기화
+	scfWatcher.Status.DnsLookupRetryCount = 0
+	scfWatcher.Status.LoadBalancerEndpointDnsConnectivity = StatusFail
+	_ = r.Client.Status().Update(ctx, &scfWatcher)
+	logger.Info("상태변화 있음. reconcile 재시도 초기화", "scfWatcher.Status.DnsLookupRetryCount", scfWatcher.Status.DnsLookupRetryCount, "scfWatcher.Status.LoadBalancerEndpointDnsConnectivity", scfWatcher.Status.LoadBalancerEndpointDnsConnectivity)
 
 	if functionUrlEnabled == StatusTrue {
 
@@ -178,7 +188,7 @@ func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					logger.Error(err, "Failed to send status update to manager")
 					return ctrl.Result{}, err
 				}
-				logger.Info("횟수 초과 상태전송", "returnStatus", StatusNotReady)
+				logger.Info("횟수 초과 실패 상태", "returnStatus", StatusNotReady)
 				return ctrl.Result{}, nil
 			}
 
@@ -191,14 +201,14 @@ func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 		// 정상 동작 시 재시도 횟수 초기화
 		// DNS연결 ScfWatcher의 상태를 업데이트
-		scfWatcher.Status.LoadBalancerEndpointDnsConnectivity = lbDnsConnectivity
+		scfWatcher.Status.LoadBalancerEndpointDnsConnectivity = StatusSuccess
 		scfWatcher.Status.DnsLookupRetryCount = 0
-		logger.Info("DNS정상 연결. reconcile 재시도 초기화", "scfWatcher.Status.DnsLookupRetryCount", scfWatcher.Status.DnsLookupRetryCount)
-		logger.Info("DNS 연결 여부 : ", "lbDnsConnectivity", lbDnsConnectivity)
 		if err := r.Client.Status().Update(ctx, &scfWatcher); err != nil {
 			logger.Error(err, "Unable to update ScfWatcher status")
 			return ctrl.Result{}, err
 		}
+		logger.Info("DNS정상 연결. reconcile 재시도 초기화", "scfWatcher.Status.DnsLookupRetryCount", scfWatcher.Status.DnsLookupRetryCount)
+		logger.Info("DNS 연결 여부 : ", "lbDnsConnectivity", lbDnsConnectivity)
 		logger.Info("ScfWatcher CR DNS Lookup Status 업데이트 완료")
 
 		if currentStatus == StatusTrue && lbDnsConnectivity == StatusSuccess {
@@ -216,7 +226,7 @@ func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	}
 
-	// 4. scf-manager에게 상태 업데이트 전송
+	// scf-manager에게 상태 업데이트 전송
 	statusMessage = map[string]string{"functionStatus": returnStatus}
 	if err := sendStatusToManager(ctx, ManagerEndpoint, statusMessage, scfWatcher.Spec.KsvcName); err != nil {
 		logger.Error(err, "Failed to send status update to manager")
@@ -314,3 +324,22 @@ func checkLBDnsConnectivity(ctx context.Context, urlEndpoint string) (string, er
 	}
 	return StatusSuccess, nil
 }
+
+
+
+
+
+
+### ConfigMap 정보
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: <함수별 Knative명>
+  namespace: scf-watcher
+data:
+  FUNCTION_URL_ENABLED: "False"
+  FUNCTION_URL_ENDPOINT: "function.example.com"
+  DNS_LOOKUP_MAX_RETRY_COUNT: "5"
+  DNS_LOOKUP_INTERVAL_SECOND: "60"
+  LB_SERVICE_NAME: "LB서비스명"
+  LB_SERVICE_NAMESPACE: "LB서비스네임스페이스"
