@@ -1,58 +1,116 @@
-아래와 같이 k8s service LoadBalancer 리소스가 만들어질거야. 해당 service 리소스는 ConfigMap 내 LB_SERVICE_NAME, LB_SERVICE_NAMESPACE로 각각에 대한 service 리소스 이름과 네임스페이스가 주어질거야.
-operator는 reconcile 수행 시 이 configmap 내 LB name, namespace를 인지한 뒤, service 정보 중 아래와 같이 status.loadBalancer.ingress 내 두번째 ip값이 들어갔는지에 대해 알고싶어. 참고로 두번째 ip는 nat ip를 나타내는 데이터야.
-두번째 ip값이 들어가있으면 Manager에게 API 호출하려고해. {functionKey} 정보는 ConfigMap 내 FUNCTION_KEY 값과 같은 데이터야. 아래 API Endpoint는 const로 정의하는게 좋을 것 같아.  {functionKey}만 메소드 파라미터로 하는게 좋을 것 같아.
-다만 service리소스 내 NAT IP는 functionUrlEnabled가 StatusTrue일때에만 할당되게되어있어. 위 로직들도 그러니까 FunctionUrl이 Enabled되었을때에만 동작하는거야. 참고로, LB의 NAT IP가 할당 되는데 늦을 수도 있어. 그래서 내 operator가 Nat IP가 정상적으로 할당되었으면 Manager에게 API로 알려주는 목적으로 로직을 추가하는거야.
+다음과 같이 나는 k8s 클러스터 내에 pod로 proxy용도의 nginx를 설정해서 기동했어. 나는 동일 cluster 내 다른 node.js pod에서 이 proxy를 통해 외부로 호출되기를 원해.
 
-API 정보 다음과 같아
-Endpoint = "http://cp-scf-manager.scf-manager-cp:8080/api/v2/function/domain/{functionKey}"
-Method: PUT
-Body: X
-API 목적: Manager에게 대상 함수가 사용하는 LB의 NAT IP 가 할당되었음을 알림
+user  webadmin;
+worker_processes  auto;
+
+error_log  /var/log/nginx/error.log notice;
+pid/var/run/nginx.pid;
 
 
-[root@d2-krw1a-cp-scf-manager-01 ~]# k get svc -n nginx ccm-lb-public-test2 -oyaml
-apiVersion: v1
-kind: Service
-metadata:
-  annotations:
-    kubectl.kubernetes.io/last-applied-configuration: |
-      {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{"service.beta.kubernetes.io/scp-load-balancer-client-cert-id":"ea0d142bdb75488980d5fe66baa06492","service.beta.kubernetes.io/scp-load-balancer-layer-type":"L7","
-service.beta.kubernetes.io/scp-load-balancer-public-ip-enabled":"true","service.beta.kubernetes.io/scp-load-balancer-subnet-id":"e430781ba086436ab580029425c5e3cf","service.beta.kubernetes.io/scp-load-balancer-x-forwarded-for":"tru
-e"},"name":"ccm-lb-public-test2","namespace":"nginx"},"spec":{"ports":[{"appProtocol":"https","port":80,"protocol":"TCP","targetPort":80}],"selector":{"app":"nginx-web-ingress"},"type":"LoadBalancer"}}
-    service.beta.kubernetes.io/scp-load-balancer-client-cert-id: ea0d142bdb75488980d5fe66baa06492
-    service.beta.kubernetes.io/scp-load-balancer-layer-type: L7
-    service.beta.kubernetes.io/scp-load-balancer-public-ip-enabled: "true"
-    service.beta.kubernetes.io/scp-load-balancer-subnet-id: e430781ba086436ab580029425c5e3cf
-    service.beta.kubernetes.io/scp-load-balancer-x-forwarded-for: "true"
-  creationTimestamp: "2025-05-27T04:38:33Z"
-  finalizers:
-  - service.kubernetes.io/load-balancer-cleanup
-  name: ccm-lb-public-test2
-  namespace: nginx
-  resourceVersion: "88379901"
-  uid: 914b0c22-e757-49ba-bf54-eece19aef7d7
-spec:
-  allocateLoadBalancerNodePorts: true
-  clusterIP: 172.20.127.3
-  clusterIPs:
-  - 172.20.127.3
-  externalTrafficPolicy: Cluster
-  internalTrafficPolicy: Cluster
-  ipFamilies:
-  - IPv4
-  ipFamilyPolicy: SingleStack
-  ports:
-  - appProtocol: https
-    nodePort: 30705
-    port: 80
-    protocol: TCP
-    targetPort: 80
-  selector:
-    app: nginx-web-ingress
-  sessionAffinity: None
-  type: LoadBalancer
-status:
-  loadBalancer:
-    ingress:
-    - ip: 198.19.35.166
-    - ip: 42.14.6.24
+events {
+    worker_connections  1024;
+}
+
+
+http {
+    #server_tokens off;
+    #disable_symlinks on;
+
+#include/etc/nginx/mime.types;
+    #include/usr/local/nginx/conf/mime.types;
+    #default_type  application/octet-stream;
+
+log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+'$status $body_bytes_sent "$http_referer" '
+'"$http_user_agent" "$http_x_forwarded_for" '
+'"port: $server_port"';
+
+error_log /var/log/nginx/error.log;
+    access_log  /var/log/nginx/access.log  main;
+
+#sendfileon;
+    #keepalive_timeout  65;
+
+#include /usr/local/nginx/conf/conf.d/*.conf;
+
+server
+    {
+listen 3128 proxy_protocol;
+#server_name 112.107.118.89;
+
+#resolver 8.8.8.8;
+resolver 198.19.0.53 ipv6=off;
+
+# ngx_http_proxy_connect_module 설정 (추가 모듈 설치 필요)
+proxy_connect;
+#proxy_connect_allow all;
+proxy_connect_allow  443 563 8443;
+#proxy_connect_connect_timeout  120s;
+#proxy_connect_read_timeout     120s;
+#proxy_connect_send_timeout     120s;
+
+location /
+{
+proxy_pass $scheme://$http_host$uri$is_args$args;
+#proxy_pass http://$http_host$uri$is_args$args;
+}
+    }
+}
+
+
+아래와 같이 node.js 코드를 작성해서 pod로 기동할거야. 외부 도메인 https 호출 시 프록시 pod를 통해 외부와 통신하고싶어.
+
+const request = require('request');
+ 
+/**
+ * @description User writing area (Function details)
+ */
+exports.handleRequest = async function (params) {
+    return await sendRequest(params);
+};
+  
+async function sendRequest(req) {
+    return new Promise((resolve, reject) => {
+        // Port 80 and Port 443 are available
+        url = "https://manager.scf.private.kr-west1.dev2.samsungsdscloud.com/api/v2/image"; // Destination URL
+         
+        const options = {
+            uri: url,
+            method:'GET',
+            json: true,
+            strictSSL: false,
+            rejectUnauthorized: false
+        }
+          
+        request(options, (error, response, body) => {
+            if (error) {
+                reject(error);
+            } else {
+                resolve({
+                    statusCode: response.statusCode,
+                    body: JSON.stringify(body)
+                });
+            }
+        });
+    });
+}
+
+
+하지만 정작 위 코드가 실행되면 http 엔드포인트에 대한 프록시는 작동하지만 https에 대한 통신은 아래와 같이 에러가 로그에 찍혀. 이유가 뭘까?
+
+
+[root@d2-krw1a-dp-scf-publicweb-01 nginx]# tail -f access.log 
+198.19.7.47 - - [02/Jun/2025:16:15:34 +0900] "GET http://manager.scf.private.kr-west1.dev2.samsungsdscloud.com/api/v2/image HTTP/1.1" 200 1228 "-" "curl/7.61.1" "-" "port: 3128"
+198.19.7.47 - - [02/Jun/2025:16:18:22 +0900] "GET http://manager.scf.private.kr-west1.dev2.samsungsdscloud.com/api/v2/image HTTP/1.1" 200 1228 "-" "curl/7.88.1" "-" "port: 3128"
+198.19.7.47 - - [02/Jun/2025:16:18:28 +0900] "GET http://managers.scf.private.kr-west1.dev2.samsungsdscloud.com/api/v2/image HTTP/1.1" 502 157 "-" "curl/7.88.1" "-" "port: 3128"
+198.19.7.47 - - [02/Jun/2025:16:18:54 +0900] "\x16\x03\x01\x02\x00\x01\x00\x01\xFC\x03\x03F\xBB\x06\x97\xAE?\xEE\xA1\x1C8T\xA4A5\x8E\x02Q\xB1v\xF0\xE80F\x95,\xBD\xEEa\xD9\x9F`T X\x08\xEBb\x22e\x82\xBD\x96-\x8E\xC5\x9F\xC5\xFE\xA7H\x1CA\x1EA\x9B\xE6\x86\x92\xE72\xF9\x88\xA6m\xC0\x00>\x13\x02\x13\x03\x13\x01\xC0,\xC00\x00\x9F\xCC\xA9\xCC\xA8\xCC\xAA\xC0+\xC0/\x00\x9E\xC0$\xC0(\x00k\xC0#\xC0'\x00g\xC0" 400 157 "-" "-" "-
+" "port: 3128"
+198.19.7.47 - - [02/Jun/2025:16:21:10 +0900] "CONNECT manager.scf.private.kr-west1.dev2.samsungsdscloud.com:443 HTTP/1.1" 200 7311 "-" "curl/7.61.1" "-" "port: 3128"
+198.19.7.47 - - [02/Jun/2025:16:21:59 +0900] "\x16\x03\x01\x02\x00\x01\x00\x01\xFC\x03\x03\xE74q\xBD\xB1\x82\xDC:&a4\xD2I\xFA*\xD8\xEFy\xCF\xD2\x8C\xAE(l\xEF2N{\xDA\x8Co  \x94M\xD8\xB3\xBB\xA62aN\xBA\x99\xA7\xB1\xE6\x01\x14\xF2D\xB0\xEB1\x99CUO\xD9piq\xD0\xF9\xAF\x00>\x13\x02\x13\x03\x13\x01\xC0,\xC00\x00\x9F\xCC\xA9\xCC\xA8\xCC\xAA\xC0+\xC0/\x00\x9E\xC0$\xC0(\x00k\xC0#\xC0'\x00g\xC0" 400 157 "-" "-" "-" "port: 3128"
+198.19.7.47 - - [02/Jun/2025:16:24:35 +0900] "\x16\x03\x01\x02\x00\x01\x00\x01\xFC\x03\x03\xDA\x22e8\xA3\xFC\x09\x94APm\x81\xCF\x05IK\xDC3\x86\xF2n\xE4\xD6\xFBmR\xDF\xC8\x9EM\xB0\xA2 \x05!*\x96\xE6\x83\xC6\x8D\x06\xCF\xB2M\x84k\xB6a\xCD\x17\x90\xDA\x86b\xA6|\xC6\xD0f|\x1A/*\xEF\x00>\x13\x02\x13\x03\x13\x01\xC0,\xC00\x00\x9F\xCC\xA9\xCC\xA8\xCC\xAA\xC0+\xC0/\x00\x9E\xC0$\xC0(\x00k\xC0#\xC0'\x00g\xC0" 400 157 "-" "-" "-
+" "port: 3128"
+198.19.7.47 - - [02/Jun/2025:16:24:40 +0900] "\x16\x03\x01\x02\x00\x01\x00\x01\xFC\x03\x03Y\x110r\x85\x80\xB8\x98vDM!RO2\xC3\xA1\xC4\x18-\xD3*\xC8\xC1\xC3\xA5\xDC2\xB8\xA2\x8F2 \xBEg\x1E9`\x14\x15\xA2\xAB\x8B\xC2\x1C\xB7\x9A\xEF\xC9^s\xC7<\xD7^\x82p5S|E\xAB+7\xEC\x00>\x13\x02\x13\x03\x13\x01\xC0,\xC00\x00\x9F\xCC\xA9\xCC\xA8\xCC\xAA\xC0+\xC0/\x00\x9E\xC0$\xC0(\x00k\xC0#\xC0'\x00g\xC0" 400 157 "-" "-" "-" "port: 3128"
+198.19.7.47 - - [02/Jun/2025:16:27:29 +0900] "CONNECT manager.scf.private.kr-west1.dev2.samsungsdscloud.com:443 HTTP/1.1" 200 7311 "-" "curl/7.61.1" "-" "port: 3128"
+198.19.7.47 - - [02/Jun/2025:16:27:40 +0900] "CONNECT manager.scf.private.kr-west1.dev2.samsungsdscloud.com:443 HTTP/1.1" 200 7311 "-" "curl/7.61.1" "-" "port: 3128"
+198.19.7.47 - - [02/Jun/2025:16:29:31 +0900] "\x16\x03\x01\x02\x00\x01\x00\x01\xFC\x03\x03\x5C\xF4\xAB\xA5\xA7+_q\x8A\xD9\xAF\xF4\xC2F\x1D,e\xDA8\xED\xEC\xC3rE\xD9\xEA\xAA\xB2\x0Cb\xD2\xE4 \x22U\x99\xDDA\xB1{\xF2t\x9CS\xA42\xC8n\xDA\xB0\x9Bh\xDB\xDF\x1F\xE2\xAB\xEA\xC3\xCE\x0B\x1C\x85\xFF\xF5\x00>\x13\x02\x13\x03\x13\x01\xC0,\xC00\x00\x9F\xCC\xA9\xCC\xA8\xCC\xAA\xC0+\xC0/\x00\x9E\xC0$\xC0(\x00k\xC0#\xC0'\x00g\xC0" 400
+ 157 "-" "-" "-" "port: 3128"
