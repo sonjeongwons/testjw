@@ -1,4 +1,207 @@
-if len(ksvc.Status.Conditions) == 0 {
-    logger.Info("ksvc가 존재하지만 컨디션이 없습니다. 재생성 직후일 수 있어 skip 처리")
-    return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
+/*
+Copyright 2024.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+package controller
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
+	"net/http"
+	modulev1 "scf.scp.samsungsds.com/crd/api/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"time"
+)
+
+// ScfWatcherReconciler reconciles a ScfWatcher object
+type ScfWatcherReconciler struct {
+	client.Client
+	Scheme *runtime.Scheme
+}
+
+// Function Status JSON Data
+type FunctionStatusData struct {
+	functionStatus string
+}
+
+// +kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=serving.knative.dev,resources=services,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
+// Reconcile is part of the main kubernetes reconciliation loop which aims to
+// move the current state of the cluster closer to the desired state.
+// TODO(user): Modify the Reconcile function to compare the state specified by
+// the ScfWatcher object against the actual cluster state, and then
+// perform operations to make the cluster state reflect the state specified by
+// the user.
+//
+// For more details, check Reconcile and its Result here:
+// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.18.4/pkg/reconcile
+func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconcile 시작")
+	// TODO(user): your logic here
+	// 1. ScfWatcher CR 객체 가져오기
+	var scfWatcher modulev1.ScfWatcher
+	if err := r.Get(ctx, req.NamespacedName, &scfWatcher); err != nil {
+		logger.Error(err, "Unable to fetch ScfWatcher")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	// 2. 관련된 Knative Service 가져오기
+	var ksvc servingv1.Service
+	if err := r.Get(ctx, client.ObjectKey{Namespace: scfWatcher.Spec.KsvcNamespace, Name: scfWatcher.Spec.KsvcName}, &ksvc); err != nil {
+		logger.Error(err, "Unable to fetch Knative Service")
+		return ctrl.Result{}, err
+	}
+	// 3. 현재 상태와 이전 상태를 비교합니다.
+	if len(ksvc.Status.Conditions) == 0 {
+		logger.Info("ksvc가 존재하지만 컨디션이 없습니다.")
+		return ctrl.Result{}, nil
+	}
+	
+	currentStatus := getStatusFromKsvc(ksvc, ctx)
+	logger.Info("기존상태 : " + scfWatcher.Status.LastKsvcStatus)
+	logger.Info("신규상태" + currentStatus)
+	if scfWatcher.Status.LastKsvcStatus == currentStatus {
+		// 상태에 변화가 없으면 Reconcile을 반복하지 않음
+		return ctrl.Result{}, nil
+	}
+	logger.Info("상태비교 끝")
+	// 4. Watcher ConfigMap 정보 불러오기
+	//var configMap corev1.ConfigMap
+	//if err := r.Get(ctx, client.ObjectKey{Namespace: "scf-watcher", Name: "watcher-config"}, &configMap); err != nil {
+	//logger.Error(err, "Unable to fetch Watcher ConfigMap")
+	//return ctrl.Result{}, err
+	//}
+	logger.Info("scf-manager 엔드포인트 불러오기")
+	// 5. Watcher ConfigMap으로 부터 MANAGER_ENDPOINT 정보 불러오기
+	//managerEndpoint := configMap.Data["MANAGER_ENDPOINT"]
+	managerEndpoint := "http://cp-scf-manager.scf-manager-cp:8080/api/v2/function/status/"
+	if managerEndpoint == "" {
+		logger.Error(nil, "MANAGER_ENDPOINT not found in ConfigMap")
+		return ctrl.Result{}, fmt.Errorf("MANAGER_ENDPOINT not found in ConfigMap")
+	}
+	// 6. scf-manager에게 상태 업데이트 전송
+	returnStatus := "DEPLOYING"
+	if currentStatus == "True" {
+		returnStatus = "READY"
+	} else if currentStatus == "False" {
+		returnStatus = "NOT_READY"
+	} else {
+		returnStatus = "DEPLOYING"
+	}
+
+	statusMessage := map[string]string{"functionStatus": returnStatus}
+	if err := sendStatusToManager(managerEndpoint, statusMessage, scfWatcher.Spec.KsvcName); err != nil {
+		logger.Error(err, "Failed to send status update to manager")
+		return ctrl.Result{}, err
+	}
+	logger.Info("ScfWatcher -> Manager 상태전송 완료")
+	logger.Info("ScfWatcher -> Manager 상태전송 값 : " + returnStatus)
+	// 7. ScfWatcher의 상태를 업데이트
+	scfWatcher.Status.LastKsvcStatus = currentStatus
+	scfWatcher.Status.LastReportedTime = metav1.Now()
+	logger.Info("ScfWatcher CR Status 업데이트 완료")
+	logger.Info("ScfWatcher CR Status 업데이트 값 : " + currentStatus)
+	if err := r.Client.Status().Update(ctx, &scfWatcher); err != nil {
+		logger.Error(err, "Unable to update ScfWatcher status")
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+// getStatusFromKsvc 함수는 Knative 서비스의 현재 상태를 확인
+func getStatusFromKsvc(ksvc servingv1.Service, ctx context.Context) string {
+	logger := log.FromContext(ctx)
+	for _, condition := range ksvc.Status.Conditions {
+		if len(ksvc.Status.Conditions) == 0 {
+			logger.Info("ksvc가 존재하지만 컨디션이 없습니다. 재생성 직후일 수 있어 skip 처리")
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+		if condition.Type == "Ready" {
+			if condition.Status == corev1.ConditionTrue {
+				return "True"
+			} else if condition.Status == corev1.ConditionFalse {
+				return "False"
+			} else {
+				return "Unknown"
+			}
+		}
+	}
+	return "Unknown"
+}
+
+// sendStatusToManager 함수는 상태를 Manager endpoint로 전송
+func sendStatusToManager(endpoint string, status map[string]string, ksvcName string) error {
+	statusJSON, err := json.Marshal(status)
+	if err != nil {
+		return err
+	}
+	//resp, err := http.Post(endpoint+":"+ksvcName, "application/json", bytes.NewBuffer(statusJSON))
+	req, err := http.NewRequest(http.MethodPut, endpoint+ksvcName, bytes.NewBuffer(statusJSON))
+	log.Log.Info("Here is endpoint : " + endpoint + ksvcName)
+	//log.Log.Info("Here is JsonBody : "+statusJSON)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to report status: %v", resp.Status)
+	}
+	return nil
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *ScfWatcherReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&modulev1.ScfWatcher{}).                                                                       // ScfWatcher 리소스를 관찰
+		Watches(&servingv1.Service{}, handler.EnqueueRequestsFromMapFunc(r.findObjectsForKnativeService)). // Knative Service 리소스를 관찰
+		Complete(r)
+}
+func (r *ScfWatcherReconciler) findObjectsForKnativeService(ctx context.Context, obj client.Object) []reconcile.Request {
+	scfWatchers := &modulev1.ScfWatcherList{}
+	err := r.List(ctx, scfWatchers)
+	if err != nil {
+		return []reconcile.Request{}
+	}
+	var requests []reconcile.Request
+	for _, scfWatcher := range scfWatchers.Items {
+		if scfWatcher.Spec.KsvcName == obj.GetName() && scfWatcher.Spec.KsvcNamespace == obj.GetNamespace() {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      scfWatcher.Name,
+					Namespace: scfWatcher.Namespace,
+				},
+			})
+		}
+	}
+	return requests
 }
