@@ -1,309 +1,102 @@
-/*
-Copyright 2024.
+요구사항을 요약하면 다음과 같아:
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+currentStatus == "Fail"일 때 한 번만 RequeueAfter를 수행하고 싶고,
 
-    http://www.apache.org/licenses/LICENSE-2.0
+이 상태에서 두 번째로 동일한 "Fail"이 감지되면 Reconcile을 종료하고 싶으며,
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+반대로 "Fail"이 아닌 경우엔 FailRetried 값을 "No"로 리셋해야 한다는 것이지.
 
-package v1
 
-import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-)
+이를 위해 아래 로직을 추가 및 수정하면 돼:
 
-// ScfWatcherSpec defines the desired state of ScfWatcher
-type ScfWatcherSpec struct {
-	// ksvcName은 감시할 Knative 서비스의 이름
-	// KsvcName is the name of the Knative Service to watch
-	KsvcName string `json:"ksvcName,omitempty"`
 
-	// ksvcNamespace는 해당 Knative 서비스가 속한 네임스페이스
-	// KsvcNamespace is the namespace of the Knative Service
-	KsvcNamespace string `json:"ksvcNamespace,omitempty"`
-}
+---
 
-// ScfWatcherStatus defines the observed state of ScfWatcher
-type ScfWatcherStatus struct {
-	// lastKsvcStatus는 마지막으로 감지된 Knative 서비스의 상태
-	// KsvcStatus represents the current status of the watched Knative Service
-	LastKsvcStatus string `json:"lastKsvcStatus,omitempty"`
+✅ 수정 포인트 요약
 
-	// lastReportedTime은 마지막으로 상태가 보고된 시간
-	// LastUpdated is the timestamp of the last status update
-	LastReportedTime metav1.Time `json:"lastReportedTime,omitempty"`
+1. currentStatus == "Fail" 인지 확인
 
-	FailRetried string `json:"failRetried,omitempty"`
-}
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
+2. scfWatcher.Status.FailRetried != "Yes" 이면:
 
-// ScfWatcher is the Schema for the scfwatchers API
-type ScfWatcher struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+"Yes"로 바꾸고
 
-	Spec   ScfWatcherSpec   `json:"spec,omitempty"`
-	Status ScfWatcherStatus `json:"status,omitempty"`
-}
+상태 업데이트 후 RequeueAfter 반환
 
-//+kubebuilder:object:root=true
 
-// ScfWatcherList contains a list of ScfWatcher
-type ScfWatcherList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []ScfWatcher `json:"items"`
-}
 
-func init() {
-	SchemeBuilder.Register(&ScfWatcher{}, &ScfWatcherList{})
-}
+3. "Fail" 상태인데 FailRetried == "Yes"라면 Reconcile 종료
+
+
+4. currentStatus != "Fail" 이면 FailRetried = "No"로 설정
 
 
 
 
+---
 
+✅ 수정된 Reconcile 주요 코드
 
+아래 기존 Reconcile() 함수 중 일부를 다음과 같이 추가 및 변경하면 돼:
 
+// 3. 현재 상태와 이전 상태를 비교합니다.
+currentStatus := getStatusFromKsvc(ksvc)
+logger.Info("기존상태 : " + scfWatcher.Status.LastKsvcStatus)
+logger.Info("신규상태 : " + currentStatus)
 
+// 🔹 Fail 상태 감지 로직
+if currentStatus == "Fail" {
+	if scfWatcher.Status.FailRetried != "Yes" {
+		logger.Info("Fail 상태 최초 감지, FailRetried=Yes 설정 후 3초 뒤 Requeue")
 
+		// FailRetried 값 설정
+		scfWatcher.Status.FailRetried = "Yes"
+		scfWatcher.Status.LastKsvcStatus = currentStatus
+		scfWatcher.Status.LastReportedTime = metav1.Now()
 
+		if err := r.Status().Update(ctx, &scfWatcher); err != nil {
+			logger.Error(err, "Unable to update FailRetried status")
+			return ctrl.Result{}, err
+		}
 
-
-
-
-
-
-/*
-Copyright 2024.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
-package controller
-
-import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"time"
-
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
-	modulev1 "scf.scp.samsungsds.com/crd/api/v1"
-)
-
-// ScfWatcherReconciler reconciles a ScfWatcher object
-type ScfWatcherReconciler struct {
-	client.Client
-	Scheme *runtime.Scheme
-}
-
-// Function Status JSON Data
-type FunctionStatusData struct {
-	functionStatus string
-}
-
-//+kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=module.scf.scp.samsungsds.com,resources=scfwatchers/finalizers,verbs=update
-//+kubebuilder:rbac:groups=serving.knative.dev,resources=services,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
-
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the ScfWatcher object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.18.4/pkg/reconcile
-func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-	logger.Info("Reconcile 시작")
-
-	// TODO(user): your logic here
-	// 1. ScfWatcher CR 객체 가져오기
-	var scfWatcher modulev1.ScfWatcher
-	if err := r.Get(ctx, req.NamespacedName, &scfWatcher); err != nil {
-		logger.Error(err, "Unable to fetch ScfWatcher")
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	// 2. 관련된 Knative Service 가져오기
-	var ksvc servingv1.Service
-	if err := r.Get(ctx, client.ObjectKey{Namespace: scfWatcher.Spec.KsvcNamespace, Name: scfWatcher.Spec.KsvcName}, &ksvc); err != nil {
-		logger.Error(err, "Unable to fetch Knative Service")
-		return ctrl.Result{}, err
-	}
-
-	// 3. 현재 상태와 이전 상태를 비교합니다.
-	currentStatus := getStatusFromKsvc(ksvc)
-	logger.Info("기존상태 : " + scfWatcher.Status.LastKsvcStatus)
-	logger.Info("신규상태" + currentStatus)
-
-	if scfWatcher.Status.LastKsvcStatus == currentStatus {
-		// 상태에 변화가 없으면 Reconcile을 반복하지 않음
-		logger.Info("상태변화 없음. Reconcile 종료")
-		return ctrl.Result{}, nil
-	}
-
-	logger.Info("상태비교 끝")
-
-		// currentStatus가 "False"인 경우, 5초 후 재실행
-	if currentStatus == "False" {
-		logger.Info("상태 False감지 3초 뒤 reconcile 재실행")
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
 
-	// 4. Watcher ConfigMap 정보 불러오기
-	//var configMap corev1.ConfigMap
-	//if err := r.Get(ctx, client.ObjectKey{Namespace: "scf-watcher", Name: "watcher-config"}, &configMap); err != nil {
-	//logger.Error(err, "Unable to fetch Watcher ConfigMap")
-	//return ctrl.Result{}, err
-	//}
-
-	logger.Info("scf-manager 엔드포인트 불러오기")
-	// 5. Watcher ConfigMap으로 부터 MANAGER_ENDPOINT 정보 불러오기
-	//managerEndpoint := configMap.Data["MANAGER_ENDPOINT"]
-	managerEndpoint := "http://cp-scf-manager.scf-manager-cp:8080/api/v2/function/status/"
-	if managerEndpoint == "" {
-		logger.Error(nil, "MANAGER_ENDPOINT not found in ConfigMap")
-		return ctrl.Result{}, fmt.Errorf("MANAGER_ENDPOINT not found in ConfigMap")
-	}
-
-	// 6. scf-manager에게 상태 업데이트 전송
-	returnStatus := "DEPLOYING"
-	if currentStatus == "True" {
-		returnStatus = "READY"
-	} else if currentStatus == "False" {
-		returnStatus = "NOT_READY"
-	}
-
-	statusMessage := map[string]string{"functionStatus": returnStatus}
-	if err := sendStatusToManager(managerEndpoint, statusMessage, scfWatcher.Spec.KsvcName); err != nil {
-		logger.Error(err, "Failed to send status update to manager")
-		return ctrl.Result{}, err
-	}
-	logger.Info("ScfWatcher -> Manager 상태전송 완료")
-	logger.Info("ScfWatcher -> Manager 상태전송 값 : " + returnStatus)
-
-	// 6. ScfWatcher의 상태를 업데이트
-	scfWatcher.Status.LastKsvcStatus = currentStatus
-	scfWatcher.Status.LastReportedTime = metav1.Now()
-	logger.Info("ScfWatcher CR Status 업데이트 완료")
-	logger.Info("ScfWatcher CR Status 업데이트 값 : " + currentStatus)
-
-	if err := r.Client.Status().Update(ctx, &scfWatcher); err != nil {
-		logger.Error(err, "Unable to update ScfWatcher status")
-		return ctrl.Result{}, err
-	}
+	// 이미 FailRetried가 Yes인 경우 => Reconcile 종료
+	logger.Info("Fail 상태 반복 감지, Reconcile 종료")
 	return ctrl.Result{}, nil
 }
 
-// getStatusFromKsvc 함수는 Knative 서비스의 현재 상태를 확인
-func getStatusFromKsvc(ksvc servingv1.Service) string {
-	for _, condition := range ksvc.Status.Conditions {
-		if condition.Type == "Ready" {
-			if condition.Status == corev1.ConditionTrue {
-				return "True"
-			} else if condition.Status == corev1.ConditionFalse {
-				return "False"
-			} else {
-				return "Unknown"
-			}
-		}
-	}
-	return "Unknown"
+// 🔹 Fail이 아닌 경우는 FailRetried 리셋
+if scfWatcher.Status.FailRetried != "No" {
+	scfWatcher.Status.FailRetried = "No"
+	logger.Info("FailRetried 값을 No로 재설정")
 }
 
-// sendStatusToManager 함수는 상태를 Manager endpoint로 전송
-func sendStatusToManager(endpoint string, status map[string]string, ksvcName string) error {
-	statusJSON, err := json.Marshal(status)
-	if err != nil {
-		return err
-	}
-	//resp, err := http.Post(endpoint+":"+ksvcName, "application/json", bytes.NewBuffer(statusJSON))
-	req, err := http.NewRequest(http.MethodPut, endpoint+ksvcName, bytes.NewBuffer(statusJSON))
-	log.Log.Info("Here is endpoint : " + endpoint + ksvcName)
-	//log.Log.Info("Here is JsonBody : "+statusJSON)
-	if err != nil {
-		return err
-	}
+그리고 이 뒤에 있는 기존 상태 전송 및 상태 업데이트 로직은 그대로 둬도 돼.
 
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{}
-	resp, err := client.Do(req)
 
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+---
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to report status: %v", resp.Status)
-	}
-	return nil
-}
+🔧 최종 정리
 
-// SetupWithManager sets up the controller with the Manager.
-func (r *ScfWatcherReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&modulev1.ScfWatcher{}).                                                                       // ScfWatcher 리소스를 관찰
-		Watches(&servingv1.Service{}, handler.EnqueueRequestsFromMapFunc(r.findObjectsForKnativeService)). // Knative Service 리소스를 관찰
-		Complete(r)
-}
+이 추가된 로직은 다음 순서로 작동함:
 
-func (r *ScfWatcherReconciler) findObjectsForKnativeService(ctx context.Context, obj client.Object) []reconcile.Request {
-	scfWatchers := &modulev1.ScfWatcherList{}
-	err := r.List(ctx, scfWatchers)
-	if err != nil {
-		return []reconcile.Request{}
-	}
+최초 "Fail" 발생 시 → "FailRetried=Yes" 설정 → RequeueAfter
 
-	var requests []reconcile.Request
-	for _, scfWatcher := range scfWatchers.Items {
-		if scfWatcher.Spec.KsvcName == obj.GetName() && scfWatcher.Spec.KsvcNamespace == obj.GetNamespace() {
-			requests = append(requests, reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      scfWatcher.Name,
-					Namespace: scfWatcher.Namespace,
-				},
-			})
-		}
-	}
-	return requests
-}
+두 번째 "Fail" 발생 시 → Requeue 없이 종료
+
+"Fail" 벗어날 경우 "FailRetried=No"로 재설정
+
+
+
+---
+
+🔁 Follow-up
+
+Q1. FailRetried 말고도 Fail 발생 횟수를 누적하고 싶을 땐 어떻게 구현하는 게 좋을까?
+
+Q2. ScfWatcher 리소스 상태 업데이트를 JSONPatch 방식으로 최소 반영되게 하려면 어떻게 할 수 있을까?
+
+Q3. getStatusFromKsvc() 함수의 "Fail" 판단 기준이 "False"와 구분되게끔 구조를 개선하려면 어떤 방식이 좋을까?
 
