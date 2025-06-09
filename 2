@@ -174,12 +174,6 @@ func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	logger.Info("기존상태 : " + scfWatcher.Status.LastKsvcStatus)
 	logger.Info("신규상태" + currentStatus)
 
-	// currentStatus가 "False"인 경우, 5초 후 재실행
-	if currentStatus == "False" {
-		logger.Info("상태 False감지 3초 뒤 reconcile 재실행")
-		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
-	}
-
 	if scfWatcher.Status.LastKsvcStatus == currentStatus {
 		// 상태에 변화가 없으면 Reconcile을 반복하지 않음
 		logger.Info("상태변화 없음. Reconcile 종료")
@@ -187,6 +181,12 @@ func (r *ScfWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	logger.Info("상태비교 끝")
+
+		// currentStatus가 "False"인 경우, 5초 후 재실행
+	if currentStatus == "False" {
+		logger.Info("상태 False감지 3초 뒤 reconcile 재실행")
+		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+	}
 
 	// 4. Watcher ConfigMap 정보 불러오기
 	//var configMap corev1.ConfigMap
@@ -306,3 +306,4 @@ func (r *ScfWatcherReconciler) findObjectsForKnativeService(ctx context.Context,
 	}
 	return requests
 }
+
