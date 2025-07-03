@@ -1,102 +1,96 @@
-요구사항을 요약하면 다음과 같아:
+package com.cvc.scanner.service;
 
-currentStatus == "Fail"일 때 한 번만 RequeueAfter를 수행하고 싶고,
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.RestTemplate;
 
-이 상태에서 두 번째로 동일한 "Fail"이 감지되면 Reconcile을 종료하고 싶으며,
+import java.util.List;
+import java.util.Map;
 
-반대로 "Fail"이 아닌 경우엔 FailRetried 값을 "No"로 리셋해야 한다는 것이지.
+@Service
+public class TokenService {
 
+    @Value("${cvc.service.id}")
+    private String cvcServiceId;
 
-이를 위해 아래 로직을 추가 및 수정하면 돼:
+    @Value("${cvc.service.pw}")
+    private String cvcServicePw;
 
+    @Value("${iam.api.endpoint}")
+    private String iamApiEndpoint;
 
----
+    private final RestTemplate restTemplate;
 
-✅ 수정 포인트 요약
+    public TokenService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
 
-1. currentStatus == "Fail" 인지 확인
+    public String getCvcAdminToken() {
+        //String url = iamApiEndpoint + "/v3/auth/tokens?nocatalog=null";
+        String url = iamApiEndpoint;
 
+        Map<String, Object> body = Map.of(
+                "auth", Map.of(
+                        "identity", Map.of(
+                                "methods", List.of("password"),
+                                "password", Map.of(
+                                        "user", Map.of(
+                                                "name", cvcServiceId,
+                                                "domain", Map.of("name", "service"),
+                                                "password", cvcServicePw
+                                        )
+                                )
+                        )
+                )
+        );
 
-2. scfWatcher.Status.FailRetried != "Yes" 이면:
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
 
-"Yes"로 바꾸고
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
-상태 업데이트 후 RequeueAfter 반환
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
+        return response.getHeaders().getFirst("X-Subject-Token");
+    }
+    public boolean validateToken(String userToken) {
+        //String url = iamApiEndpoint + "/v3/auth/tokens?nocatalog=null";
+        String url = iamApiEndpoint;
+        String adminToken = getCvcAdminToken();
 
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Auth-Token", adminToken);
+        headers.set("X-Subject-Token", userToken);
 
+        HttpEntity<Void> request = new HttpEntity<>(headers);
 
-3. "Fail" 상태인데 FailRetried == "Yes"라면 Reconcile 종료
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
 
+            if (!response.getStatusCode().is2xxSuccessful()) {
+                return false;
+            }
 
-4. currentStatus != "Fail" 이면 FailRetried = "No"로 설정
+            String responseBody = response.getBody();
+            ObjectMapper objectMapper = new ObjectMapper();
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode roles = root.path("token").path("roles");
 
+            for (JsonNode role : roles) {
+                String roleName = role.path("name").asText();
+                if ("admin".equalsIgnoreCase(roleName)) {
+                    return true;
+                }
+            }
 
+            return false;
 
-
----
-
-✅ 수정된 Reconcile 주요 코드
-
-아래 기존 Reconcile() 함수 중 일부를 다음과 같이 추가 및 변경하면 돼:
-
-// 3. 현재 상태와 이전 상태를 비교합니다.
-currentStatus := getStatusFromKsvc(ksvc)
-logger.Info("기존상태 : " + scfWatcher.Status.LastKsvcStatus)
-logger.Info("신규상태 : " + currentStatus)
-
-// 🔹 Fail 상태 감지 로직
-if currentStatus == "Fail" {
-	if scfWatcher.Status.FailRetried != "Yes" {
-		logger.Info("Fail 상태 최초 감지, FailRetried=Yes 설정 후 3초 뒤 Requeue")
-
-		// FailRetried 값 설정
-		scfWatcher.Status.FailRetried = "Yes"
-		scfWatcher.Status.LastKsvcStatus = currentStatus
-		scfWatcher.Status.LastReportedTime = metav1.Now()
-
-		if err := r.Status().Update(ctx, &scfWatcher); err != nil {
-			logger.Error(err, "Unable to update FailRetried status")
-			return ctrl.Result{}, err
-		}
-
-		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
-	}
-
-	// 이미 FailRetried가 Yes인 경우 => Reconcile 종료
-	logger.Info("Fail 상태 반복 감지, Reconcile 종료")
-	return ctrl.Result{}, nil
+        } catch (Exception e) {
+            throw new RuntimeException("Response 파싱에러: " , e);
+        }
+    }
 }
-
-// 🔹 Fail이 아닌 경우는 FailRetried 리셋
-if scfWatcher.Status.FailRetried != "No" {
-	scfWatcher.Status.FailRetried = "No"
-	logger.Info("FailRetried 값을 No로 재설정")
-}
-
-그리고 이 뒤에 있는 기존 상태 전송 및 상태 업데이트 로직은 그대로 둬도 돼.
-
-
----
-
-🔧 최종 정리
-
-이 추가된 로직은 다음 순서로 작동함:
-
-최초 "Fail" 발생 시 → "FailRetried=Yes" 설정 → RequeueAfter
-
-두 번째 "Fail" 발생 시 → Requeue 없이 종료
-
-"Fail" 벗어날 경우 "FailRetried=No"로 재설정
-
-
-
----
-
-🔁 Follow-up
-
-Q1. FailRetried 말고도 Fail 발생 횟수를 누적하고 싶을 땐 어떻게 구현하는 게 좋을까?
-
-Q2. ScfWatcher 리소스 상태 업데이트를 JSONPatch 방식으로 최소 반영되게 하려면 어떻게 할 수 있을까?
-
-Q3. getStatusFromKsvc() 함수의 "Fail" 판단 기준이 "False"와 구분되게끔 구조를 개선하려면 어떤 방식이 좋을까?
-
