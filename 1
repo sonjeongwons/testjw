@@ -1,867 +1,173 @@
-아래 FunctionService.java, HttpCallService.java, FunctionCodeDTO.java 파일을 참고해서 FunctionService.java 파일 내에 scanFunctionCodeFile메소드를 작성하려고해. scanFunctionCodeFile메소드는 cvc라는 엔드포인트 API에게 파일에 대한 악성코드를 검사요청하는 API를 로직화할거야. scanFunctionCodeFile메소드로직은 아래와 같은 내용들을 충족시킬 수 있는 항목을 반영해서 개편됐으면해.
+아래 CodeService.java, HttpCallService.java, CodeDTO.java, TokenScheduler.java 파일을 참고해서 CodeService.java 파일 내에 scanCodeFile메소드를 작성하려고해. scanCodeFile메소드는 cvc라는 엔드포인트 API에게 파일에 대한 악성코드를 검사요청하는 API를 로직화할거야. scanCodeFile메소드로직은 아래와 같은 내용들을 충족시킬 수 있는 항목을 반영해서 개편됐으면해.
 1. "https://cvc.private.kr-west1.dev2.samsungsdscloud.com/api/v1/scanner/multipart-scan" API를 post 방식으로 호출하기
 2. "X-Subject-Token" 헤더에 대한 값으로 tokenScheduler.getAccessToken() 값 넣기
-3. 아래에 내가 쭉 나열한 기존 HttpCallService.java, FunctionCodeDTO.java 코드를 활용해서 FunctionService.java 내 scanFunctionCodeFile메소드 작성하기
-4. 악성코드 검사할 파일은 cvc 쪽에 멀티파트 방식으로 요청하기
+3. 알맞게 CodeDTO.java 파일을 이에 맞게 작성하기
+4. HttpCallService.java, CodeDTO.java 코드를 활용해서 CodeService.java 내 scanCodeFile메소드 작성하기
+5. 악성코드 검사할 파일은 cvc 쪽에 멀티파트 방식으로 요청하기
 
-## FunctionService.java
+## CodeService.java
+package com.scf.manager.service;
 
-package com.scf.manager.mvc.service;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.nimbusds.jose.JOSEException;
-import com.nimbusds.jose.jwk.RSAKey;
-import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
-import com.scf.manager.base.repository.FunctionBlueprintRepository;
-import com.scf.manager.common.enums.TypeEnums;
-import com.scf.manager.common.exception.ResourceNotFoundException;
-import com.scf.manager.common.util.AppUtil;
-import com.scf.manager.common.util.UrlUtil;
-import com.scf.manager.config.security.TokenScheduler;
-import com.scf.manager.mvc.domain.*;
-import com.scf.manager.mvc.dto.*;
-import com.scf.manager.mvc.repository.*;
-import io.fabric8.istio.client.DefaultIstioClient;
-import io.fabric8.knative.client.DefaultKnativeClient;
-import io.fabric8.knative.serving.v1.Service;
-import io.fabric8.knative.serving.v1.ServiceList;
-import io.fabric8.kubernetes.client.*;
-import jakarta.annotation.PostConstruct;
+import com.scf.manager.dto.CodeDTO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
-import org.jetbrains.annotations.NotNull;
-
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.Page;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.CollectionUtils;
-import software.amazon.awssdk.core.ResponseInputStream;
-
+import org.apache.commons.io.FileUtils;
+import org.springframework.core.io.ClassPathResource;
 
 import java.io.*;
-
-import java.net.HttpURLConnection;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.text.ParseException;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.util.*;
-
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
 
 @Slf4j
 @org.springframework.stereotype.Service
 @RequiredArgsConstructor
-public class FunctionService {
+public class CodeService {
+    public static void createDirectory(CodeDTO reqDto)  {
+        String path = reqDto.getPath();
+        log.info("[CodeServiceDP : {}] Path : {}", "CreateDirectory", path);
 
-    private static final int MAX_NAME_LENGTH = 64;
+        File functionDir = new File(path);
 
-
-    private static final int KEY_SIZE_2048 = 2048;
-
-    private final FunctionRepository functionRepository;
-    private final KeyManagerRepository keyManagerRepository;
-    private final AllowIpRepository allowIpRepository;
-    private final FunctionVariableRepository functionVariableRepository;
-    private final String volumeName = "serverless-storage-user";
-    private final BaseImageRepository baseImageRepository;
-    private final String BASE_URL = "samsungsdscloud.com";
-
-    private final IstioCallService istioCallService;
-    private final DefaultIstioClient istioClient;
-    private final DefaultKnativeClient kn;
-
-    private final FunctionBlueprintRepository functionBlueprintRepository;
-    private final TriggerService triggerService;
-    private final TriggerRepository triggerRepository;
-    private final TriggerCronRepository triggerCronRepository;
-    private final AllowIpService allowIpService;
-    private final KnativeService knativeService;
-    private final YamlApplyService yamlApplyService;
-    private final KubernetesService kubernetesService;
-
-    private final FunctionCodeRepository functionCodeRepository;
-    private final CodeTextRepository codeTextRepository;
-    private final CodeFileRepository codeFileRepository;
-
-    private final FunctionUrlRepository functionUrlRepository;
-    private final FunctionConfigRepository functionConfigRepository;
-
-    private final HttpCallService httpCallService;
-
-    @Value("${SCF_INTERNAL_URL}")
-    private String SCF_INTERNAL_URL;
-    private String SCF_STATE_UPDATE_ENDPOINT = "/v1/internal/cloud-functions/state";
-    private String SCF_INTERNAL_UPDATE_URI;
-
-    @Value("${DNS_URL}")
-    private String dnsUrl;
-    @Value("${DNS_HOSTED_ZONE_ID}")
-    private String dnsHostedZoneId;
-
-    private final TokenScheduler tokenScheduler;
-
-    private final static String dnsRecordBodyTemplate = AppUtil.getSourceCodeFromFile("codetemplates/api/dnsRecord.json");
-
-    @Value("${SCF_CODE_TEXT_CHECK}")
-    private String SCF_CODE_TEXT_CHECK;
-
-    @PostConstruct
-    public void init() {
-        SCF_INTERNAL_UPDATE_URI = SCF_INTERNAL_URL + SCF_STATE_UPDATE_ENDPOINT;
-        log.info("SCF_INTERNAL_UPDATE_URI: " + SCF_INTERNAL_UPDATE_URI);
-    }
-
-
-
-    @Transactional
-    public FunctionDTO.Response createFunction(FunctionDTO.Register reqDto) throws IOException, ParseException {
-
-        // 함수명 Validation 체크 진행 //
-        // 1) 최대 64자 / 공백 불허 / 소문자, 숫자, 하이픈 허용
-        // 2) 영문 소문자로만 시작 가능
-        validationCheckFunctionName(reqDto.getDisplayName());
-
-        validationCheckFunctionArgs(reqDto.getFunctionKey(), reqDto.getAccountId(), reqDto.getUserId(),reqDto.getRuntime());
-
-        boolean existFunctionName = functionRepository.existsByDisplayNameAndAccountIdAndDelYn(reqDto.getDisplayName(), reqDto.getAccountId(), "N");
-
-        if (existFunctionName) {
-            throw new RuntimeException("해당 어카운트에 존재하는 펑션명을 사용하였습니다.");
-        }
-
-        //신규생성된 펑션
-        String functionKey = reqDto.getFunctionKey();
-
-        boolean existFunctionKey = functionRepository.existsByFunctionKeyAndDelYn(functionKey, "N");
-
-        if (existFunctionKey) {
-            throw new RuntimeException("이미 존재하는 펑션키를 사용하였습니다");
-        }
-
-        reqDto.setFunctionKey(functionKey);
-        reqDto.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING.getKey());
-        reqDto.setDelYn("N");
-        reqDto.setCreatedYn("N");
-
-
-        Function function = functionRepository.save(
-                Function.register(reqDto)
-        );
-
-        // 함수 구성 초기 세팅 (TBL_FUNCTION_CONFIG)
-        setDefaultFunctionConfig(function);
-        //setDefaultFunctionVariable(function);
-        // 함수 URL 초기 세팅 (TBL_FUNCTION_URL)
-        setDefaultFunctionUrl(function);
-        // 함수 코드 초기 세팅
-        setDefaultFunctionCode(function, reqDto);
-
-        //if(function.isNotReady()){
-            //function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
-            //functionRepository.save(function);
-
-        FunctionUrl functionUrl = functionUrlRepository.findByFunction(function);
-
-        kubernetesService.createUserNamespace(function);
-        kubernetesService.createUserPVC(function);
-        yamlApplyService.createUserEnvoyFilter(function);
-        yamlApplyService.createScfWatcherCustomResource(function);
-        //yamlApplyService.createScfWatcherConfigMap(function, functionUrl);
-        //knativeService.callIstioAndKnative(function);
-        knativeService.makeKnativeService(function);
-
-        //} else if (function.isReady()){
-            //// ksvc는 기존 상태를 유지하기 때문에 함수 상태도 READY로 유지
-            //knativeService.makeIstioResource(function);
-        //}
-
-        return function.toDto();
-    }
-
-    private void setDefaultFunctionUrl(Function function) {
-        FunctionUrlDTO.Register functionUrlDTO = new FunctionUrlDTO.Register();
-
-        functionUrlDTO.setFunctionSeq(function.getFunctionSeq());
-        functionUrlDTO.setUrlEnableYn("N");
-        functionUrlDTO.setCompleteYn("N");
-
-        functionUrlRepository.save(FunctionUrl.register(functionUrlDTO));
-    }
-
-    private void setDefaultFunctionConfig(Function function) {
-        FunctionConfigDTO.Register functionConfigDTO = new FunctionConfigDTO.Register();
-
-        functionConfigDTO.setFunctionSeq(function.getFunctionSeq());
-        functionConfigDTO.setMemory(128L);
-        functionConfigDTO.setTimeout(60L);
-        functionConfigDTO.setMinScale(0L);
-        functionConfigDTO.setMaxScale(3L);
-
-        functionConfigRepository.save(FunctionConfig.register(functionConfigDTO));
-    }
-
-
-    private void setDefaultFunctionVariable(Function function) {
-        List<FunctionVariable> environments = functionVariableRepository.findByFunction(function);
-
-        if (CollectionUtils.isEmpty(environments)) {
-            //디폴트 펑션 저장
-            getDefaultEnvironmentDTO().forEach(functionEnvironmentDTO -> this.saveEnvironment(functionEnvironmentDTO, function));
-        }
-    }
-
-    private void setDefaultFunctionCode(Function function, FunctionDTO.Register reqDto) throws IOException, ParseException {
-        FunctionCodeDTO.Register functionCodeDTO = new FunctionCodeDTO.Register();
-
-        // 런타임 클래스/메소드 초기 세팅
-        functionCodeDTO.setClassName("com.example.Handler");
-        functionCodeDTO.setMethodName("handleRequest");
-
-        // 코드 (텍스트) 초기 세팅 (TBL_CODE_TEXT)
-        if (!function.getRuntime().startsWith("Java")) {
-            functionCodeDTO.setCodeType("TEXT");
-            functionCodeDTO.setCodeText(reqDto.getContent());
-        } else {
-            // 코드 (파일) 초기 세팅 (TBL_CODE_FILE)
-            functionCodeDTO.setCodeType("FILE");
-            functionCodeDTO.setFileName("helloworld.jar");
-            functionCodeDTO.setFileTransferStatus(TypeEnums.FileTransferStatus.COMPLETE.getKey());
-
-            //사용자 경로
-            String path = "/mnt" + "/"
-                    + function.getFunctionKey();
-
-            log.info("path = " + path);
-            AppUtil.createDirectory(path);
-
-            String filePath = path.concat("/").concat("download.jar");
-            AppUtil.downloadFile(filePath, "Y");
-        }
-        registerFunctionCode(functionCodeDTO, function.getFunctionKey(), true);
-    }
-
-    @NotNull
-    private FunctionVariable saveFunctionEnvironments(FunctionVariableDTO.Register functionEnvironmentDTO) {
-        log.info("functionEnvironmentDTO = " + functionEnvironmentDTO);
-        return functionVariableRepository.save(FunctionVariable.register(functionEnvironmentDTO));
-    }
-
-    private static void validationCheckFunctionCodeText(String codeText) {
-        byte[] decodedBytes = java.util.Base64.getDecoder().decode(codeText);
-        String decodedString = new String(decodedBytes, StandardCharsets.UTF_8);
-
-        List<String> denyCmdList = List.of("system\\s*\\([^)]*\\)", "sleep\\s*\\([^)]*\\)", "exec\\s*\\([^)]*\\)", "getattr\\s*\\([^)]*\\)", "/etc/passwd", "/etc/hosts");
-
-        for (String denyCmd : denyCmdList) {
-            Pattern pattern = Pattern.compile(denyCmd);
-            Matcher matcher = pattern.matcher(decodedString);
-            if (matcher.find()) { // 함수 코드에 금지된 명령어/함수가 포함되어 있음
-                throw new IllegalArgumentException("함수 코드에 금지된 명령어/함수가 포함되어 있습니다: " + denyCmd);
+        // 해당 파일 경로가 없을 경우 디렉토리를 생성
+        if (!functionDir.exists()) {
+            try {
+                functionDir.mkdirs();
+            } catch (Exception e) {
+                e.printStackTrace();
+                log.error("[CodeServiceDP/Error : {}] Path : {}", "CreateDirectory", path);
+                throw new RuntimeException("디렉토리 생성에 실패하였습니다.");
             }
         }
-        /*
-        for (String denyCmd : denyCmdList) {
-            if (decodedString.contains(denyCmd)) { // 함수 코드에 금지된 명령어/함수가 포함되어 있음
-                throw new IllegalArgumentException("함수 코드에 금지된 명령어/함수가 포함되어 있습니다: " + denyCmd);
-            }
-        }
-         */
     }
 
-    @Transactional
-    public FunctionCodeDTO.Response registerFunctionCode(FunctionCodeDTO.Register reqDto, String functionKey, boolean isDefault) throws IOException, ParseException {
-        Function function = functionRepository.findByFunctionKeyAndDelYn(functionKey, "N").orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
-        FunctionCode functionCode = functionCodeRepository.findByFunction(function).orElse(null);
+    public static void deleteDirectory(CodeDTO reqDto)  {
+        String path = reqDto.getPath();
+        log.info("[CodeServiceDP : {}] Path : {}", "DeleteDirectory", path);
 
-        // 기존에 펑션 코드 데이터가 있을 경우
-        if (functionCode != null) {
-            if (functionCode.getCodeType().equals("TEXT")) {
-                codeTextRepository.deleteByFunctionCode(functionCode);
-            } else if (functionCode.getCodeType().equals("FILE")){
-                codeFileRepository.deleteByFunctionCode(functionCode);
-            } else {
-                throw new RuntimeException("유효한 코드 타입이 아닙니다.");
-            }
-            functionCodeRepository.delete(functionCode);
-        }
+        File functionDir = new File(path);
 
-        reqDto.setFunctionSeq(function.getFunctionSeq());
-        reqDto.setFileUploadAt(Instant.now());
-
-        functionCode= functionCodeRepository.save(
-                FunctionCode.register(reqDto)
-        );
-        reqDto.setFunctionCodeSeq(functionCode.getFunctionCodeSeq());
-
-        CodeText codeText = new CodeText();
-        CodeFile codeFile = new CodeFile();
-
-        if (functionCode.getCodeType().equals("TEXT")) {
-            codeText = codeTextRepository.save(CodeText.register(reqDto));
-            if ("Y".equals(SCF_CODE_TEXT_CHECK)) {
-                validationCheckFunctionCodeText(codeText.getCodeText());
-            }
-        } else {
-            if (!isDefault) {
-                // OBS 연계 + CVC 악성코드 검사
-                reqDto.setFileTransferStatus(TypeEnums.FileTransferStatus.IN_PROGRESS.getKey());
-            }
-            codeFile = codeFileRepository.save(CodeFile.register(reqDto));
-        }
-
-        // 변경된 코드 내용 기준으로 함수 재배포
-        if (!isDefault) {
-            //knativeService.callIstioAndKnative(function);
-            function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
-
-            // 함수 수정자
-            if (reqDto.getModifierId() == null) {
-                throw new RuntimeException("함수 수정자 (modifierId)를 입력해주십시오.");
-            }
-            function.setModifierId(reqDto.getModifierId());
-            functionRepository.save(function);
-
-            knativeService.makeKnativeService(function);
-        }
-
-        return functionCode.toDto(codeText, codeFile, function);
-    }
-
-    @Transactional
-    public void deleteFunctionCode(String functionKey) throws JsonProcessingException {
-        String path = "/mnt" + "/"
-                + functionKey; //function.getFunctionKey();
-        log.info("path = " + path);
-
-        AppUtil.deleteDirectory(path);
-
-    }
-
-    /*
-    private String generateBaseCode(FunctionDTO.Register reqDto) {
-        String[] array = reqDto.getRuntime().split(":");
-        String blueprintName = reqDto.getBlueprintName();
-        FunctionBlueprint functionBlueprint;
-
-        if(StringUtils.isEmpty(blueprintName)){
-            functionBlueprint = functionBlueprintRepository.findByRuntimeAndVersionAndDefaultYn(array[0],array[1],"Y").orElseThrow(() -> new ResourceNotFoundException("디폴트 블루프린트가 존재하지않습니다."));
-        } else {
-            functionBlueprint = functionBlueprintRepository.findByRuntimeAndVersionAndCodeName(array[0], array[1], blueprintName).orElseThrow(() -> new ResourceNotFoundException("요청된 블루프린트가 존재하지않습니다."));
-        }
-
-        return functionBlueprint.getBlueprintCodeText();
-    }
-     */
-
-    @Transactional(readOnly = true)
-    public Page<FunctionDTO.Response> searchAllFunction(FunctionDTO.Search reqDto) {
-        //if (reqDto.getTriggerType() == null) {
-        //    return this.functionRepository.searchAllFunction(reqDto);
-        //}
-        //return this.functionRepository.searchTriggerFunction(reqDto);
-        return this.functionRepository.searchAllFunction(reqDto);
-    }
-
-    @Transactional(readOnly = true)
-    public List<FunctionDTO.Response> searchAllFunctionRegion() {
-        //List<Function> functions = this.functionRepository.findAll();
-        List<Function> functions = this.functionRepository.findByDelYn("N");
-
-        List<FunctionDTO.Response> responses = new ArrayList<>();
-
-        for (Function function: functions) {
-            responses.add(function.toDto());
-        }
-
-        return responses;
-
-    }
-    @Transactional
-    public String registerJWK(TokenDTO.Register reqDto) throws
-            JOSEException {
-
-        Function function = reqDto.getFunction();
-
-        RSAKey rsaJWK = new RSAKeyGenerator(KEY_SIZE_2048)
-                .keyID(reqDto.getKeyId() + "-" + UUID.randomUUID()) // JWK 발급 시, keyID를 고유 문자열 (펑션키-UUID)로 설정
-                .generate();
-
-        KeyManager keyManager = keyManagerRepository.findByFunctionAndDelYn(function, "N").orElse(null);
-
-        if (keyManager != null) {
-            keyManager.updateJwk(rsaJWK.toString());
-            keyManager.updateDelYn("N");
-            keyManager.updateFunction(function);
-        } else {
-            keyManager = keyManagerRepository.save(KeyManager.register(new KeyManagerDTO.Register(rsaJWK.toString(), "N", function)));
-        }
-
-        return keyManager.getJwk();
-    }
-
-
-    @Transactional(readOnly = true)
-    public FunctionDTO.Response searchFunction(String functionKey) {
-        Function function = functionRepository.findByFunctionKeyAndDelYn(functionKey, "N").orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
-        FunctionDTO.Response output = AppUtil.getMapper().map(function, FunctionDTO.Response.class);
-
-        return output;
-    }
-
-    private static void validationCheckFunctionArgs(String functionKey, String accountId, String userId, String runtime) {
-        if (StringUtils.isEmpty(functionKey)) {
-            throw new RuntimeException("펑션키를 입력해주세요.");
-        }
-        if (StringUtils.isEmpty(accountId)) {
-            throw new RuntimeException("어카운트id를 입력해주세요.");
-        }
-        if (StringUtils.isEmpty(userId)) {
-            throw new RuntimeException("유저id를 입력해주세요.");
-        }
-        if (StringUtils.isEmpty(runtime)) {
-            throw new RuntimeException("사용할 Runtime을 선택해주세요.");
-        }
-    }
-
-    public FunctionDTO.Response removeFunctionToken(FunctionDTO.Register reqDto) {
-        return null;
-    }
-
-    public FunctionDTO.Response searchTemplateFunction(Long functionSeq) {
-        return null;
-    }
-
-    @Transactional
-    public void deleteFunctionBulk(List<String> functions) throws JsonProcessingException {
-        for (String functionKey : functions) {
-            this.deleteFunction(functionKey);
-        }
-    }
-
-    @Transactional
-    public void deleteFunction(String functionKey) throws JsonProcessingException {
-        Function function = functionRepository.findByFunctionKey(functionKey).orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
-
-        // K8S 리소스 삭제
-        istioCallService.deleteIstioPolicy(function);
-        this.deleteKnativeFunction(function);
-        this.deleteUserPVC(function);
-        this.deleteUserEnvoyFilter(function);
-        this.deleteScfWatcherCustomResource(function);
-        this.deleteScfWatcherConfigMap(function);
-        this.deleteUserNamespace(function);
-
-        // DB 리소스 삭제
-        this.deleteRelatedEntities(function);
-
-        // NAS 볼륨 내 함수 디렉토리/파일 삭제
-        deleteFunctionCode(functionKey);
-
-        // 펑션 데이터 논리 삭제
-        function.modifyDelYn();
-
-        // 펑션 삭제 시각 저장
-        function.setDelAt(LocalDateTime.now());
-
-        functionRepository.save(function);
-    }
-
-    private void deleteRelatedEntities(Function function) {
-        List<AllowIp> AllowIps = allowIpRepository.findByFunction(function);
-        List<FunctionVariable> functionVariables = functionVariableRepository.findByFunction(function);
-        //KeyManager keyManager = keyManagerRepository.findByFunctionAndDelYn(function, "N").orElse(null);
-        //SourceFile sourceFile = sourceFileRepository.findByFunction(function).orElse(null);
-        FunctionUrl functionUrl = functionUrlRepository.findByFunction(function);
-        FunctionCode functionCode = functionCodeRepository.findByFunction(function).orElse(null);
-
-        allowIpService.deleteAllAllowIPByTypes(function.getFunctionKey(), "ALL");
-
-        triggerService.deleteAllTrigger(function.getFunctionKey());
-
-        functionVariableRepository.deleteByFunction(function);
-
-
-        /*
-        if (keyManager != null) {
-            keyManagerRepository.delete(keyManager);
-        }
-        if (sourceFile != null) {
-            // Java Runtime 지원을 위한 SourceFile Entity 삭제
-            sourceFileRepository.delete(sourceFile);
-        }
-         */
-
-        if (functionUrl != null) {
-            functionUrlRepository.delete(functionUrl);
-        }
-        if (functionCode != null) {
-            CodeText codeText = codeTextRepository.findByFunctionCode(functionCode);
-            CodeFile codeFile = codeFileRepository.findByFunctionCode(functionCode);
-
-            if (codeText != null)
-                codeTextRepository.delete(codeText);
-            if (codeFile != null)
-                codeFileRepository.delete(codeFile);
-
-            functionCodeRepository.delete(functionCode);
-        }
-    }
-
-
-    @Transactional
-    public TokenDTO.Response updateEnvironment(List<FunctionVariableDTO.Register> reqDto, String functionkey) {
-        Function function = functionRepository.findByFunctionKey(functionkey).orElseThrow(() -> new ResourceNotFoundException("펑션키를 확인해주세요"));
-
-        log.info("function = " + function);
-        reqDto.stream().forEach(dto -> this.saveEnvironment(dto, function));
-        return null;
-    }
-
-    private void saveEnvironment(FunctionVariableDTO.Register dto, Function function) {
-        dto.setFunctionSeq(function.getFunctionSeq());
-        functionVariableRepository.save(FunctionVariable.register(dto));
-    }
-
-    public FunctionDTO.DuplicateResponse checkFunctionNameDuplicate(FunctionDTO.Duplicate reqDto) {
-        boolean isExist = functionRepository.existsByDisplayNameAndAccountIdAndDelYn(reqDto.getDisplayName(), reqDto.getAccountId(), "N");
-
-        log.info("isExist = " + isExist);
-        if (isExist) {
-            return FunctionDTO.
-                    DuplicateResponse.
-                    builder().duplicateYn("Y").
-                    build();
-
-        } else {
-            return FunctionDTO.
-                    DuplicateResponse.
-                    builder().duplicateYn("N").
-                    build();
-        }
-    }
-
-    private static void validationCheckFunctionName(String functionName) {
-
-        log.info("함수명 유효성 검사타겟 : " + functionName);
-        if (StringUtils.isEmpty(functionName)) {
-            throw new RuntimeException("함수명은 공백일 수 없습니다.");
-        }
-        if(functionName.contains(" ")){
-            throw new RuntimeException("함수명은 공백을 포함할 수 없습니다.");
-        }
-        String first = functionName.substring(0,1);
-        if (!Pattern.matches("^[a-z]$", first)) {
-            throw new RuntimeException("함수명은 영문 a-z로 시작해야합니다.");
-        }
-        if(!Pattern.matches("^[a-z0-9-]*$", functionName)){
-            throw new RuntimeException("함수명은 영문 a-z, 숫자0-9, 특수문자 하이픈(-) 만 입력할 수 있습니다.");
-        }
-        if(functionName.length() > MAX_NAME_LENGTH){
-            throw new RuntimeException("함수명 길이는 64자를 넘을수 없습니다.");
-        }
-
-    }
-    public void deleteKnativeFunction(Function function) {
-        String functionName = "scf-" + function.getFunctionKey();
-
-        kn.services().inNamespace(functionName).withName(functionName).delete();
-        log.info("사용자 Knative Service 삭제 완료.");
-
-    }
-    public void deleteKnativeFunctionAll() {
-
-        ServiceList services = kn.services()
-                .inNamespace("scf-user")
-                .list();
-        for (Service svc : services.getItems()) {
-            log.info("svc.getMetadata().getName() = " + svc.getMetadata().getName());
-            kn.services().inNamespace("scf-user").withName(svc.getMetadata().getName()).delete();
-        }
-    }
-
-    private List<FunctionVariableDTO.Register> getDefaultEnvironmentDTO() {
-        //List<UrlDTO> urlDTOs = UrlUtil.generateUrl(functionName, region,"none");
-
-        List<FunctionVariableDTO.Register> outputs = new ArrayList<>();
-
-        //outputs.add(FunctionVariableDTO.Register.builder().type("memory").key("").value("128").build());
-        //outputs.add(FunctionEnvironmentDTO.Register.builder().type("limit").key("minute").value("1").build());
-        //outputs.add(FunctionVariableDTO.Register.builder().type("limit").key("second").value("60").build());
-        //outputs.add(FunctionEnvironmentDTO.Register.builder().type("coldStartYn").key("").value("N").build());
-        //outputs.add(FunctionVariableDTO.Register.builder().type("scale").key("min").value("0").build());
-        //outputs.add(FunctionVariableDTO.Register.builder().type("scale").key("max").value("3").build());
-        //outputs.add(FunctionEnvironmentDTO.Register.builder().type("token").key("").value("N").build());
-        //outputs.add(FunctionEnvironmentDTO.Register.builder().type("url").key("enable").value("N").build());
-
-
-
-
-        //urlDTOs.stream().forEach(urlDTO -> outputs.add(FunctionEnvironmentDTO.Register.builder().type("url").key(urlDTO.getProtocol()).value(urlDTO.getUrl()).build()));
-
-        return outputs;
-    }
-
-    public FunctionCodeDTO.Response getFunctionCode(String functionKey) {
-        Function function = functionRepository.findByFunctionKeyAndDelYn(functionKey, "N").orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
-        FunctionCode functionCode = functionCodeRepository.findByFunction(function).orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션 코드입니다"));
-
-        CodeText codeText = new CodeText();
-        CodeFile codeFile = new CodeFile();
-
-        if (functionCode.getCodeType().equals("TEXT")) {
-            codeText = codeTextRepository.findByFunctionCode(functionCode);
-        } else {
-            codeFile = codeFileRepository.findByFunctionCode(functionCode);
-        }
-
-        return functionCode.toDto(codeText, codeFile, function);
-    }
-
-
-    public void deleteUserNamespace(Function function) {
-        try (KubernetesClient client = new DefaultKubernetesClient()) {
-            String namespaceName = "scf-" + function.getFunctionKey();
-            // 사용자 네임스페이스 삭제
-            client.namespaces().withName(namespaceName).delete();
-            log.info("사용자 네임스페이스 삭제 완료.");
-        } catch (KubernetesClientException e) {
-            log.error("사용자 네임스페이스 삭제오류 발생: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    public void deleteUserPVC(Function function) {
-        try (KubernetesClient client = new DefaultKubernetesClient()) {
-            String namespaceName = "scf-" + function.getFunctionKey(); // 네임스페이스 이름
-            String pvcName = "serverless-storage-user"; // 삭제할 PVC 이름
-
-            // PVC 삭제
-            client.persistentVolumeClaims().inNamespace(namespaceName).withName(pvcName).delete();
-            log.info("사용자 PVC 삭제 완료.");
-        } catch (KubernetesClientException e) {
-            log.error("사용자 PVC 삭제오류 발생: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-
-    public void deleteUserEnvoyFilter(Function function) {
-        String namespaceName = "scf-" + function.getFunctionKey(); // 원하는 네임스페이스 이름
-        String defaultEnvoyFilterYaml = yamlApplyService.generateEnvoyFilterYaml("request-headers-filter", namespaceName);
-        String egressEnvoyFilterYaml = yamlApplyService.generateEnvoyFilterYaml("egress-inside-fn-filter", namespaceName);
-        String[] envoyFilterYamls = {defaultEnvoyFilterYaml, egressEnvoyFilterYaml};
-
-        yamlApplyService.applyEnvoyFilterYaml(envoyFilterYamls, namespaceName, "delete");
-
-    }
-
-
-    public void deleteScfWatcherCustomResource(Function function) {
-        String functionName = "scf-" + function.getFunctionKey();
-        String namedScfWatcherCustomResourceYaml = yamlApplyService.generateScfWatcherCustomResourceYaml(functionName);
-        yamlApplyService.applyScfWatcherResourceYaml(namedScfWatcherCustomResourceYaml, functionName, "delete", "CustomResource");
-        log.info("사용자 SCFWatcher CR 삭제 완료.");
-    }
-
-
-    public void deleteScfWatcherConfigMap(Function function) {
-        String functionName = "scf-" + function.getFunctionKey();
-        String namedScfWatcherCustomResourceYaml = yamlApplyService.generateScfWatcherConfigMapYaml(functionName, "", "", "", "", "");
-        yamlApplyService.applyScfWatcherResourceYaml(namedScfWatcherCustomResourceYaml, functionName, "delete", "ConfigMap");
-        log.info("사용자 SCFWatcher ConfigMap 삭제 완료.");
-    }
-
-
-    private void saveInputStreamToFile(ResponseInputStream responseInputStream, Path destination) throws IOException {
-        try (FileOutputStream outputStream = new FileOutputStream(destination.toFile())) {
-            responseInputStream.transferTo(outputStream);
-        }
-    }
-
-    // 함수 상태 정보 알림에 대한 동작 처리를 수행하는 서비스
-    @Transactional
-    public FunctionDTO.Response updateFunctionStatus(FunctionDTO.Modify functionDtos, String functionKey) throws IOException {
-        String newFunctionKey = functionKey.replace("scf-", "");
-        log.info("[FunctionStatusUpdate] functionKey is Modified : [{}] to  {} : ", functionKey, newFunctionKey);
-        Function function = functionRepository.findByFunctionKey(newFunctionKey).orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
-        FunctionUrl functionUrl = functionUrlRepository.findByFunction(function);
-
-        TypeEnums.FunctionStatus originalFunctionStatus = function.getFunctionStatus();
-        String requestedUpdateFunctionStatus = functionDtos.getFunctionStatus();
-
-        // 함수 URL 발급 시에는 Watcher가 아닌 Manager 쓰레드를 통해 비동기로 상태 정보 업데이트
-        // Watcher (외부)에서 상태 업데이트 요청 시에는 상태 업데이트 처리 안하고 스킵하도록 처리
-        // Manager (내부)에서 상태 업데이트 요청 시에는 상태 업데이트하고 함수 URL 발급 완료 표시
-        if ("Y".equals(functionUrl.getUrlEnableYn()) && !"Y".equals(functionUrl.getCompleteYn())) {
-            if ("Y".equals(functionDtos.getSelfCallYn())) {
-                if (functionDtos.getFunctionStatus().equals("READY"))
-                    functionUrl.setCompleteYn("Y");
-            } else {
-                return function.toDto();
-            }
-        }
-
-        // 함수 최소 작업 수가 1 이상일 경우, READY -> RUNNING으로 상태 변경
-        if (requestedUpdateFunctionStatus.equals("READY") ) {
-            FunctionConfig functionConfig = functionConfigRepository.findByFunction(function);
-            if (functionConfig.getMinScale() > 0) {
-                requestedUpdateFunctionStatus = "RUNNING";
-            }
-        }
-
-        function.setFunctionStatus(TypeEnums.FunctionStatus.valueOf(requestedUpdateFunctionStatus));
-
-        // 함수 재배포 이후, 초기 상태가 일시적으로 False (NOT_READY)일 수 있음
-        // SCP-V의 함수 라이프사이클을 고려하여 scf-watcher에서 NOT_READY에 대한 이벤트가 전달 시에는 DB 내 함수 상태 정보 갱신 X
-        // 24.12.19 함수 상태가 DEPLOYING 상태로 유지되는 오류 수정을 위해 NOT READY 이벤트에 대해서도 함수 상태 갱신하도록 수정
-        if (!originalFunctionStatus.equals(TypeEnums.FunctionStatus.valueOf(requestedUpdateFunctionStatus))){
-            log.info("[FunctionStatusUpdate] Trying to Update DB : [{}] to [{}] /  {} : ", originalFunctionStatus, TypeEnums.FunctionStatus.valueOf(requestedUpdateFunctionStatus), function.getFunctionKey());
-            functionRepository.save(function);
-            log.info("[FunctionStatusUpdate] DB Updated To : [{}] /  {} : ", function.getFunctionStatus(), function.getFunctionKey());
-
-            //Deploying이 아닐때만 상태변경call
-            callFunctionStatusHTTPCall(function);
-
-            // 함수 생성이 완료되었을 경우, 함수 생성 완료 이력 추가 (CREATED)
-            if (!"Y".equals(function.getCreatedYn())) {
-                log.info("[FunctionStatusUpdate] Function Creation Completed (createdYn='Y') : [{}] /  {} : ", function.getFunctionStatus(), function.getFunctionKey());
-                function.setCreatedYn("Y");
-            }
-        } else {
-            // 동일상태 일경우 아무동작하지않음,
-            log.info("[FunctionStatusUpdate] Noting To Update : [{}] /  {} : ", function.getFunctionStatus(), function.getFunctionKey());
-        }
-
-        return function.toDto();
-    }
-
-    private void callFunctionStatusHTTPCall(Function function) {
-        // 2. 상태 변경 시, SCP 모듈로 상태 변경 호출,
-        // 생성/수정삭제에 대해서만 발행하고, deploy에 대해서는 호출하지 않음
-        if (function.isDeploying()) {
-            log.info("[FunctionStatusUpdateCall] Update Canceled (Unnecessary Event) [{}] {} ", function.getFunctionStatus(), function.getFunctionKey());
-            return;
-        }
-
-        // 초기 상태가 일시적으로 False (NOT_READY)인 경우, 함수 상태 재확인 후 함수 상태 정상일 경우 호출하지 않음
-        if (function.isNotReady()){
-            int maxAttempts = 3;
-            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-                if (!knativeService.getKnativeStatus(function).equals("False")) {
-                    log.info("[FunctionStatusUpdateCall] Update Canceled (Function Status Mismatch) [{}] {} ", function.getFunctionStatus(), function.getFunctionKey());
-                    return;
-                } else {
-                    if (attempt < maxAttempts) {
-                        log.info("[FunctionStatusUpdateCall] Check Status (Retry) [{}] {} ", function.getFunctionStatus(), function.getFunctionKey());
-                        try {
-                            Thread.sleep(1000); // 1초 대기
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        }
-                    }
-                }
-            }
-        }
-
-        log.info("[FunctionStatusUpdateCall] [{}] {} ", function.getFunctionStatus(), function.getFunctionKey());
-        ResponseEntity<InternalAPIDTO.Response> response = null;
         try {
-            InternalAPIDTO.Request requestDTO = InternalAPIDTO.Request.toDTO(function);
-            HttpHeaders requestHeaders = new HttpHeaders();
-
-            if (requestDTO.getRequestedBy() == null) {
-                log.info("[FunctionStatusUpdateCall] Update Canceled (Invalid Event) [{}] {} ", function.getFunctionStatus(), function.getFunctionKey());
-                return;
-            }
-
-            response =
-                    httpCallService.callInternalHttpReqeust(
-                            SCF_INTERNAL_UPDATE_URI,
-                            "POST", //Method
-                            requestDTO,
-                            requestHeaders,
-                            InternalAPIDTO.Response.class,
-                            true
-                    );
-
-            if(response.getStatusCode().is2xxSuccessful() && response.getBody().isSuccess()) {
-                log.info("[FunctionStatusUpdateCall] Update Completed; [{}] {} ", function.getFunctionStatus(), function.getFunctionKey());
-            } else {
-                throw new RuntimeException("FunctionStatusUpdateCall is Failed");
-            }
-
-            // 이벤트 정상 발행 이후, 함수 수정자 정보 초기화
-            function.setModifierId(null);
-
+            FileUtils.deleteDirectory(functionDir);
         } catch (Exception e) {
-            log.warn("[FunctionStatusUpdateCall] Update Failed; [{}] {} \n ", function.getFunctionStatus(), function.getFunctionKey());
-            throw new RuntimeException("FunctionStatusUpdateCall is Failed, " + e.getMessage() );
+            e.printStackTrace();
+            log.error("[CodeServiceDP/Error : {}] Path : {}", "DeleteDirectory", path);
+            throw new RuntimeException("디렉토리 삭제에 실패하였습니다.");
         }
     }
 
-    @Transactional
-    public FunctionCodeDTO.Response scanFunctionCodeFile(FunctionCodeDTO.Register reqDto, String functionKey, boolean isDefault) throws IOException, ParseException {
-        Function function = functionRepository.findByFunctionKeyAndDelYn(functionKey, "N").orElseThrow(() -> new ResourceNotFoundException("존재하지 않는 펑션입니다."));
-        FunctionCode functionCode = functionCodeRepository.findByFunction(function).orElse(null);
+    public static void deleteFile (CodeDTO reqDto)  {
+        String path = reqDto.getPath();
+        log.info("[CodeServiceDP : {}] Path : {}", "DeleteFile", path);
 
-        // 기존에 펑션 코드 데이터가 있을 경우
-        if (functionCode != null) {
-            if (functionCode.getCodeType().equals("TEXT")) {
-                codeTextRepository.deleteByFunctionCode(functionCode);
-            } else if (functionCode.getCodeType().equals("FILE")){
-                codeFileRepository.deleteByFunctionCode(functionCode);
-            } else {
-                throw new RuntimeException("유효한 코드 타입이 아닙니다.");
+        File functionFile = new File(path);
+
+        // 해당 파일이 존재하는 경우, 파일 삭제
+        if (functionFile.exists()) {
+            try {
+                FileUtils.delete(functionFile);
+            } catch (Exception e) {
+                e.printStackTrace();
+                log.error("[CodeServiceDP/Error : {}] Path : {}", "DeleteFile", path);
             }
-            functionCodeRepository.delete(functionCode);
+        }
+    }
+
+    public static void createFile(CodeDTO reqDto) throws IOException {
+        String path = reqDto.getPath();
+        String content = reqDto.getContent();
+        log.info("[CodeServiceDP : {}] Path : {}", "CreateFile", path);
+        log.info("[CodeServiceDP : {}] Content : {}", "CreateFile", content);
+
+        Path functionFile = Paths.get(path);
+
+        if (Files.exists(functionFile)) {
+            Files.delete(functionFile);
         }
 
-        reqDto.setFunctionSeq(function.getFunctionSeq());
-        reqDto.setFileUploadAt(Instant.now());
+        Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
 
-        functionCode= functionCodeRepository.save(
-                FunctionCode.register(reqDto)
-        );
-        reqDto.setFunctionCodeSeq(functionCode.getFunctionCodeSeq());
+        defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
+        defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
+        defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
+        defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
 
-        CodeText codeText = new CodeText();
-        CodeFile codeFile = new CodeFile();
+        Files.createFile(functionFile);
+        Files.setPosixFilePermissions(functionFile, defaultPosixPermissions);  //Assure the permissions again after the file is created
+        // 사용자 인풋 값 추가
+        ArrayList<String> messageList = new ArrayList<>();
+        byte[] decodedBytes = java.util.Base64.getDecoder().decode(content.getBytes());
+        messageList.add(new String(decodedBytes, StandardCharsets.UTF_8));
 
-        if (functionCode.getCodeType().equals("TEXT")) {
-            codeText = codeTextRepository.save(CodeText.register(reqDto));
-            if ("Y".equals(SCF_CODE_TEXT_CHECK)) {
-                validationCheckFunctionCodeText(codeText.getCodeText());
-            }
+        Files.write(functionFile, messageList, StandardCharsets.UTF_8);
+    }
+
+    public static void moveFile(CodeDTO reqDto) throws IOException {
+        String path = reqDto.getPath();
+        String originPath = reqDto.getOriginPath();
+        log.info("[CodeServiceDP : {}] From: {} To: {}", "MoveFile", originPath, path);
+
+        // 해당 파일이 없을 경우 함수명의 파일 생성
+        Path functionFile = Paths.get(path);
+        Path downloadFile = Paths.get(originPath);
+
+        Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
+
+        defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
+        defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
+        defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
+        defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
+
+        if (Files.exists(downloadFile)) {
+            Files.move(downloadFile, functionFile, StandardCopyOption.REPLACE_EXISTING);
         } else {
-            if (!isDefault) {
-                // OBS 연계 + CVC 악성코드 검사
-                reqDto.setFileTransferStatus(TypeEnums.FileTransferStatus.IN_PROGRESS.getKey());
-            }
-            codeFile = codeFileRepository.save(CodeFile.register(reqDto));
+            log.error("[CodeServiceDP : {}] No download.jar! / From: {} To: {}", "MoveFile", originPath, path);
+            System.out.println("download.jar가 존재하지 않습니다.");
         }
+        Files.setPosixFilePermissions(functionFile, defaultPosixPermissions);  //Assure the permissions again after the file is created
+    }
 
-        // 변경된 코드 내용 기준으로 함수 재배포
-        if (!isDefault) {
-            //knativeService.callIstioAndKnative(function);
-            function.setFunctionStatus(TypeEnums.FunctionStatus.DEPLOYING);
+    public static void downloadFile(CodeDTO reqDto) throws IOException {
+        String path = reqDto.getPath();
+        String defaultYn = reqDto.getDefaultYn();
 
-            // 함수 수정자
-            if (reqDto.getModifierId() == null) {
-                throw new RuntimeException("함수 수정자 (modifierId)를 입력해주십시오.");
+        log.info("[CodeServiceDP : {}] DefaultYn: {} Path: {}",
+                "DownloadFile", defaultYn, path);
+
+        // 해당 파일이 없을 경우 함수명의 파일 생성
+        Path functionFile = Paths.get(path);
+
+        Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
+
+        defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
+        defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
+        defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
+        defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
+
+        copyJarFromResource("codetemplates/handler/java/helloworld.jar", path);
+
+        // TBD
+        // Object Storage 연계를 통해 파일 다운로드
+
+        Files.setPosixFilePermissions(functionFile, defaultPosixPermissions); //Assure the permissions again after the file is created
+    }
+
+    public static void copyJarFromResource(String resourcePath, String targetPath) throws IOException {
+        ClassPathResource resource = new ClassPathResource(resourcePath);
+        try (InputStream in = resource.getInputStream();
+             OutputStream out = new FileOutputStream(targetPath)) {
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = in.read(buffer)) != -1) {
+                out.write(buffer, 0, bytesRead);
             }
-            function.setModifierId(reqDto.getModifierId());
-            functionRepository.save(function);
-
-            knativeService.makeKnativeService(function);
         }
-
-        return functionCode.toDto(codeText, codeFile, function);
     }
 }
 
@@ -870,7 +176,7 @@ public class FunctionService {
 
 ## HttpCallService.java
 
-package com.scf.manager.mvc.service;
+package com.scf.manager.service;
 
 import com.scf.manager.common.util.AppUtil;
 import com.scf.manager.config.security.TokenScheduler;
@@ -969,108 +275,87 @@ public class HttpCallService {
 
 
 
-## FunctionCodeDTO.java
+## CodeDTO.java
 
 
-package com.scf.manager.mvc.dto;
+package com.scf.manager.dto;
 
-import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.persistence.Column;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.util.List;
-
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
-public class FunctionCodeDTO {
+public class CodeDTO {
+    private String path;
+    private String content;
+    private String originPath;
 
-	private Long triggerSeq; //게시판 일련번호_PK
-	private String title; //제목
-	private String content; //내용
-	private String token; //토큰
-	private Boolean delYn; //삭제 여부
+    private String defaultYn;
+}
 
-	@Data
-	@AllArgsConstructor
-	@NoArgsConstructor
-	@Builder
-	public static class Register {
-		@Schema(description = "펑션 코드 SEQ")
-		private Long functionCodeSeq;
 
-		@Schema(description = "코드 타입")
-		private String codeType;
 
-		@Schema(description = "클래스 이름")
-		private String className;
+## TokenScheduler.java
+package com.scf.manager.config.security;
 
-		@Schema(description = "메소드 이름")
-		private String methodName;
+import com.scf.manager.common.util.AppUtil;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
 
-		@Schema(description = "펑션seq")
-		private Long functionSeq;
+import javax.annotation.PostConstruct;
+import java.net.HttpURLConnection;
 
-		/* 텍스트 */
-		@Schema(description = "코드 텍스트 내용")
-		private String codeText;
+@Slf4j
+@Component
+public class TokenScheduler {
 
-		/* 파일 */
-		@Schema(description = "코드 파일 이름")
-		private String fileName;
+    private final static String loginBodyTemplate = AppUtil.getSourceCodeFromFile("codetemplates/api/login.json");
 
-		@Schema(description = "마지막 업로드 시각")
-		private Instant fileUploadAt;
+    private String accessToken;
 
-		@Schema(description = "파일 전송 상태")
-		private String fileTransferStatus;
+    @Value("${SCF_KEYSTONE_ID}")
+    private String scfId;
+    @Value("${SCF_KEYSTONE_PW}")
+    private String scfPw;
+    @Value("${IDENTITY_URL}")
+    private String identityUrl;
 
-		// 함수 수정을 위한 ID 값 처리
-		@Schema(description = "함수 수정자 ID")
-		private String modifierId;
-	}
+    private static String jsonString;
+    private static String requestUrl;
 
-	@Data
-	@AllArgsConstructor
-	@NoArgsConstructor
-	@Builder
-	public static class Response {
-		@Schema(description = "펑션 코드 SEQ")
-		private Long functionCodeSeq;
+    // 초기 실행 시 토큰 한번 갱신 (옵션)
+    @PostConstruct
+    public void init() {
+        jsonString = loginBodyTemplate
+                .replace("$SCF_KEYSTONE_ID$", scfId)
+                .replace("$SCF_KEYSTONE_PW$", scfPw);
 
-		@Schema(description = "펑션 런타임")
-		private String functionRuntime;
+        requestUrl = identityUrl + "/v3/auth/tokens?nocatalog=null";
 
-		@Schema(description = "코드 타입")
-		private String codeType;
+        refreshToken();
+    }
 
-		@Schema(description = "클래스 이름")
-		private String className;
+    @Scheduled(cron = "0 0/15 * * * ?") // 15분마다 실행
+    public void scheduledTokenRefresh() {
+        refreshToken();
+    }
 
-		@Schema(description = "메소드 이름")
-		private String methodName;
+    private void refreshToken() {
+        HttpURLConnection httpURLConnection = AppUtil.httpCall(requestUrl, "POST", jsonString, null);
+        if (httpURLConnection != null && httpURLConnection.getHeaderField("X-Subject-Token") != null) {
+            this.accessToken = httpURLConnection.getHeaderField("X-Subject-Token");
+            log.info("토큰 갱신 완료: {}", this.accessToken);
+        } else {
+            log.error("토큰 갱신 실패");
+        }
+    }
 
-		@Schema(description = "펑션seq")
-		private Long functionSeq;
+    public String getAccessToken() {return accessToken;}
 
-		/* 텍스트 */
-		@Schema(description = "코드 텍스트 내용")
-		private String codeText;
-
-		/* 파일 */
-		@Schema(description = "코드 파일 이름")
-		private String fileName;
-
-		@Schema(description = "마지막 업로드 시각")
-		private Instant fileUploadAt;
-
-		@Schema(description = "파일 전송 상태")
-		private String fileTransferStatus;
-	}
 }
