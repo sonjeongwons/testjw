@@ -1,7 +1,7 @@
 아래 CodeService.java, HttpCallService.java, CodeDTO.java, TokenScheduler.java 파일을 참고해서 CodeService.java 파일 내에 scanCodeFile메소드를 작성하려고해. scanCodeFile메소드는 cvc라는 엔드포인트 API에게 파일에 대한 악성코드를 검사요청하는 API를 로직화할거야. scanCodeFile메소드로직은 아래와 같은 내용들을 충족시킬 수 있는 항목을 반영해서 개편됐으면해.
 1. "https://cvc.private.kr-west1.dev2.samsungsdscloud.com/api/v1/scanner/multipart-scan" API를 post 방식으로 호출하기
 2. "X-Subject-Token" 헤더에 대한 값으로 tokenScheduler.getAccessToken() 값 넣기
-3. 알맞게 CodeDTO.java 파일을 이에 맞게 작성하기
+3. 알맞게 CodeDTO.java 파일 내 변수들을 이에 맞게 활용하기
 4. HttpCallService.java, CodeDTO.java 코드를 활용해서 CodeService.java 내 scanCodeFile메소드 작성하기
 5. 악성코드 검사할 파일은 cvc 쪽에 멀티파트 방식으로 요청하기
 
