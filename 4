@@ -257,17 +257,17 @@ public class BaseImageApiController {
 
 
 @GetMapping("")
-public ResponseEntity<List<BaseImageDTO.Response>> searchAllBaseImage(
-        HttpServletRequest request) {
-
+public ResponseEntity<List<BaseImageDTO.Response>> searchAllBaseImage(HttpServletRequest request) {
     List<BaseImageDTO.Response> body = BaseImageService.searchAllBaseImage();
 
+    // 응답 헤더 생성
+    HttpHeaders headers = new HttpHeaders();
+
     // 요청 헤더 -> 응답 헤더로 복사
-    HttpHeaders responseHeaders = new HttpHeaders();
     request.getHeaderNames().asIterator().forEachRemaining(name -> {
         String value = request.getHeader(name);
-        responseHeaders.add(name, value);
+        headers.add("X-Req-" + name, value);  // 이름이 겹치지 않도록 prefix 추가
     });
 
-    return new ResponseEntity<>(body, responseHeaders, HttpStatus.OK);
+    return new ResponseEntity<>(body, headers, HttpStatus.OK);
 }
