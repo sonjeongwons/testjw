@@ -242,3 +242,78 @@ public class BaseImageApiController {
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+package com.scf.manager.mvc.api;
+
+import com.scf.manager.mvc.dto.BaseImageDTO;
+import com.scf.manager.mvc.service.BaseImageService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.Parameters;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@Slf4j
+@Tag(name = "이미지 관리 API",description = "이미지 관리 API")
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/v2/image")
+public class BaseImageApiController {
+	private final BaseImageService BaseImageService;
+
+    @PostMapping("")
+    @Operation(summary = "이미지 단건 등록", description = "기본이미지 단건을 등록합니다")
+    public ResponseEntity<BaseImageDTO.Response> registerBoard(@Valid @RequestBody BaseImageDTO.Register reqDto) {
+        BaseImageDTO.Response response = BaseImageService.registerBaseImage(reqDto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping("")
+    @Operation(summary = "이미지 전체 목록 조회-page", description = "기본이미지 전체 목록을 조회합니다")
+    public ResponseEntity<List<BaseImageDTO.Response>> searchAllBaseImage() {
+        List<BaseImageDTO.Response> response = BaseImageService.searchAllBaseImage();
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    @GetMapping("/{baseImageSeq}")
+    @Operation(summary = "기본이미지 단건 조회", description = "기본이미지 단건을 조회합니다")
+    @Parameters({
+            @Parameter(name = "baseImageSeq", description = "기본이미지 일련번호", required = true),
+    })
+    public ResponseEntity<BaseImageDTO.Response> searchBaseImage(@PathVariable("baseImageSeq") Long baseImageSeq) {
+        BaseImageDTO.Response response = BaseImageService.searchBaseImage(baseImageSeq);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    @PutMapping("/{baseImageSeq}")
+    @Operation(summary = "기본이미지 단건 수정", description = "기본이미지 단건을 수정합니다")
+    @Parameters({
+            @Parameter(name = "baseImageSeq", description = "기본이미지 일련번호", required = true),
+    })
+    public ResponseEntity<BaseImageDTO.Response> modifyBaseImage(@PathVariable("baseImageSeq") Long baseImageSeq
+                                          , @Valid @RequestBody BaseImageDTO.Modify reqDto) {
+        BaseImageDTO.Response response = BaseImageService.modifyBaseImage(baseImageSeq, reqDto);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+}
