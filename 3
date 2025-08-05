@@ -35,3 +35,75 @@ EnvoyFilter를 통해 특정 헤더를 후처리로 처리 가능
 
 AIOS는 LLM Endpoint를 HTTPS 프로토콜로 제공
 TLS 암호화된 HTTPS 프로토콜에 대해서는 헤더값 추가 불가
+
+
+
+
+
+
+
+
+
+const express = require('express');
+const app = express();
+const nodefunction = require('./nodefunction.js');
+ 
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+ 
+// Route to Function Code (GET, POST, PUT, DELETE, etc)
+app.all("/*", async (req, res) => {
+    try {
+        const response = await nodefunction.handleRequest(req);
+ 
+        if (typeof response === "object" && response.statusCode && response.body) {
+            res.set({'Content-Type': 'application/json'});
+            res.status(response.statusCode).send(response.body);
+        } else {
+            res.set({'Content-Type': 'application/json'});
+            res.status(200).send(response);
+        }
+    } catch (error) {
+        console.error('An Error Occurred: ', error);
+        res.status(500).send('Internal Server Error');
+    }
+})
+ 
+////////////////////////////////////////////
+//             DO NOT DELETE              //
+//              BELOW LINES               //
+////////////////////////////////////////////
+const server = app.listen(8080, () => {
+    console.log('nodejs REST API running on port 8080!');
+})
+ 
+////////////////////////////////////////////
+// graceful shutdown when pod termination //
+////////////////////////////////////////////
+process.on('SIGTERM', function onSigterm () {
+    console.info('Got SIGTERM. Graceful shutdown start', new Date().toISOString())
+    shutdown()
+})
+ 
+function shutdown() {
+    server.close(function onServerClosed (err) {
+        if (err) {
+            console.error(err)
+            process.exit(1)
+        }
+    })
+}
+
+
+
+
+exports.handleRequest = async function (params) {
+    /**
+     * @description User writing area (Function details)
+     */
+    const response = {
+        statusCode: 200,
+        body: JSON.stringify('Hello Serverless World!'),
+    };
+    return response;
+};
