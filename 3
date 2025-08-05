@@ -177,3 +177,53 @@ http {
         }
     }
 }
+
+
+
+
+apiVersion: v1
+data:
+  Corefile: |
+    .:53 {
+errors
+health {
+lameduck 5s
+}
+ready
+kubernetes cluster.local in-addr.arpa ip6.arpa {
+pods insecure
+fallthrough in-addr.arpa ip6.arpa
+ttl 30
+}
+hosts {
+198.18.2.52 identity-i.kr-west1.dev2.samsungsdscloud.com acl-i.kr-west1.dev2.samsungsdscloud.com dns-i.kr-west1.dev2.samsungsdscloud.com iam-i.kr-west1.dev2.samsungsdscloud.com loadbalancer-i.kr-west1.dev2.samsungsdscl
+oud.com
+198.18.3.136 cortex-paas.kr-west1.dev2.samsungsdscloud.com opensearch-paas.kr-west1.dev2.samsungsdscloud.com
+198.18.2.52 scf-i.kr-west1.dev2.samsungsdscloud.com
+198.19.18.15 collect-metric.service-watch.private.kr-west1.dev2.samsungsdscloud.com collect-log.service-watch.private.kr-west1.dev2.samsungsdscloud.com
+198.19.8.13 cvc.private.kr-west1.dev2.samsungsdscloud.com
+            manager.scf.private.kr-west1.dev2.samsungsdscloud.com
+fallthrough
+}
+rewrite name exact cron.scf.private.kr-west1.dev2.samsungsdscloud.com nginx-svc.nginx.svc
+prometheus :9153
+forward . /etc/resolv.conf {
+max_concurrent 1000
+}
+cache 30
+loop
+reload
+loadbalance
+    }
+kind: ConfigMap
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+{"apiVersion":"v1","data":{"Corefile":".:53 {\n    errors\n    health {\nlameduck 5s\n    }\n    ready\n    kubernetes cluster.local in-addr.arpa ip6.arpa {\npods insecure\nfallthrough in-addr.arpa ip6.a
+rpa\nttl 30\n    }\n    prometheus :9153\n    forward . /etc/resolv.conf {\nmax_concurrent 1000\n    }\n    cache 30\n    loop\n    reload\n    loadbalance\n\n    hosts {\n198.18.2.52 identity-i.kr-west1.dev2
+.samsungsdscloud.com acl-i.kr-west1.dev2.samsungsdscloud.com dns-i.kr-west1.dev2.samsungsdscloud.com iam-i.kr-west1.dev2.samsungsdscloud.com\n198.18.3.136 cortex-paas.kr-west1.dev2.samsungsdscloud.com opensearch-paas.kr-we
+st1.dev2.samsungsdscloud.com\nfalllthrough\n    }\n}\n"},"kind":"ConfigMap","metadata":{"annotations":{},"name":"coredns","namespace":"kube-system"}}
+  creationTimestamp: "2024-10-22T05:37:02Z"
+  name: coredns
+  namespace: kube-system
+  resourceVersion: "144270959"
