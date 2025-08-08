@@ -1,631 +1,129 @@
-나는 java spring framework를 통해 아래와 같이 CodeService.java, HttpCallService.java, CodeDTO.java를 코딩 중이야. 관련해서 에러가 발생하고있어. 아래 코드들과 에러를 모두 첨부할테니까 에러원인과 해결책을 자세히 알려줘.
+에러의 핵심 원인은 아래 로그로부터 명확히 드러납니다:
 
-package com.scf.manager.service;
-
-
-import com.scf.manager.config.security.TokenScheduler;
-import com.scf.manager.dto.CP_MANAGER.FunctionCodeDTO;
-import com.scf.manager.dto.CodeDTO;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.io.FileUtils;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.core.io.FileSystemResource;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.MultipartBodyBuilder;
-import org.springframework.util.LinkedMultiValueMap;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.core.ResponseInputStream;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
-import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
-
-import java.io.*;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.PosixFilePermission;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Set;
-
-@Slf4j
-@org.springframework.stereotype.Service
-@RequiredArgsConstructor
-public class CodeService {
-    private static String CVC_ENDPOINT;
-    @Value("${CVC.URL}")
-    private static String CVC_URL;
-
-
-    @Autowired
-    private HttpCallService httpCallService;
-
-    @Autowired
-    private TokenScheduler tokenScheduler;
-    public static void createDirectory(CodeDTO reqDto)  {
-        String path = reqDto.getPath();
-        log.info("[CodeServiceDP : {}] Path : {}", "CreateDirectory", path);
-
-        File functionDir = new File(path);
-
-        // 해당 파일 경로가 없을 경우 디렉토리를 생성
-        if (!functionDir.exists()) {
-            try {
-                functionDir.mkdirs();
-            } catch (Exception e) {
-                e.printStackTrace();
-                log.error("[CodeServiceDP/Error : {}] Path : {}", "CreateDirectory", path);
-                throw new RuntimeException("디렉토리 생성에 실패하였습니다.");
-            }
-        }
-    }
-
-    public static void deleteDirectory(CodeDTO reqDto)  {
-        String path = reqDto.getPath();
-        log.info("[CodeServiceDP : {}] Path : {}", "DeleteDirectory", path);
-
-        File functionDir = new File(path);
-
-        try {
-            FileUtils.deleteDirectory(functionDir);
-        } catch (Exception e) {
-            e.printStackTrace();
-            log.error("[CodeServiceDP/Error : {}] Path : {}", "DeleteDirectory", path);
-            throw new RuntimeException("디렉토리 삭제에 실패하였습니다.");
-        }
-    }
-
-    public static void deleteFile (CodeDTO reqDto)  {
-        String path = reqDto.getPath();
-        log.info("[CodeServiceDP : {}] Path : {}", "DeleteFile", path);
-
-        File functionFile = new File(path);
-
-        // 해당 파일이 존재하는 경우, 파일 삭제
-        if (functionFile.exists()) {
-            try {
-                FileUtils.delete(functionFile);
-            } catch (Exception e) {
-                e.printStackTrace();
-                log.error("[CodeServiceDP/Error : {}] Path : {}", "DeleteFile", path);
-            }
-        }
-    }
-
-    public static void createFile(CodeDTO reqDto) throws IOException {
-        String path = reqDto.getPath();
-        String content = reqDto.getContent();
-        log.info("[CodeServiceDP : {}] Path : {}", "CreateFile", path);
-        log.info("[CodeServiceDP : {}] Content : {}", "CreateFile", content);
-
-        Path functionFile = Paths.get(path);
-
-        if (Files.exists(functionFile)) {
-            Files.delete(functionFile);
-        }
-
-        Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
-
-        defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
-        defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
-        defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
-        defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
-
-        Files.createFile(functionFile);
-        Files.setPosixFilePermissions(functionFile, defaultPosixPermissions);  //Assure the permissions again after the file is created
-        // 사용자 인풋 값 추가
-        ArrayList<String> messageList = new ArrayList<>();
-        byte[] decodedBytes = java.util.Base64.getDecoder().decode(content.getBytes());
-        messageList.add(new String(decodedBytes, StandardCharsets.UTF_8));
-
-        Files.write(functionFile, messageList, StandardCharsets.UTF_8);
-    }
-
-    public static void moveFile(CodeDTO reqDto) throws IOException {
-        String path = reqDto.getPath();
-        String originPath = reqDto.getOriginPath();
-        log.info("[CodeServiceDP : {}] From: {} To: {}", "MoveFile", originPath, path);
-
-        // 해당 파일이 없을 경우 함수명의 파일 생성
-        Path functionFile = Paths.get(path);
-        Path downloadFile = Paths.get(originPath);
-
-        Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
-
-        defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
-        defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
-        defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
-        defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
-
-        if (Files.exists(downloadFile)) {
-            Files.move(downloadFile, functionFile, StandardCopyOption.REPLACE_EXISTING);
-        } else {
-            log.error("[CodeServiceDP : {}] No download.jar! / From: {} To: {}", "MoveFile", originPath, path);
-            System.out.println("download.jar가 존재하지 않습니다.");
-        }
-        Files.setPosixFilePermissions(functionFile, defaultPosixPermissions);  //Assure the permissions again after the file is created
-    }
-
-    public FunctionCodeDTO.Response downloadFile(CodeDTO reqDto) throws IOException {
-        String path = reqDto.getPath();
-        String defaultYn = reqDto.getDefaultYn();
-        FunctionCodeDTO.Response respDto = new FunctionCodeDTO.Response();
-
-        log.info("[CodeServiceDP : {}] DefaultYn: {} Path: {}", "DownloadFile", defaultYn, path);
-
-        // 해당 파일이 없을 경우 함수명의 파일 생성
-        Path downloadFile = Paths.get(path);
-
-        Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
-
-        defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
-        defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
-        defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
-        defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
-
-        if (defaultYn.equals("Y"))
-            copyJarFromResource("codetemplates/handler/java/helloworld.jar", path);
-        else {
-            String tmpPath = path + "-tmp";
-            Path tmpFile = Paths.get(tmpPath);
-
-            String accessKey = reqDto.getAccessKey();
-            String secretKey = reqDto.getSecretKey();
-
-            String obsUrl = reqDto.getObjectStorageUrl().replace("https://", "");
-
-            // Object Storage URL 예시
-            // https://object-store.private.kr-west1.qa2.samsungsdscloud.com/31f55396302748a48bd2c94a0250c920:firewall-logging/20250529_02H50m+0000.csv
-            String endpointUrl = "https://" + obsUrl.split("/")[0]; //  https://object-store.private.kr-west1.qa2.samsungsdscloud.com/
-            String bucketName = obsUrl.split("/")[1]; // 31f55396302748a48bd2c94a0250c920:firewall-logging
-            String objectKey = obsUrl.split("/")[2]; // 20250529_02H50m+0000.csv
-
-            // Object Storage 연계를 통해 파일 다운로드
-
-            // AWS S3 클라이언트 생성
-            S3Client s3Client = S3Client.builder()
-                    .region(Region.of("ALL")) // SCP Object Storage의 리전은 Endpoint URL에서 설정
-                    .endpointOverride(URI.create(endpointUrl)) // 사용자 지정 S3 엔드포인트 URL로 변경
-                    .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey)))
-                    .forcePathStyle(true) // 클라이언트 빌더에서 클라이언트가 버킷에 경로 스타일 주소 지정을 사용하도록 강제 (https://docs.aws.amazon.com/ko_kr/sdk-for-java/latest/developer-guide/examples-s3.html)
-                    .build();
-
-            // S3 객체 메타데이터 조회
-            try {
-                HeadObjectRequest headObjectRequest = HeadObjectRequest.builder()
-                        .bucket(bucketName)
-                        .key(objectKey) // 다운로드할 파일 S3 객체 키 (Object Storage 내 파일 경로)
-                        .build();
-
-                HeadObjectResponse headObjectResponse = s3Client.headObject(headObjectRequest);
-                // S3 객체의 크기 (파일 크기) 가져오기
-                long fileSizeInBytes = headObjectResponse.contentLength();
-                log.info("파일 크기: " + fileSizeInBytes + " bytes");
-            } catch (Exception e) {
-                log.error("파일 크기 조회 중 오류 발생: " + e.getMessage());
-            }
-
-            // S3에서 파일 다운로드
-            try {
-                ResponseInputStream responseInputStream = s3Client.getObject(
-                        GetObjectRequest.builder().bucket(bucketName).key(objectKey).build());
-                saveInputStreamToFile(responseInputStream, tmpFile);
-                log.info("파일이 " + bucketName + "/" + objectKey + "에서 다운로드되었습니다.");
-                respDto.setFileTransferStatus("COMPLETE");
-            } catch (Exception e) {
-                log.error("파일 다운로드 중 오류 발생: " + e.getMessage());
-                respDto.setFileTransferStatus("ERROR_DOWNLOAD");
-            }
-
-            // 임시파일 대상 악성코드 검사 수행 (cvc 연계)
-            // 악성코드 검출 시, 상태 정보 업데이트 필요 (respDto.setFileTransferStatus("ERROR_MALWARE"))
-            // TBD
-            scanCodeFile(reqDto);
-
-            // 파일 다운로드 & 악성코드 검사 결과에 따른 임시파일 처리
-            if (respDto.getFileTransferStatus().equals("COMPLETE")) {
-                // 정상적으로 파일 다운로드 & 악성코드 검사 통과했을 경우, 임시파일을 다운로드 경로로 이동
-                Files.move(tmpFile, downloadFile, StandardCopyOption.REPLACE_EXISTING);
-            } else { // ERROR_DOWNLOAD, ERROR_MALWARE
-                // 임시파일 삭제
-                Files.deleteIfExists(tmpFile);
-            }
-            respDto.setFileName(objectKey);
-            respDto.setFileUploadAt(Instant.now());
-        }
-
-        // 정상적으로 파일 다운로드가 수행된 경우에 대해서만 파일 권한 설정
-        if (Files.exists(downloadFile)) {
-            Files.setPosixFilePermissions(downloadFile, defaultPosixPermissions); //Assure the permissions again after the file is created
-        }
-
-        return respDto;
-    }
-
-    private static void saveInputStreamToFile(ResponseInputStream responseInputStream, Path destination) throws IOException {
-        try (FileOutputStream outputStream = new FileOutputStream(destination.toFile())) {
-            responseInputStream.transferTo(outputStream);
-        }
-    }
-
-    public static void copyJarFromResource(String resourcePath, String targetPath) throws IOException {
-        ClassPathResource resource = new ClassPathResource(resourcePath);
-        try (InputStream in = resource.getInputStream();
-             OutputStream out = new FileOutputStream(targetPath)) {
-            byte[] buffer = new byte[8192];
-            int bytesRead;
-            while ((bytesRead = in.read(buffer)) != -1) {
-                out.write(buffer, 0, bytesRead);
-            }
-        }
-    }
-
-    private void scanCodeFile(CodeDTO reqDto) {
-        CVC_ENDPOINT  = CVC_URL + "/api/v1/scanner/multipart-scan";
-
-        try {
-            // 1. 검사할 파일 가져오기
-            String path = reqDto.getPath() + "-tmp";
-            File file = new File(path);
-            if (!file.exists() || !file.isFile()) {
-                throw new IllegalArgumentException("유효한 파일이 존재하지 않습니다: " + path);
-            }
-
-            // 2. Multipart 요청 본문 구성
-            MultipartBodyBuilder builder = new MultipartBodyBuilder();
-            builder.part("file", new FileSystemResource(file)).filename(file.getName());
-
-            LinkedMultiValueMap<String, HttpEntity<?>> multipartBody = (LinkedMultiValueMap<String, HttpEntity<?>>) builder.build();
-
-            // 3. 헤더 설정
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-            headers.set("X-Subject-Token", tokenScheduler.getAccessToken());
-
-            // 4. API 호출
-            ResponseEntity<String> response = httpCallService.callMultipartHttpReqeust(
-                    CVC_ENDPOINT,
-                    "POST",
-                    multipartBody,
-                    headers,
-                    String.class,
-                    true // 로그 출력 여부
-            );
-
-            // 5. 결과 처리
-            log.info("[scanCodeFile] 악성코드 검사 요청 성공: status={}, body={}",
-                    response.getStatusCode(), response.getBody());
-
-        } catch (Exception e) {
-            log.error("[scanCodeFile] 악성코드 검사 요청 실패: {}", e.getMessage(), e);
-            throw new RuntimeException("악성코드 검사 요청 중 오류가 발생했습니다.", e);
-        }
-    }
-}
-
-
-
-
-
-
-
-
-
-
-package com.scf.manager.service;
-
-import com.scf.manager.common.util.AppUtil;
-import com.scf.manager.config.security.TokenScheduler;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.*;
-import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
-
-import java.nio.charset.StandardCharsets;
-
-@Slf4j
-@Service
-public class HttpCallService {
-    @Autowired
-    private TokenScheduler tokenScheduler;
-
-    public static final String IntenralAuthTokenHeader = "X-Auth-Token";
-
-    public <T, R> ResponseEntity<R> callMultipartHttpReqeust(String httpUrlString, String method, T requestBody, HttpHeaders requestHeaders, Class<R> responseType, boolean log) {
-//        requestHeaders.set("content-type", "application/json"); // 기존 값에 추가
-        requestHeaders.set("content-type", "multipart/form-data"); // 기존 값에 추가
-        requestHeaders.set("Accept", "application/json"); // 기존 값에 추가
-
-        return callHttpReqeust(httpUrlString, method, requestBody, requestHeaders, responseType, log);
-    }
-
-    public <T, R> ResponseEntity<R> callInternalHttpReqeust(String httpUrlString, String method, T requestBody, HttpHeaders requestHeaders, Class<R> responseType, boolean log) {
-        //토큰값을 실어서 보내줌
-        requestHeaders.set(IntenralAuthTokenHeader, tokenScheduler.getAccessToken());
-        requestHeaders.set("content-type", "application/json"); // 기존 값에 추가
-        requestHeaders.set("Accept", "application/json"); // 기존 값에 추가
-
-//        requestHeaders.add("Custom-Header", "CustomValue"); // 예: 커스텀 헤더
-
-        return callHttpReqeust(httpUrlString, method, requestBody, requestHeaders, responseType, log);
-    }
-
-    private static <T, R> ResponseEntity<R> callHttpReqeust(String httpUrlString, String method, T requestBody, HttpHeaders requestHeaders, Class<R> responseType, boolean logEnabled) {
-        // String 타입의 method를 HttpMethod로 변환
-        HttpMethod httpMethod;
-        try { httpMethod = HttpMethod.valueOf(method.toUpperCase());}
-        catch (IllegalArgumentException e) {throw new IllegalArgumentException("Invalid HTTP method: " + method, e);       }
-
-        if (requestBody != null && requestHeaders.getContentType() == null) {
-            requestHeaders.setContentType(MediaType.APPLICATION_JSON);
-        }
-
-
-        // RestClient 설정
-        RestClient restClient = RestClient.builder().build();
-
-
-        if (logEnabled){restClient = setRestClientWithLogging(restClient);}
-
-        // RestClient를 사용한 요청
-        try {
-
-            ResponseEntity<R> response = restClient
-                    .method(httpMethod)
-                    .uri(httpUrlString)
-                    .headers(headers -> headers.addAll(requestHeaders))
-                    .body(requestBody != null ? requestBody : "{}")
-                    .retrieve()
-                    .toEntity(responseType);
-            return response;
-        } catch (RestClientException e) {
-            log.warn("[callHttpReqeust: FAILED] {}", e.getMessage());
-            throw new RuntimeException("API 호출 실패: " + e.getMessage(), e);
-        }
-    }
-
-    public static RestClient setRestClientWithLogging(RestClient restClient) {
-        return RestClient.builder()
-                .requestInterceptor((request, body, execution) -> {
-                    // 요청 로깅 설정
-                    log.info("HTTP Request: {} / {}", request.getMethod(), request.getURI());
-
-                    // 헤더 로깅
-                    log.info("HTTP Request / Headers:");
-                    for (var header : request.getHeaders().entrySet()) {
-                        log.info("  {}: {}", header.getKey(), header.getValue());
-                    }
-
-                    try {
-                        // Log body (handle byte[] safely)
-                        String bodyContent = body != null ? new String(body, StandardCharsets.UTF_8) : "null";
-                        log.info("HTTP Request / Body: \n {}", AppUtil.JSONStringPrettyPrinter(bodyContent));
-                    } catch (NullPointerException e) {}
-
-                    return execution.execute(request, body);
-                })
-                .build();
-    }
-}
-
-
-
-
-
-package com.scf.manager.dto;
-
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-@Builder
-public class CodeDTO {
-    private String path;
-    private String content;
-    private String originPath;
-
-    private String defaultYn;
-
-    private String objectStorageUrl;
-    private String accessKey;
-    private String secretKey;
-}
-
-
-
-
-
-
-
-
-
-
-
-[2025-08-08 08:02:25:20264] [http-nio-8090-exec-3] ERROR [com.scf.manager.service.CodeService.scanCodeFile:311] - [scanCodeFile] 악성코드 검사 요청 실패: com.google.gson.stream.MalformedJsonException: Use JsonReader.setStrictness(Strictness.LENIENT) to accept malformed JSON at line 2 column 2 path $
-See https://github.com/google/gson/blob/main/Troubleshooting.md#malformed-json
-com.google.gson.JsonSyntaxException: com.google.gson.stream.MalformedJsonException: Use JsonReader.setStrictness(Strictness.LENIENT) to accept malformed JSON at line 2 column 2 path $
-See https://github.com/google/gson/blob/main/Troubleshooting.md#malformed-json
-	at com.google.gson.Gson.assertFullConsumption(Gson.java:1472)
-	at com.google.gson.Gson.fromJson(Gson.java:1263)
-	at com.google.gson.Gson.fromJson(Gson.java:1171)
-	at com.google.gson.Gson.fromJson(Gson.java:1107)
-	at com.scf.manager.common.util.AppUtil.JSONStringPrettyPrinter(AppUtil.java:150)
-	at com.scf.manager.service.HttpCallService.lambda$setRestClientWithLogging$1(HttpCallService.java:90)
-	at org.springframework.http.client.InterceptingClientHttpRequest$InterceptingRequestExecution.execute(InterceptingClientHttpRequest.java:88)
-	at org.springframework.http.client.InterceptingClientHttpRequest.executeInternal(InterceptingClientHttpRequest.java:72)
-	at org.springframework.http.client.AbstractBufferingClientHttpRequest.executeInternal(AbstractBufferingClientHttpRequest.java:48)
-	at org.springframework.http.client.AbstractClientHttpRequest.execute(AbstractClientHttpRequest.java:81)
-	at org.springframework.web.client.DefaultRestClient$DefaultRequestBodyUriSpec.exchangeInternal(DefaultRestClient.java:571)
-	at org.springframework.web.client.DefaultRestClient$DefaultRequestBodyUriSpec.exchange(DefaultRestClient.java:535)
-	at org.springframework.web.client.RestClient$RequestHeadersSpec.exchange(RestClient.java:677)
-	at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.executeAndExtract(DefaultRestClient.java:809)
-	at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.toEntityInternal(DefaultRestClient.java:769)
-	at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.toEntity(DefaultRestClient.java:758)
-	at com.scf.manager.service.HttpCallService.callHttpReqeust(HttpCallService.java:67)
-	at com.scf.manager.service.HttpCallService.callMultipartHttpReqeust(HttpCallService.java:27)
-	at com.scf.manager.service.CodeService.scanCodeFile(CodeService.java:297)
-	at com.scf.manager.service.CodeService.downloadFile(CodeService.java:234)
-	at com.scf.manager.api.CodeController.downloadFile(CodeController.java:50)
-	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
-	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:568)
-	at org.springframework.web.method.support.InvocableHandlerMethod.doInvoke(InvocableHandlerMethod.java:258)
-	at org.springframework.web.method.support.InvocableHandlerMethod.invokeForRequest(InvocableHandlerMethod.java:191)
-	at org.springframework.web.servlet.mvc.method.annotation.ServletInvocableHandlerMethod.invokeAndHandle(ServletInvocableHandlerMethod.java:118)
-	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.invokeHandlerMethod(RequestMappingHandlerAdapter.java:986)
-	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.handleInternal(RequestMappingHandlerAdapter.java:891)
-	at org.springframework.web.servlet.mvc.method.AbstractHandlerMethodAdapter.handle(AbstractHandlerMethodAdapter.java:87)
-	at org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1089)
-	at org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:979)
-	at org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1014)
-	at org.springframework.web.servlet.FrameworkServlet.doPost(FrameworkServlet.java:914)
-	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:590)
-	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)
-	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:658)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:195)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100)
-	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93)
-	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.springframework.web.servlet.v6_0.OpenTelemetryHandlerMappingFilter.doFilter(OpenTelemetryHandlerMappingFilter.java:78)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201)
-	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:167)
-	at org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:90)
-	at org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:483)
-	at org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:115)
-	at org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:93)
-	at org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:74)
-	at org.apache.catalina.valves.RemoteIpValve.invoke(RemoteIpValve.java:731)
-	at org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:344)
-	at org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:397)
-	at org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63)
-	at org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:905)
-	at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1743)
-	at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52)
-	at org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1190)
-	at org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:659)
-	at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63)
-	at java.base/java.lang.Thread.run(Thread.java:833)
-Caused by: com.google.gson.stream.MalformedJsonException: Use JsonReader.setStrictness(Strictness.LENIENT) to accept malformed JSON at line 2 column 2 path $
-See https://github.com/google/gson/blob/main/Troubleshooting.md#malformed-json
-	at com.google.gson.stream.JsonReader.syntaxError(JsonReader.java:1754)
-	at com.google.gson.stream.JsonReader.checkLenient(JsonReader.java:1550)
-	at com.google.gson.stream.JsonReader.doPeek(JsonReader.java:625)
-	at com.google.gson.stream.JsonReader.peek(JsonReader.java:507)
-	at com.google.gson.Gson.assertFullConsumption(Gson.java:1468)
-	... 74 common frames omitted
-[2025-08-08 08:02:25:20286] [http-nio-8090-exec-3] ERROR [org.apache.catalina.core.ContainerBase.[Tomcat].[localhost].[/].[dispatcherServlet].log:175] - Servlet.service() for servlet [dispatcherServlet] in context with path [] threw exception [Request processing failed: java.lang.RuntimeException: 악성코드 검사 요청 중 오류가 발생했습니다.] with root cause
 com.google.gson.stream.MalformedJsonException: Use JsonReader.setStrictness(Strictness.LENIENT) to accept malformed JSON at line 2 column 2 path $
-See https://github.com/google/gson/blob/main/Troubleshooting.md#malformed-json
-	at com.google.gson.stream.JsonReader.syntaxError(JsonReader.java:1754)
-	at com.google.gson.stream.JsonReader.checkLenient(JsonReader.java:1550)
-	at com.google.gson.stream.JsonReader.doPeek(JsonReader.java:625)
-	at com.google.gson.stream.JsonReader.peek(JsonReader.java:507)
-	at com.google.gson.Gson.assertFullConsumption(Gson.java:1468)
-	at com.google.gson.Gson.fromJson(Gson.java:1263)
-	at com.google.gson.Gson.fromJson(Gson.java:1171)
-	at com.google.gson.Gson.fromJson(Gson.java:1107)
-	at com.scf.manager.common.util.AppUtil.JSONStringPrettyPrinter(AppUtil.java:150)
-	at com.scf.manager.service.HttpCallService.lambda$setRestClientWithLogging$1(HttpCallService.java:90)
-	at org.springframework.http.client.InterceptingClientHttpRequest$InterceptingRequestExecution.execute(InterceptingClientHttpRequest.java:88)
-	at org.springframework.http.client.InterceptingClientHttpRequest.executeInternal(InterceptingClientHttpRequest.java:72)
-	at org.springframework.http.client.AbstractBufferingClientHttpRequest.executeInternal(AbstractBufferingClientHttpRequest.java:48)
-	at org.springframework.http.client.AbstractClientHttpRequest.execute(AbstractClientHttpRequest.java:81)
-	at org.springframework.web.client.DefaultRestClient$DefaultRequestBodyUriSpec.exchangeInternal(DefaultRestClient.java:571)
-	at org.springframework.web.client.DefaultRestClient$DefaultRequestBodyUriSpec.exchange(DefaultRestClient.java:535)
-	at org.springframework.web.client.RestClient$RequestHeadersSpec.exchange(RestClient.java:677)
-	at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.executeAndExtract(DefaultRestClient.java:809)
-	at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.toEntityInternal(DefaultRestClient.java:769)
-	at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.toEntity(DefaultRestClient.java:758)
-	at com.scf.manager.service.HttpCallService.callHttpReqeust(HttpCallService.java:67)
-	at com.scf.manager.service.HttpCallService.callMultipartHttpReqeust(HttpCallService.java:27)
-	at com.scf.manager.service.CodeService.scanCodeFile(CodeService.java:297)
-	at com.scf.manager.service.CodeService.downloadFile(CodeService.java:234)
-	at com.scf.manager.api.CodeController.downloadFile(CodeController.java:50)
-	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
-	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:568)
-	at org.springframework.web.method.support.InvocableHandlerMethod.doInvoke(InvocableHandlerMethod.java:258)
-	at org.springframework.web.method.support.InvocableHandlerMethod.invokeForRequest(InvocableHandlerMethod.java:191)
-	at org.springframework.web.servlet.mvc.method.annotation.ServletInvocableHandlerMethod.invokeAndHandle(ServletInvocableHandlerMethod.java:118)
-	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.invokeHandlerMethod(RequestMappingHandlerAdapter.java:986)
-	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.handleInternal(RequestMappingHandlerAdapter.java:891)
-	at org.springframework.web.servlet.mvc.method.AbstractHandlerMethodAdapter.handle(AbstractHandlerMethodAdapter.java:87)
-	at org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1089)
-	at org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:979)
-	at org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1014)
-	at org.springframework.web.servlet.FrameworkServlet.doPost(FrameworkServlet.java:914)
-	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:590)
-	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)
-	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:658)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:195)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100)
-	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93)
-	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.springframework.web.servlet.v6_0.OpenTelemetryHandlerMappingFilter.doFilter(OpenTelemetryHandlerMappingFilter.java:78)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201)
-	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
-	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
-	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
-	at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:167)
-	at org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:90)
-	at org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:483)
-	at org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:115)
-	at org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:93)
-	at org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:74)
-	at org.apache.catalina.valves.RemoteIpValve.invoke(RemoteIpValve.java:731)
-	at org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:344)
-	at org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:397)
-	at org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63)
-	at org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:905)
-	at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1743)
-	at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52)
-	at org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1190)
-	at org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:659)
-	at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63)
-	at java.base/java.lang.Thread.run(Thread.java:833)
+
+즉, AppUtil.JSONStringPrettyPrinter(...)에서 GSON을 사용하여 JSON을 파싱하려고 시도하는데, 해당 문자열이 정상적인 JSON 형식이 아님을 의미합니다. 그리고 그 호출은 아래 위치에서 발생합니다:
+
+log.info("HTTP Request / Body: \n {}", AppUtil.JSONStringPrettyPrinter(bodyContent));
+
+이 에러는 다음과 같은 이유로 발생할 수 있습니다:
+
+
+---
+
+✅ 원인 분석
+
+1. bodyContent가 JSON이 아닌 경우
+
+String bodyContent = body != null ? new String(body, StandardCharsets.UTF_8) : "null";
+
+이 body는 멀티파트 요청이므로 application/json 형식이 아닌 boundary를 포함한 binary 데이터입니다.
+
+예: 아래와 같이 시작함
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="test.jar"
+Content-Type: application/java-archive
+...
+
+즉, JSON이 아니므로 Gson.fromJson() 시도 → MalformedJsonException 터짐
+
+
+
+---
+
+✅ 해결 방안
+
+🔧 1. AppUtil.JSONStringPrettyPrinter() 호출 조건 수정 (멀티파트일 경우 제외)
+
+// HttpCallService.setRestClientWithLogging() 내부
+String contentType = request.getHeaders().getContentType() != null ? request.getHeaders().getContentType().toString() : "";
+
+if (contentType.contains("application/json")) {
+    try {
+        String bodyContent = body != null ? new String(body, StandardCharsets.UTF_8) : "null";
+        log.info("HTTP Request / Body: \n {}", AppUtil.JSONStringPrettyPrinter(bodyContent));
+    } catch (Exception e) {
+        log.warn("Body 파싱 실패 (JSON이 아닐 수 있음): {}", e.getMessage());
+    }
+} else {
+    log.info("Content-Type이 JSON이 아니므로 body 로깅 생략 (Content-Type: {})", contentType);
+}
+
+📌 추가로 AppUtil.java 내에 정의된 JSONStringPrettyPrinter()가 다음처럼 되어 있다면:
+
+public static String JSONStringPrettyPrinter(String json) {
+    Gson gson = new GsonBuilder().setPrettyPrinting().create();
+    JsonElement je = JsonParser.parseString(json); // 여기서 에러 발생
+    return gson.toJson(je);
+}
+
+이 함수 자체를 아래와 같이 방어적으로 수정할 수도 있습니다:
+
+public static String JSONStringPrettyPrinter(String json) {
+    try {
+        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        JsonElement je = JsonParser.parseString(json);
+        return gson.toJson(je);
+    } catch (Exception e) {
+        return json; // JSON이 아니면 그냥 원본 리턴
+    }
+}
+
+
+---
+
+✨ 궁극적인 해결 요약
+
+위치	수정 포인트	설명
+
+HttpCallService#setRestClientWithLogging()	Content-Type이 application/json일 때만 AppUtil.JSONStringPrettyPrinter 호출	멀티파트는 JSON이 아님
+AppUtil.JSONStringPrettyPrinter()	예외 처리 추가	파싱 실패 시 원문 그대로 리턴
+
+
+
+---
+
+✅ 보너스: 개선 권장 사항
+
+1. @Value("${CVC.URL}")는 static 변수에 사용 ❌
+
+@Value("${CVC.URL}")
+private static String CVC_URL;  // ❌ Spring이 주입하지 못함
+
+Spring에서는 @Value가 non-static 필드에만 주입되므로, 아래와 같이 수정해야 함:
+
+@Value("${CVC.URL}")
+private String cvcUrl;  // 필드명을 소문자로 바꾸는 것도 컨벤션상 추천
+
+private String getCvcEndpoint() {
+    return cvcUrl + "/api/v1/scanner/multipart-scan";
+}
+
+그리고 scanCodeFile() 안에서는 static 제거하고 인스턴스 메소드로 유지:
+
+String endpoint = getCvcEndpoint();
+
+
+---
+
+✅ 전체적으로 보면, 코드의 주요 문제는 다음과 같습니다
+
+구분	문제	해결
+
+GSON 파싱 실패	multipart/form-data를 JSON으로 파싱 시도	Content-Type 확인 후 JSON만 pretty print
+@Value 주입 실패	static 필드에 @Value 사용	non-static으로 변경
+에러 로그 가독성	GSON 오류로 stack trace 길어짐	에러 발생 시 graceful fallback 처리
+
+
+
+---
+
+🔄 다음 단계
+
+Q1: AppUtil.JSONStringPrettyPrinter에서 발생하는 에러를 막기 위한 가장 적절한 유효성 체크 방법은 무엇일까?
+
+Q2: 멀티파트 요청/응답을 로깅할 때 데이터 노출을 방지하기 위한 로깅 전략은 어떻게 구성해야 할까?
+
+Q3: GSON을 활용한 JSON pretty print 대신 ObjectMapper를 사용하는 경우 장단점은 무엇일까?
+
