@@ -1,1 +1,167 @@
-[2025-08-08 08:24:39:33954] [http-nio-8090-exec-4] INFO  [com.scf.manager.service.CodeService.scanCodeFile:310] - [scanCodeFile] 악성코드 검사 요청 성공: status=200 OK, body={"fileName":"download.jar-tmp","returnCode":-1,"message":"Unsupported file type."}
+좋아. 제공해준 로그를 보면, CVC 악성코드 검사 API의 응답 body는 다음과 같은 JSON 형식이야:
+
+{
+  "fileName": "download.jar-tmp",
+  "returnCode": -1,
+  "message": "Unsupported file type."
+}
+
+이제 너의 요구사항에 따라 scanCodeFile() 메소드를 리팩토링하고, downloadFile() 메소드에 분기 로직을 추가하자. 구체적으로 다음 2가지 작업을 해줄게:
+
+
+---
+
+✅ 1. scanCodeFile() 리팩토링: returnCode 값을 반환하도록 수정
+
+🔧 변경 전
+
+private void scanCodeFile(CodeDTO reqDto)
+
+🔧 변경 후
+
+private ScanResult scanCodeFile(CodeDTO reqDto)
+
+// 결과 DTO 클래스
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+static class ScanResult {
+    private int returnCode;
+    private String message;
+}
+
+✅ 수정된 scanCodeFile() 전체 코드
+
+private ScanResult scanCodeFile(CodeDTO reqDto) {
+    String endpoint = CVC_URL + "/api/v1/scanner/multipart-scan";
+
+    try {
+        // 검사할 파일 경로 설정
+        String path = reqDto.getPath() + "-tmp";
+        File file = new File(path);
+        if (!file.exists() || !file.isFile()) {
+            throw new IllegalArgumentException("유효한 파일이 존재하지 않습니다: " + path);
+        }
+
+        MultipartBodyBuilder builder = new MultipartBodyBuilder();
+        builder.part("file", new FileSystemResource(file)).filename(file.getName());
+
+        LinkedMultiValueMap<String, HttpEntity<?>> multipartBody =
+                (LinkedMultiValueMap<String, HttpEntity<?>>) builder.build();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        headers.set("X-Subject-Token", tokenScheduler.getAccessToken());
+
+        ResponseEntity<String> response = httpCallService.callMultipartHttpReqeust(
+                endpoint, "POST", multipartBody, headers, String.class, true
+        );
+
+        log.info("[scanCodeFile] 악성코드 검사 요청 성공: status={}, body={}",
+                response.getStatusCode(), response.getBody());
+
+        // JSON 파싱
+        ObjectMapper objectMapper = new ObjectMapper();
+        JsonNode jsonNode = objectMapper.readTree(response.getBody());
+
+        int returnCode = jsonNode.get("returnCode").asInt();
+        String message = jsonNode.has("message") ? jsonNode.get("message").asText() : "";
+
+        return ScanResult.builder()
+                .returnCode(returnCode)
+                .message(message)
+                .build();
+
+    } catch (Exception e) {
+        log.error("[scanCodeFile] 악성코드 검사 요청 실패: {}", e.getMessage(), e);
+        return ScanResult.builder()
+                .returnCode(-1)
+                .message("파일 스캔 중 오류가 발생했습니다.")
+                .build();
+    }
+}
+
+
+---
+
+✅ 2. downloadFile() 로직에 ScanResult 분기 추가
+
+📌 변경 위치
+
+기존에는 scanCodeFile(reqDto);만 있었지? 이제 다음처럼 ScanResult를 받아서 분기 처리하자.
+
+✅ 개선된 로직 예시 (중간 부분만 발췌)
+
+// 스캔 결과 받아오기
+ScanResult scanResult = scanCodeFile(reqDto);
+
+int returnCode = scanResult.getReturnCode();
+String message = scanResult.getMessage();
+
+if (returnCode == 0) {
+    // 악성코드 없음 → 정상처리
+    Files.move(tmpFile, downloadFile, StandardCopyOption.REPLACE_EXISTING);
+    respDto.setFileTransferStatus("COMPLETE");
+} else if (returnCode == 1) {
+    // 악성코드 검출됨
+    Files.deleteIfExists(tmpFile);
+    respDto.setFileTransferStatus("ERROR_MALWARE");
+} else {
+    // 스캔 실패 or 기타 에러
+    Files.deleteIfExists(tmpFile);
+    log.warn("악성코드 검사 실패: {}", message);
+    respDto.setFileTransferStatus("ERROR_SCAN");
+}
+
+
+---
+
+✅ 최종 구조 요약
+
+returnCode	의미	처리
+
+0	악성코드 없음	tmp 파일을 원래 위치로 이동하고, "COMPLETE" 설정
+1	악성코드 있음	tmp 파일 삭제, "ERROR_MALWARE" 설정
+-1	스캔 실패	tmp 파일 삭제 + 로그 출력 + "ERROR_SCAN" 설정
+
+
+
+---
+
+🔄 전체 흐름 변화 요약
+
+// 기존
+scanCodeFile(reqDto); // 결과 없음
+
+// 개선
+ScanResult scanResult = scanCodeFile(reqDto);
+switch(scanResult.getReturnCode()) {
+    case 0 -> 정상 파일 이동 및 COMPLETE 설정
+    case 1 -> 임시 파일 삭제 및 ERROR_MALWARE 설정
+    default -> 임시 파일 삭제 및 message 로그 + ERROR_SCAN 설정
+}
+
+
+---
+
+🔥 추가 개선 팁
+
+ScanResult 클래스를 외부 DTO로 분리해두면 재사용성이 높아짐
+
+FileUtils.forceDelete() 대신 Files.deleteIfExists()를 사용하면 IOException 예외 덜 발생
+
+만약 검사 실패 사유가 사용자에게 필요한 정보라면 respDto.setErrorMessage(message) 같은 필드를 추가해 전달 가능
+
+
+
+---
+
+📌 다음 질문으로 이어질 수 있는 것들
+
+Q1: scanCodeFile 결과를 캐싱해서 동일한 파일은 재검사하지 않도록 하려면 어떻게 구성해야 할까?
+
+Q2: 스캔 실패 시 CVC API의 전체 응답 로그를 안전하게 남기고 싶다면 어떤 방식이 적절할까?
+
+Q3: 악성코드 검사 결과를 DB에 기록하고 관리하는 시스템을 확장하려면 어떤 테이블 설계가 적절할까?
+
