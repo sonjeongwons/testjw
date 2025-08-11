@@ -1,292 +1,134 @@
-나는 java spring framework를 통해 아래와 같이 FileDto.java, V3ScannerController.java, TokenService.java를 작성 중이야.
-맨 아래 "validate값 예시"처럼 해당 json 값에 대해서 Admin 권한인지 체크하는 로직이 TokenService.java에 현재 추가되어있어. 나는 여기서 추가적으로 한가지 더 체크 하기를 원해. 
-user스코프 내 name이 "scf-service", "cvc-service" 인 것만 화이트리스트 체크방식으로 API 요청을 허용하도록 체크하고싶어. 해당 로직을 TokenService.java에 추가시켜줘. 그래서 role에 대해서 admin이고, user 내 name이 scf-service, cvc-service 인것만 허용하도록 이 결과를 만족하는 경우에만 validateToken 메소드 리턴값을 true를 반환하는 형식으로 하면어떨까해
+좋아. 아래 코드는 네 요구사항(Q1, Q2, Q3)을 모두 반영해 정리한 프로덕션용 설계야.
 
-// FileDto.java
+Q1: domain.name == "service" 인지도 강제
 
-package com.cvc.scanner.dto;
+Q2: 화이트리스트(허용 user.name)와 domain 값을 application.yml 외부화 + @ConfigurationProperties 바인딩
 
-import jakarta.validation.constraints.NotBlank;
-import lombok.*;
-import jakarta.validation.Valid;
-
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-@Builder
-public class FileDto {
-
-    @NotBlank(message = "파일명을 입력해주세요")
-    private String fileName;
-
-    @NotBlank(message = "파일 데이터를 입력해주세요")
-    private String fileData;
-
-    @Data
-    @AllArgsConstructor
-    @NoArgsConstructor
-    @Builder
-    public static class Request {
-
-        @NotBlank(message = "파일명을 입력해주세요")
-        private String fileName;
-
-        @NotBlank(message = "파일 데이터를 입력해주세요")
-        private String fileData;
-    }
-
-    @Data
-    @AllArgsConstructor
-    @NoArgsConstructor
-    @Builder
-    public static class Response {
-
-        private String fileName;
-
-        private int returnCode;
-
-        private String message;
-    }
-}
-
-// V3ScannerController.java
-
-package com.cvc.scanner.controller;
-
-import com.cvc.scanner.dto.FileDto;
-import com.cvc.scanner.service.TokenService;
-import com.cvc.scanner.service.V3ScannerService;
-import com.sun.net.httpserver.HttpsServer;
-import jakarta.servlet.http.HttpServletRequest;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
-import java.io.InputStream;
-import java.util.Random;
-
-import org.springframework.http.HttpStatus;
-import jakarta.validation.Valid;
-import org.springframework.web.multipart.MultipartFile;
-
-import java.util.Map;
-
-@RestController
-@RequestMapping("/api/v1/scanner")
-public class V3ScannerController {
-
-    private static final Logger logger = LoggerFactory.getLogger(V3ScannerController.class);
-
-    @Autowired
-    private V3ScannerService v3ScannerService;
-    @Autowired
-    private TokenService tokenService;
-
-    @GetMapping("/simple")
-    public ResponseEntity<Map<String, Object>> simpleScan(@RequestHeader("X-Subject-Token") String Token, @RequestParam String fileName) {
-        logger.info("Simple scan requested. Filename: {}, API Key: {}", fileName, Token);
-//        if (v3ScannerService.validateToken(Token)) {
-//            logger.warn("Unauthorized access attempt with API Key: {}", Token);
-//            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
-//        }
-        return ResponseEntity.ok(v3ScannerService.simpleScan(fileName));
-    }
-
-    @GetMapping("/remote")
-    public ResponseEntity<Map<String, Object>> remoteScan(@RequestHeader("X-Subject-Token") String Token, @RequestParam String fileName) {
-        logger.info("Remote scan requested. Filename: {}, API Key: {}", fileName, Token);
-//        if (v3ScannerService.validateToken(Token)) {
-//            logger.warn("Unauthorized access attempt with API Key: {}", Token);
-//            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
-//        }
-        return ResponseEntity.ok(v3ScannerService.remoteScan(fileName));
-    }
-
-    @GetMapping("/detail")
-    public ResponseEntity<Map<String, Object>> detailScan(@RequestHeader("X-Subject-Token") String Token, @RequestParam String fileName) {
-        logger.info("Detail scan requested. Filename: {}, API Key: {}", fileName, Token);
-//        if (v3ScannerService.validateToken(Token)) {
-//            logger.warn("Unauthorized access attempt with API Key: {}", Token);
-//            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", "Invalid API Key"));
-//        }
-        return ResponseEntity.ok(v3ScannerService.detailScan(fileName));
-    }
+Q3: X-Auth-Token(admin 토큰) 발급을 Caffeine 캐시(TTL) 로 최적화
 
 
-    @PostMapping("/base64-scan")
-    public ResponseEntity<FileDto.Response> scanFile(
-            @RequestHeader("X-Subject-Token") String Token,
-            @Valid @RequestBody FileDto.Request fileDtoRequest) {
-        logger.info("File scan requested. Filename: {}, API Key: {}", fileDtoRequest.getFileName(), Token);
-//        if (v3ScannerService.validateToken(Token)) {
-//            logger.warn("Unauthorized access attempt with API Key: {}", Token);
-//            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-//                    FileDto.Response.builder()
-//                            .fileName(fileDtoRequest.getFileName())
-//                            .returnCode(HttpStatus.UNAUTHORIZED.value())
-//                            .message("Unauthorized: Invalid API Key")
-//                            .build()
-//            );
-//        }
-        FileDto.Response response = v3ScannerService.scanBase64File(fileDtoRequest);
-        return ResponseEntity.status(HttpStatus.OK).body(response);
-    }
 
-    @PostMapping(value = "/multipart-scan", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<FileDto.Response> scanMultipartFile(
-            @RequestHeader("X-Subject-Token") String token,
-            @RequestPart("file") MultipartFile file) {
+---
 
-        logger.info("Multipart file scan requested. Filename: {}, User Token: {}", file.getOriginalFilename(), token);
-        boolean isValid = tokenService.validateToken(token);
-        if(!isValid){
-            logger.info("인증 토큰이 유효하지 않습니다.");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(FileDto.Response.builder()
-                            .fileName(file.getOriginalFilename())
-                            .returnCode(HttpStatus.UNAUTHORIZED.value())
-                            .message("인증 토큰이 유효하지 않습니다.")
-                            .build());
-        }
-        FileDto.Response response = v3ScannerService.scanMultipartFile(file);
-        return ResponseEntity.status(HttpStatus.OK).body(response);
-    }
+1) application.yml 예시
 
-    @PostMapping(value = "/binary-scan", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
-    public ResponseEntity<FileDto.Response> scanBinaryFile(
-            @RequestHeader("X-Subject-Token") String Token,
-            @RequestHeader("File-Name") String fileName,
-            HttpServletRequest request) {
+iam:
+  api:
+    endpoint: https://iam.example.com/v3/auth/tokens # 실제 값으로
 
-//        if (v3ScannerService.validateToken(Token)) {
-//            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-//                    FileDto.Response.builder()
-//                            .fileName(fileName)
-//                            .returnCode(HttpStatus.UNAUTHORIZED.value())
-//                            .message("Unauthorized: Invalid API Key")
-//                            .build()
-//            );
-//        }
+cvc:
+  service:
+    id: cvc-admin           # 실제 값으로
+    pw: very-secret         # 실제 값으로
 
-        try (InputStream inputStream = request.getInputStream()) {
-            FileDto.Response response = v3ScannerService.scanBinaryFile(fileName, inputStream);
-            return ResponseEntity.status(HttpStatus.OK).body(response);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    FileDto.Response.builder()
-                            .fileName(fileName)
-                            .returnCode(-1)
-                            .message("Error processing file: " + e.getMessage())
-                            .build()
-            );
-        }
-    }
+security:
+  token:
+    user-domain: service                    # Q1: 강제할 domain 값
+    whitelist-user-names:                   # Q2: user.name 화이트리스트
+      - scf-service
+      - cvc-service
+    cache:
+      admin-token-ttl-seconds: 300          # Q3: admin 토큰 TTL(초)
 
-    @PostMapping(value = "/upload-chunk", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
-    public ResponseEntity<String> uploadChunk(
-            @RequestHeader("File-Id") String fileId,  // 파일 ID
-            @RequestHeader("Chunk-Index") int chunkIndex,  // 청크 인덱스
-            @RequestHeader("Total-Chunks") int totalChunks,  // 전체 청크 개수
-            @RequestBody byte[] chunkData) {  // 청크 데이터
 
-        try {
-            v3ScannerService.saveChunk(fileId, chunkIndex, chunkData);
-            return ResponseEntity.ok("Chunk uploaded successfully.");
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Chunk upload failed: " + e.getMessage());
-        }
-    }
+---
+
+2) 설정 바인딩: TokenSecurityProperties.java
+
+package com.cvc.scanner.config;
+
+import lombok.Getter;
+import lombok.Setter;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Getter
+@Setter
+@ConfigurationProperties(prefix = "security.token")
+public class TokenSecurityProperties {
 
     /**
-     * 병합 및 스캔 엔드포인트
+     * Token 내 user.domain.name 이 이 값과 같아야 유효(대소문자 무시).
+     * 예) "service"
      */
-    @PostMapping("/merge-chunks")
-    public ResponseEntity<FileDto.Response> mergeChunksAndScan(
-            @RequestHeader("File-Id") String fileId,  // 파일 ID
-            @RequestHeader("File-Name") String fileName) {  // 원래 파일 이름
+    private String userDomain;
 
-        try {
-            FileDto.Response response = v3ScannerService.mergeChunksAndScan(fileId, fileName);
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    FileDto.Response.builder()
-                            .fileName(fileName)
-                            .returnCode(-1)
-                            .message("Failed to merge and scan chunks: " + e.getMessage())
-                            .build()
-            );
-        }
+    /**
+     * 허용할 user.name 화이트리스트.
+     * 예) ["scf-service", "cvc-service"]
+     */
+    private List<String> whitelistUserNames = new ArrayList<>();
+
+    private CacheProperties cache = new CacheProperties();
+
+    @Getter @Setter
+    public static class CacheProperties {
+        /**
+         * admin 토큰 TTL(초). 기본 300초.
+         */
+        private long adminTokenTtlSeconds = 300;
     }
+}
 
-    @GetMapping("/status")
-    public ResponseEntity<FileDto.Response> getStatus() {
-        logger.info("API status requested.");
-        String[] fileNames = {"TestFile", "TestFolder","TestZip","Wow","Hello"};
-        Random random = new Random();
-        String fileName=fileNames[random.nextInt(fileNames.length)];
-        return ResponseEntity.status(HttpStatus.OK).body(
-                FileDto.Response.builder()
-                        .fileName(fileName)
-                        .returnCode(0)
-                        .message("API is running")
-                        .build()
-        );
-    }
+> 바인딩 활성화를 위해 @EnableConfigurationProperties가 필요하다.
 
-    @PostMapping("/status")
-    public ResponseEntity<FileDto.Response> modifyStatus(
-            @RequestHeader("File-Id") String fileId,  // 파일 ID
-            @RequestHeader("File-Name") String fileName) {
-        logger.info("Post메소드가 호출되었습니다.");
-        String[] numbers = {"0","1"};
-        Random random = new Random();
-        String number=numbers[random.nextInt(numbers.length)];
-        return ResponseEntity.status(HttpStatus.OK).body(
-                FileDto.Response.builder()
-                        .fileName(fileName)
-                        .returnCode(Integer.parseInt(number))
-                        .message("File ID is : " + fileId)
-                        .build()
-        );
-    }
 
-    @GetMapping("/test")
-    public ResponseEntity<FileDto.Response> callTest(
-            @RequestHeader("File-Id") String fileId,  // 파일 ID
-            @RequestHeader("File-Name") String fileName) {
-        logger.info("TEST API is Called. 파일ID는 " + fileId +" 이고, 파일이름은 " + fileName + " 입니다.");
-        return ResponseEntity.status(HttpStatus.OK).body(
-                FileDto.Response.builder()
-                        .fileName(fileName)
-                        .returnCode(-1)
-                        .message("마지막으로 파일ID는 " + fileId)
-                        .build()
-        );
+
+
+---
+
+3) 캐시 및 설정 활성화: CacheConfig.java
+
+package com.cvc.scanner.config;
+
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import java.time.Duration;
+
+@Configuration
+@EnableConfigurationProperties(TokenSecurityProperties.class)
+public class CacheConfig {
+
+    @Bean
+    public Cache<String, String> adminTokenCache(TokenSecurityProperties props) {
+        long ttl = props.getCache().getAdminTokenTtlSeconds();
+        return Caffeine.newBuilder()
+                .expireAfterWrite(Duration.ofSeconds(ttl))
+                .maximumSize(1) // admin 토큰 하나만 캐시
+                .build();
     }
 }
 
 
-// TokenService.java
+---
+
+4) 서비스 코드 개편: TokenService.java
 
 package com.cvc.scanner.service;
 
+import com.cvc.scanner.config.TokenSecurityProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.benmanes.caffeine.cache.Cache;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class TokenService {
 
     @Value("${cvc.service.id}")
@@ -299,13 +141,25 @@ public class TokenService {
     private String iamApiEndpoint;
 
     private final RestTemplate restTemplate;
+    private final TokenSecurityProperties securityProps;
+    private final Cache<String, String> adminTokenCache;
 
-    public TokenService(RestTemplate restTemplate) {
-        this.restTemplate = restTemplate;
+    private static final String ADMIN_TOKEN_CACHE_KEY = "adminToken";
+
+    /**
+     * admin 토큰을 TTL 캐시에서 획득. 없으면 IAM에서 발급 후 캐시.
+     */
+    public String getCvcAdminToken() {
+        String cached = adminTokenCache.getIfPresent(ADMIN_TOKEN_CACHE_KEY);
+        if (cached != null && !cached.isBlank()) {
+            return cached;
+        }
+        String fresh = fetchAdminTokenFromIam();
+        adminTokenCache.put(ADMIN_TOKEN_CACHE_KEY, fresh);
+        return fresh;
     }
 
-    public String getCvcAdminToken() {
-        //String url = iamApiEndpoint + "/v3/auth/tokens?nocatalog=null";
+    private String fetchAdminTokenFromIam() {
         String url = iamApiEndpoint;
 
         Map<String, Object> body = Map.of(
@@ -327,12 +181,22 @@ public class TokenService {
         headers.setContentType(MediaType.APPLICATION_JSON);
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-
         ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
-        return response.getHeaders().getFirst("X-Subject-Token");
+
+        String token = response.getHeaders().getFirst("X-Subject-Token");
+        if (token == null || token.isBlank()) {
+            throw new IllegalStateException("IAM으로부터 admin 토큰을 획득하지 못했습니다.");
+        }
+        return token;
     }
+
+    /**
+     * 사용자 토큰 검증:
+     * 1) user.domain.name == configured domain (대소문자 무시)
+     * 2) user.name ∈ whitelist
+     * 3) roles 내 admin 포함
+     */
     public boolean validateToken(String userToken) {
-        //String url = iamApiEndpoint + "/v3/auth/tokens?nocatalog=null";
         String url = iamApiEndpoint;
         String adminToken = getCvcAdminToken();
 
@@ -344,81 +208,140 @@ public class TokenService {
 
         try {
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
-
-            if (!response.getStatusCode().is2xxSuccessful()) {
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
                 return false;
             }
 
-            String responseBody = response.getBody();
             ObjectMapper objectMapper = new ObjectMapper();
-            JsonNode root = objectMapper.readTree(responseBody);
-            JsonNode roles = root.path("token").path("roles");
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode tokenNode = root.path("token");
 
-            for (JsonNode role : roles) {
-                String roleName = role.path("name").asText();
-                if ("admin".equalsIgnoreCase(roleName)) {
-                    return true;
-                }
+            // Q1) domain.name == configured domain ?
+            String expectedDomain = nullSafeLower(securityProps.getUserDomain());
+            String actualDomain = nullSafeLower(tokenNode.path("user").path("domain").path("name").asText(null));
+            if (expectedDomain != null && !expectedDomain.equals(actualDomain)) {
+                return false;
             }
 
-            return false;
+            // Q2) user.name in whitelist ?
+            String userName = tokenNode.path("user").path("name").asText(null);
+            if (!isWhitelistedUser(userName)) {
+                return false;
+            }
+
+            // admin role ?
+            JsonNode roles = tokenNode.path("roles");
+            if (!hasAdminRole(roles)) {
+                return false;
+            }
+
+            return true;
 
         } catch (Exception e) {
-            throw new RuntimeException("Response 파싱에러: " , e);
+            throw new RuntimeException("토큰 검증 응답 파싱 오류", e);
         }
+    }
+
+    private boolean isWhitelistedUser(String userName) {
+        if (userName == null) return false;
+        // 설정값을 소문자 Set으로 정규화
+        Set<String> white = securityProps.getWhitelistUserNames()
+                .stream()
+                .filter(n -> n != null && !n.isBlank())
+                .map(this::nullSafeLower)
+                .collect(Collectors.toUnmodifiableSet());
+        return white.contains(userName.toLowerCase());
+    }
+
+    private boolean hasAdminRole(JsonNode roles) {
+        if (roles == null || !roles.isArray()) return false;
+        for (JsonNode role : roles) {
+            String roleName = role.path("name").asText("");
+            if ("admin".equalsIgnoreCase(roleName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String nullSafeLower(String s) {
+        return (s == null) ? null : s.toLowerCase();
     }
 }
 
 
+---
 
+5) 의존성 추가
 
-// validate값 예시
+Maven (pom.xml):
 
-{
-  "token": {
-    "methods": [
-      "password"
-    ],
-    "user": {
-      "domain": {
-        "id": "0860cdd74e06475395d29f14848cba22",
-        "name": "service"
-      },
-      "id": "b5a83c42cf204d74842c6f0bc2fbb08a",
-      "name": "scf-service",
-      "password_expires_at": null
-    },
-    "audit_ids": [
-      "t2K_voIxTSiK9yyQD3d_8w"
-    ],
-    "expires_at": "2025-05-02T15:21:21.000000Z",
-    "issued_at": "2025-05-02T03:21:21.000000Z",
-    "project": {
-      "domain": {
-        "id": "0860cdd74e06475395d29f14848cba22",
-        "name": "service"
-      },
-      "id": "33b532c466824bcf9324101a3c6f3015",
-      "name": "service-dp-scf"
-    },
-    "is_domain": false,
-    "roles": [
-      {
-        "id": "521b706a398243f281f7e4b98296f671",
-        "name": "admin"
-      },
-      {
-        "id": "a5c62ffa0e7a4ccca077094e64ecc35a",
-        "name": "reader"
-      },
-      {
-        "id": "0b0467920fe04cbd9d479e2eab84575a",
-        "name": "manager"
-      },
-      {
-        "id": "cbf6c7f89b084734927bd40bf8ce0681",
-        "name": "member"
-      }
-    ]
-  }
+<dependencies>
+  <!-- ... 기존 의존성 ... -->
+
+  <!-- Caffeine Cache -->
+  <dependency>
+    <groupId>com.github.ben-manes.caffeine</groupId>
+    <artifactId>caffeine</artifactId>
+  </dependency>
+
+  <!-- 선택: @ConfigurationProperties 메타데이터 생성 -->
+  <dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-configuration-processor</artifactId>
+    <optional>true</optional>
+  </dependency>
+</dependencies>
+
+Gradle (build.gradle):
+
+dependencies {
+    // ... 기존 의존성 ...
+
+    implementation "com.github.ben-manes.caffeine:caffeine"
+    annotationProcessor "org.springframework.boot:spring-boot-configuration-processor"
 }
+
+
+---
+
+6) 사용 흐름 요약
+
+1. 컨트롤러는 X-Subject-Token을 받아 tokenService.validateToken(token) 호출
+
+
+2. validateToken()은
+
+admin 토큰을 캐시에서 읽거나(없으면 발급)
+
+IAM에 사용자 토큰 조회
+
+user.domain.name == service 확인
+
+user.name ∈ {scf-service,cvc-service} 확인
+
+roles[*].name == admin 확인
+
+
+
+3. 모두 통과 시 true 리턴 → 서비스 로직 진행
+
+
+
+
+---
+
+필요하면 domain과 whitelist를 ConfigMap → Spring Cloud Kubernetes로 연결해 무중단 롤링 시 실시간 갱신까지 확장할 수 있다(프로퍼티 리프레시).
+
+Q1
+
+화이트리스트를 운영/스테이지 환경별로 다르게 두고 싶어. application-{profile}.yml 조합으로 환경별 리스트를 관리할 때, 중복 항목이나 오타를 빌드 타임에 잡으려면 어떤 검증 로직을 @PostConstruct에 넣을까?
+
+Q2
+
+admin 토큰 TTL이 만료되기 직전에 사전 갱신(prefetch)하고 싶어. Caffeine의 refreshAfterWrite나 별도 스케줄러로 미리 갱신하려면 어떤 접근이 더 안정적일까? 장단점을 비교해줘.
+
+Q3
+
+IAM 응답 스키마가 바뀔 때(예: token.user.domain → token.userDomain)를 대비해 하위호환 파서를 만들려면, 현재 ObjectMapper 코드에 어떤 보호 로직을 추가하는 게 좋을까?
+
