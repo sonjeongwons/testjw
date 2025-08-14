@@ -1,250 +1,382 @@
-package com.cvc.scanner.service;
+나는 현재 docker-compose를 통해 아래 파일들을 구동하고있어. 기존에는 otelcol-0.118.0.yaml 파일과 docker-compose.yaml 파일을 통해 docker-compose up 명령어로 애플리케이션을 구동했지만, 난 pipelines.yaml, data-prepper-config.yaml 을 신규로 추가함으로써 data-prepper 애플리케이션을 추가로 docker-compose.yaml에 추가하여 구동할거야.
+일단 docker-compose로 해당 신규로 추가된 yaml들을 구동 못하고있어서 아래 <실행옵션> 예시로 docker 명령어로 애플리케이션을 기동하여 검증했어. 해당 명령어로 docker구동하지않고 최종적으로는 내 docker-compose.yaml 파일에 아래 내용들을 업데이트해서 data-prepper 애플리케이션을 구동하고싶어. docker-compose.yaml 파일을 수정해봐.
 
-import com.cvc.scanner.config.TokenSecurityProperties;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.benmanes.caffeine.cache.Cache;
-import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
-import org.springframework.stereotype.Service;
-import org.springframework.web.client.HttpStatusCodeException;
-import org.springframework.web.client.RestTemplate;
+<실행옵션>
+docker run --add-host opensearch-dashboard-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136 \
+  --name data-prepper -p 4900:4900 \
+  -v ./pipelines.yaml:/usr/share/data-prepper/pipelines/pipelines.yaml \
+  -v ./data-prepper-config.yaml:/usr/share/data-prepper/config/data-prepper-config.yaml \
+  harbor-paasdev.samsungsdscloud.com/lma/data-prepper:2.10.1
 
-import java.time.Duration;
-import java.time.Instant;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 
-@Service
-@RequiredArgsConstructor
-public class TokenService {
+// pipelines.yaml
+otel-logs-pipeline:
+  buffer:
+    bounded_blocking:
+      batch_size: 200
+      buffer_size: 50000
+  processor:
+  - date:
+      destination: '@timestamp'
+      from_time_received: true
+  sink:
+  - opensearch:
+      hosts:
+      - https://opensearch-paas.kr-west1.dev2.samsungsdscloud.com
+      index: cvc-logs-%{yyyy.MM.dd}
+      index_type: custom
+      insecure: true
+      password: '!CVC_PW123'
+      username: cvc_data
+  source:
+    otel_logs_source:
+      authentication:
+        unauthenticated:
+      port: 21892
+      ssl: false
+  workers: 3
+otel-trace-pipeline:
+  buffer:
+    bounded_blocking:
+      batch_size: 200
+      buffer_size: 50000
+  delay: "100"
+  processor:
+  - date:
+      destination: '@timestamp'
+      from_time_received: true
+  sink:
+  - pipeline:
+      name: raw-trace-pipeline
+  - pipeline:
+      name: service-map-pipeline
+  source:
+    otel_trace_source:
+      authentication:
+        unauthenticated:
+      port: 21890
+      ssl: false
+  workers: 3
+raw-trace-pipeline:
+  buffer:
+    bounded_blocking:
+      batch_size: 200
+      buffer_size: 50000
+  processor:
+  - otel_trace_raw:
+  - otel_trace_group:
+      hosts:
+      - https://opensearch-paas.kr-west1.dev2.samsungsdscloud.com
+      insecure: true
+      password: '!CVC_PW123'
+      username: cvc_data
+  sink:
+  - opensearch:
+      hosts:
+      - https://opensearch-paas.kr-west1.dev2.samsungsdscloud.com
+      index_type: trace-analytics-raw
+      insecure: true
+      password: '!CVC_PW123'
+      username: cvc_data
+  source:
+    pipeline:
+      name: otel-trace-pipeline
+  workers: 3
+service-map-pipeline:
+  buffer:
+    bounded_blocking:
+      batch_size: 200
+      buffer_size: 50000
+  delay: "100"
+  processor:
+  - service_map_stateful:
+  sink:
+  - opensearch:
+      hosts:
+      - https://opensearch-paas.kr-west1.dev2.samsungsdscloud.com
+      index_type: trace-analytics-service-map
+      insecure: true
+      password: '!CVC_PW123'
+      username: cvc_data
+  source:
+    pipeline:
+      name: otel-trace-pipeline
+  workers: 3
 
-    private static final Logger log = LoggerFactory.getLogger(TokenService.class);
 
-    @Value("${cvc.service.id}")
-    private String cvcServiceId;
 
-    @Value("${cvc.service.pw}")
-    private String cvcServicePw;
 
-    @Value("${iam.api.endpoint}")
-    private String iamApiEndpoint;
 
-    private final RestTemplate restTemplate;
-    private final TokenSecurityProperties securityProps;
-    private final Cache<String, String> adminTokenCache;
 
-    private static final String ADMIN_TOKEN_CACHE_KEY = "adminToken";
 
-    /** admin 토큰을 TTL 캐시에서 획득. 없으면 IAM에서 발급 후 캐시. */
-    public String getCvcAdminToken() {
-        String cached = adminTokenCache.getIfPresent(ADMIN_TOKEN_CACHE_KEY);
-        if (cached != null && !cached.isBlank()) {
-            log.debug("[AdminToken] cache=HIT token={}", maskToken(cached));
-            return cached;
-        }
-        log.info("[AdminToken] cache=MISS. fetching from IAM endpoint={}", iamApiEndpoint);
-        Instant t0 = Instant.now();
-        String fresh = fetchAdminTokenFromIam();
-        adminTokenCache.put(ADMIN_TOKEN_CACHE_KEY, fresh);
-        log.info("[AdminToken] fetched and cached. costMs={} token={}",
-                Duration.between(t0, Instant.now()).toMillis(), maskToken(fresh));
-        return fresh;
-    }
 
-    /** IAM에서 admin 토큰 발급 */
-    private String fetchAdminTokenFromIam() {
-        String url = iamApiEndpoint;
+// data-prepper-config.yaml
+ssl: false
+circuit_breakers:
+  heap:
+    usage: 0.8gb
+    reset: 5s
+    check_interval: 1s
+peer_forwarder:
+  ssl: false
+  ssl_insecure_disable_verification: true
 
-        Map<String, Object> body = Map.of(
-                "auth", Map.of(
-                        "identity", Map.of(
-                                "methods", List.of("password"),
-                                "password", Map.of(
-                                        "user", Map.of(
-                                                "name", cvcServiceId,
-                                                "domain", Map.of("name", "service"),
-                                                "password", "***masked***"
-                                        )
-                                )
-                        )
-                )
-        );
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
 
-        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
-        try {
-            Instant t0 = Instant.now();
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
-            long cost = Duration.between(t0, Instant.now()).toMillis();
+// otelcol-0.118.0.yaml
+extensions:
+  basicauth/otel:
+    client_auth:
+      username: 'cvc_data' # PARAM : connection.env value update
+      password: '!CVC_PW123' # PARAM : connection.env value update
+  file_storage/logs:
+    create_directory: true
+    directory: /var/lib/otelcol/file_storage/gateway
+    timeout: 1s
+    compaction:
+      on_rebound: true
+      rebound_needed_threshold_mib: 100
+      rebound_trigger_threshold_mib: 10
+      check_interval: 5s
+      cleanup_on_start: true
+      directory: /var/lib/otelcol/file_storage/gateway/tmp
 
-            String token = response.getHeaders().getFirst("X-Subject-Token");
-            log.debug("[AdminToken] IAM POST status={} costMs={} hasTokenHeader={}",
-                    response.getStatusCodeValue(), cost, token != null);
+processors:
+  batch: {}
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 462
+    limit_percentage: 80
+    spike_limit_mib: 92
+    spike_limit_percentage: 25
+  resourcedetection/system:
+    detectors: ["system"]
+    system:
+      hostname_sources: ["os"]
+  resource:
+    attributes:
+      - key: "lma-tenant"
+        value: "cvc"  # PARAM :: vmdb1
+        action: insert
+      - key: "node"
+        value: 'cvc02'
+        action: insert
+  transform:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["host.name"], resource.attributes["host.name"])
+          - set(attributes["node.ip"], resource.attributes["node.ip"])
+          - set(attributes["process.command"], resource.attributes["process.command"])
+          - set(attributes["process.command_line"], resource.attributes["process.command_line"])
+          - set(attributes["process.executable.name"], resource.attributes["process.executable.name"])
+          - set(attributes["process.executable.path"], resource.attributes["process.executable.path"])
+          - set(attributes["process.owner"], resource.attributes["process.owner"])
+          - set(attributes["process.parent_pid"], resource.attributes["process.parent_pid"])
+          - set(attributes["process.pid"], resource.attributes["process.pid"])
 
-            if (token == null || token.isBlank()) {
-                log.error("[AdminToken] missing X-Subject-Token header. status={} bodySize={}",
-                        response.getStatusCodeValue(), safeLen(response.getBody()));
-                throw new IllegalStateException("IAM으로부터 admin 토큰을 획득하지 못함");
-            }
-            return token;
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: '0.0.0.0:4317'
+      http:
+        endpoint: '0.0.0.0:4318'
 
-        } catch (HttpStatusCodeException e) {
-            log.error("[AdminToken] IAM POST failed status={} body={}",
-                    e.getStatusCode().value(), safeSnippet(e.getResponseBodyAsString(), 512));
-            throw e;
-        } catch (Exception e) {
-            log.error("[AdminToken] IAM POST unexpected error: {}", e.toString(), e);
-            throw e;
-        }
-    }
+  # METRIC Reciever START
+  hostmetrics:
+    collection_interval: 30s
+    root_path: /hostfs
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.logical.count:
+            enabled: true
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+          system.memory.limit:
+            enabled: true
+      load:
+      disk:
+      filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+      network:
+      paging:
+      processes:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'otel-collector-cvc02'  # PARAM :: -db1 
+          scrape_interval: 30s # default 5s
+          static_configs:
+            - targets: ['0.0.0.0:8888']
+  # METRIC Reciever END
 
-    /**
-     * 사용자 토큰 검증:
-     * 1) user.domain.name == configured domain (대소문자 무시)
-     * 2) user.name ∈ whitelist
-     * 3) roles 내 admin 포함
-     */
-    public boolean validateToken(String userToken) {
-        String url = iamApiEndpoint;
-        String adminToken = getCvcAdminToken();
+  # LOG Reciever START
+  filelog:
+    exclude:
+    - /var/log/pods/lma_agent-opentelemetry-collector*_*/opentelemetry-collector/*.log
+    include:
+    - /cvc/log/scanner*.log
+    include_file_name: false
+    include_file_path: true
+    retry_on_failure:
+      enabled: true
+    start_at: end
+  # LOG Reciever END
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("X-Auth-Token", adminToken);
-        headers.set("X-Subject-Token", userToken);
+exporters:
+  debug: {}
+  # if you need to debug log on pod, use this exporters on piplines
+  prometheusremotewrite/otel:
+    endpoint: "https://cortex-paas.kr-west1.dev2.samsungsdscloud.com/api/v1/push" # vmware cortex remote write url
+    tls:
+      insecure: true
+    external_labels:
+      otel_collector: server
+      node_name: 'cvc02'
+      node_ip: 'cvc02'
+    headers:
+      X-Scope-OrgID: 'cvc' # PARAM :: cortex tenant id.
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 24h
+    remote_write_queue:
+      enabled: true
+      queue_size: 10000
+    # timeout: 5s
+  opensearch/otel:
+    # Index Pattern will be : ss4o_{type}-{dataset}-{namespace}
+    #dataset: apps
+    #namespace: otel
+    # If use this, pattern will be {logs_index}
+    logs_index: cvc-logs
+    http:
+      tls:
+        insecure_skip_verify: true
+      endpoint: https://opensearch-paas.kr-west1.dev2.samsungsdscloud.com
+      timeout: 2m
+      headers:
+        #Content-Type: "application/json"
+      auth:
+        authenticator: basicauth/otel
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 24h
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 100000
+      storage: file_storage/logs
+    # timeout: 5s
+  awss3/otel:
+    s3uploader:
+      region: 'kr-west1'
+      s3_bucket: 'paas-lma-logs'
+      s3_prefix: 'cvc'
+      s3_partition: 'hour'
+      s3_force_path_style: true
+      disable_ssl: true
+      endpoint: 'https://object-store.private.kr-west1.dev2.samsungsdscloud.com'
+    sending_queue:
+      enabled: true
+      num_consumers: 1
+      queue_size: 100000
+      storage: file_storage/logs
+  otlp/trace-data-prepper:
+    endpoint: data-prepper:21890
+    tls:
+      insecure: true
+      insecure_skip_verify: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 24h
+    sending_queue:
+      enabled: true
+      num_consumers: 3
+      queue_size: 100000
+      storage: file_storage/logs
+    timeout: 5s
+service:
+  extensions:
+    - basicauth/otel
+    - file_storage/logs
+  telemetry:
+    metrics:
+      address: 0.0.0.0:8888
+      level: detailed
+  pipelines:
+    logs:
+      exporters: [opensearch/otel, awss3/otel]
+      processors: [resource, transform, memory_limiter, batch]
+      receivers: [otlp, filelog]
+    metrics:
+      exporters: [prometheusremotewrite/otel]
+      processors: [resourcedetection/system, resource, transform, memory_limiter, batch]
+      receivers: [otlp, hostmetrics, prometheus]
+    traces:
+      exporters: [otlp/trace-data-prepper]
+      processors: [memory_limiter, batch]
+      receivers: [otlp]
 
-        HttpEntity<Void> request = new HttpEntity<>(headers);
 
-        // 운영자 디버깅에 도움 되는 컨피그 로그 (info 1회/요청)
-        log.debug("[Validate] cfg expectedDomain={} whitelist={}",
-                nullSafeLower(securityProps.getUserDomain()),
-                securityProps.getWhitelistUserNames());
 
-        try {
-            Instant t0 = Instant.now();
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
-            long cost = Duration.between(t0, Instant.now()).toMillis();
 
-            if (!response.getStatusCode().is2xxSuccessful()) {
-                log.warn("[Validate] IAM GET non-2xx status={} costMs={} body={}",
-                        response.getStatusCodeValue(), cost, safeSnippet(response.getBody(), 512));
-                return false;
-            }
-            if (response.getBody() == null) {
-                log.warn("[Validate] IAM GET body=null costMs={}", cost);
-                return false;
-            }
+// docker-compose.yaml
+services:
+  otel-collector:
+    user: "0:0"
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0
+    volumes:
+      - /cvc/otelcol-0.118.0.yaml:/etc/otelcol-contrib/config.yaml
+      - /var/lib/otelcol/file_storage/gateway:/var/lib/otelcol/file_storage/gateway
+      - /cvc/log:/cvc/log
+      - /:/hostfs:ro
+    environment:
+      - AWS_ACCESS_KEY_ID=2ea2be5027cf41789f42f86de3a2ff8d
+      - AWS_SECRET_ACCESS_KEY=3ef2f008-6a20-4af2-8d7c-65d2a39320dc
+    ports:
+      - 1888:1888 # pprof extension
+      - 8888:8888 # Prometheus metrics exposed by the Collector
+      - 8889:8889 # Prometheus exporter metrics
+      - 13133:13133 # health_check extension
+      - 4317:4317 # OTLP gRPC receiver
+      - 4318:4318 # OTLP http receiver
+      - 55679:55679 # zpages extension
+    extra_hosts:
+      - "cortex-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      - "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      - "object-store.private.kr-west1.dev2.samsungsdscloud.com:198.19.126.41"
+  scanner:
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest
+    ports:
+      - 8081:8081
+    volumes:
+      - /cvc/log:/cvc/log
+      - /tmp:/tmp
+    environment:
+      - CVC_KEYSTONE_ID=cvc-service
+      - CVC_KEYSTONE_PW=CVCscanner1!
+      - IAM_API_ENDPOINT=https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null
+    extra_hosts:
+      - "iam-i.kr-west1.dev2.samsungsdscloud.com:198.18.2.52"
+      - "identity-i.kr-west1.dev2.samsungsdscloud.com:198.18.2.52"
+      - "host.docker.internal:host-gateway"
 
-            String body = response.getBody();
-            log.debug("[Validate] IAM GET ok costMs={} bodySize={}", cost, safeLen(body));
 
-            ObjectMapper objectMapper = new ObjectMapper();
-            JsonNode root = objectMapper.readTree(body);
-            JsonNode tokenNode = root.path("token");
+  
 
-            // 추출: user/domain/roles
-            String expectedDomain = nullSafeLower(securityProps.getUserDomain());
-            String actualDomain = nullSafeLower(tokenNode.path("user").path("domain").path("name").asText(null));
-            String userName     = tokenNode.path("user").path("name").asText(null);
-
-            log.debug("[Validate] claims userName={} actualDomain={}", userName, actualDomain);
-
-            // 1) domain 체크
-            if (expectedDomain != null && !expectedDomain.equals(actualDomain)) {
-                log.warn("[Validate] domain mismatch expected={} actual={}", expectedDomain, actualDomain);
-                return false;
-            }
-
-            // 2) 화이트리스트 체크
-            boolean whitelisted = isWhitelistedUser(userName);
-            if (!whitelisted) {
-                log.warn("[Validate] user not in whitelist userName={}", userName);
-                return false;
-            }
-
-            // 3) admin role 체크
-            JsonNode roles = tokenNode.path("roles");
-            boolean isAdmin = hasAdminRole(roles);
-            log.debug("[Validate] rolesCount={} isAdmin={}", roles != null && roles.isArray() ? roles.size() : -1, isAdmin);
-            if (!isAdmin) {
-                log.warn("[Validate] admin role missing for userName={}", userName);
-                return false;
-            }
-
-            log.info("[Validate] success userName={} domain={} result=true", userName, actualDomain);
-            return true;
-
-        } catch (HttpStatusCodeException e) {
-            log.error("[Validate] IAM GET failed status={} body={} userToken={} adminToken={}",
-                    e.getStatusCode().value(),
-                    safeSnippet(e.getResponseBodyAsString(), 512),
-                    maskToken(userToken),
-                    maskToken(adminToken));
-            return false; // 운영 관점에선 401로 빠져야 하므로 false 반환
-        } catch (Exception e) {
-            log.error("[Validate] unexpected error: {} userToken={} adminToken={}",
-                    e.toString(), maskToken(userToken), maskToken(adminToken), e);
-            return false;
-        }
-    }
-
-    private boolean isWhitelistedUser(String userName) {
-        if (userName == null) {
-            log.debug("[Whitelist] userName=null");
-            return false;
-        }
-        Set<String> white = securityProps.getWhitelistUserNames()
-                .stream()
-                .filter(n -> n != null && !n.isBlank())
-                .map(this::nullSafeLower)
-                .collect(Collectors.toUnmodifiableSet());
-        boolean contains = white.contains(userName.toLowerCase());
-        log.debug("[Whitelist] userName={} allowed={}", userName, contains);
-        return contains;
-    }
-
-    private boolean hasAdminRole(JsonNode roles) {
-        if (roles == null || !roles.isArray()) {
-            log.debug("[Roles] roles missing or not array");
-            return false;
-        }
-        for (JsonNode role : roles) {
-            String roleName = role.path("name").asText("");
-            if ("admin".equalsIgnoreCase(roleName)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** 보안: 토큰 마스킹(앞 6자리만 노출) */
-    private String maskToken(String t) {
-        if (t == null) return "null";
-        int keep = Math.min(6, t.length());
-        return t.substring(0, keep) + "****(" + t.length() + ")";
-    }
-
-    /** 본문 길이만 로깅 */
-    private int safeLen(String s) {
-        return s == null ? -1 : s.length();
-    }
-
-    /** 본문 스니펫 로깅(민감값 있을 수 있으므로 길이 제한) */
-    private String safeSnippet(String s, int max) {
-        if (s == null) return "null";
-        String snippet = s.replaceAll("\\s+", " ");
-        return snippet.length() <= max ? snippet : snippet.substring(0, max) + "...";
-    }
-
-    private String nullSafeLower(String s) {
-        return (s == null) ? null : s.toLowerCase();
-    }
-}
+  
