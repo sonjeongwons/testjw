@@ -472,6 +472,145 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
-  
 
-  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#!/bin/sh
+# 최소 권한(0555)로 배포, set -x 금지, 출력 금지
+
+# 안전한 읽기 함수: 파일 존재/권한만 검사, 값은 출력/로그 금지
+read_secret() {
+  f="$1"
+  [ -r "$f" ] || { echo "secret not readable: $f" >&2; exit 1; }
+  # shellcheck disable=SC2002
+  cat "$f"
+}
+
+# 필요한 경우에만 export. 값은 절대 echo/printf로 출력하지 않음.
+[ -f /run/secrets/aws_access_key_id ]       && export AWS_ACCESS_KEY_ID="$(read_secret /run/secrets/aws_access_key_id)"
+[ -f /run/secrets/aws_secret_access_key ]   && export AWS_SECRET_ACCESS_KEY="$(read_secret /run/secrets/aws_secret_access_key)"
+[ -f /run/secrets/cvc_keystone_id ]         && export CVC_KEYSTONE_ID="$(read_secret /run/secrets/cvc_keystone_id)"
+[ -f /run/secrets/cvc_keystone_pw ]         && export CVC_KEYSTONE_PW="$(read_secret /run/secrets/cvc_keystone_pw)"
+
+# 추가로, SDK 표준 경로 사용이 필요하면 여기에 설정 (값 자체는 비밀이 아님)
+# export AWS_SHARED_CREDENTIALS_FILE=/run/secrets/aws_credentials
+# export AWS_PROFILE=default
+
+# 프로세스를 교체하여 환경변수만 남기고 쉘은 종료 (ps에 쉘 인자/히스토리 최소화)
+exec "$@"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+services:
+  otel-collector:
+    user: "0:0"
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0
+
+    # 민감값은 파일로 마운트
+    volumes:
+      - /cvc/otelcol-0.118.0.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - /var/lib/otelcol/file_storage/gateway:/var/lib/otelcol/file_storage/gateway
+      - /cvc/log:/cvc/log
+      - /:/hostfs:ro
+      - ./secrets/aws_access_key_id:/run/secrets/aws_access_key_id:ro
+      - ./secrets/aws_secret_access_key:/run/secrets/aws_secret_access_key:ro
+      - ./entrypoints/with-secrets.sh:/usr/local/bin/with-secrets:ro
+
+    # 안전 엔트리포인트: 파일→env export 후 collector 실행
+    entrypoint: ["/usr/local/bin/with-secrets"]
+    command: ["/otelcol-contrib", "--config", "/etc/otelcol-contrib/config.yaml"]
+
+    ports:
+      - 1888:1888   # pprof extension
+      - 8888:8888   # Prometheus metrics (Collector)
+      - 8889:8889   # Prometheus exporter metrics
+      - 13133:13133 # health_check
+      - 4317:4317   # OTLP gRPC
+      - 4318:4318   # OTLP HTTP
+      - 55679:55679 # zpages
+
+    extra_hosts:
+      - "cortex-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      - "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      - "object-store.private.kr-west1.dev2.samsungsdscloud.com:198.19.126.41"
+
+    depends_on:
+      - data-prepper
+
+    restart: unless-stopped
+
+  data-prepper:
+    image: harbor-paasdev.samsungsdscloud.com/lma/data-prepper:2.10.1
+    container_name: data-prepper
+
+    ports:
+      - "4900:4900"     # 관리 포트
+      # 외부에서 직접 수집받을 게 아니라면 21890/21892는 노출 불필요
+      # - "21890:21890" # OTEL trace source
+      # - "21892:21892" # OTEL logs source
+
+    volumes:
+      - ./pipelines.yaml:/usr/share/data-prepper/pipelines/pipelines.yaml:ro
+      - ./data-prepper-config.yaml:/usr/share/data-prepper/config/data-prepper-config.yaml:ro
+
+    extra_hosts:
+      - "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      - "opensearch-dashboard-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+
+    # 헬스체크(준비 여부 확인 후 collector가 붙도록)
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4900"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+    restart: unless-stopped
+
+  scanner:
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest
+    ports:
+      - 8081:8081
+
+    volumes:
+      - /cvc/log:/cvc/log
+      - /tmp:/tmp
+      - ./secrets/cvc_keystone_id:/run/secrets/cvc_keystone_id:ro
+      - ./secrets/cvc_keystone_pw:/run/secrets/cvc_keystone_pw:ro
+      - ./entrypoints/with-secrets.sh:/usr/local/bin/with-secrets:ro
+
+    # 중요: 이미지의 기본 CMD를 유지하고, 우리 스크립트가 그 CMD를 exec한다.
+    # 대부분의 Spring Boot/Java 이미지에서 CMD가 설정되어 있으므로 작동한다.
+    # 만약 이미지가 ENTRYPOINT 기반이라면, 아래 주석 블록 참고.
+    entrypoint: ["/usr/local/bin/with-secrets"]
+
+    extra_hosts:
+      - "iam-i.kr-west1.dev2.samsungsdscloud.com:198.18.2.52"
+      - "identity-i.kr-west1.dev2.samsungsdscloud.com:198.18.2.52"
+      - "host.docker.internal:host-gateway"
+
+    restart: unless-stopped
+
