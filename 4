@@ -1,7 +1,3 @@
-아래 java 스프링프레임워크로 만든 TokenService.java 코드를 개선하고싶어.
-해당 로직들마다 로그를 추가하여 로직 수행 중 에러발생하거나 인증 토큰이 유효하지않거나 조건에 맞지않을때에 로그를 남겨 디버깅할때 참고되도록 개선하고싶어.
-로그를 남길때에 어떤 데이터가 주고받고 처리되고있는지에 대해서도 로그에 남기면 어플리케이션 운영할때 정말 도움될거같아 로그가 남겨지도록 로그를 추가해봐
-
 package com.cvc.scanner.service;
 
 import com.cvc.scanner.config.TokenSecurityProperties;
@@ -9,11 +5,16 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -22,6 +23,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class TokenService {
+
+    private static final Logger log = LoggerFactory.getLogger(TokenService.class);
 
     @Value("${cvc.service.id}")
     private String cvcServiceId;
@@ -38,19 +41,23 @@ public class TokenService {
 
     private static final String ADMIN_TOKEN_CACHE_KEY = "adminToken";
 
-    /**
-     * admin 토큰을 TTL 캐시에서 획득. 없으면 Keystone에서 발급 후 캐시.
-     */
+    /** admin 토큰을 TTL 캐시에서 획득. 없으면 IAM에서 발급 후 캐시. */
     public String getCvcAdminToken() {
         String cached = adminTokenCache.getIfPresent(ADMIN_TOKEN_CACHE_KEY);
         if (cached != null && !cached.isBlank()) {
+            log.debug("[AdminToken] cache=HIT token={}", maskToken(cached));
             return cached;
         }
+        log.info("[AdminToken] cache=MISS. fetching from IAM endpoint={}", iamApiEndpoint);
+        Instant t0 = Instant.now();
         String fresh = fetchAdminTokenFromIam();
         adminTokenCache.put(ADMIN_TOKEN_CACHE_KEY, fresh);
+        log.info("[AdminToken] fetched and cached. costMs={} token={}",
+                Duration.between(t0, Instant.now()).toMillis(), maskToken(fresh));
         return fresh;
     }
 
+    /** IAM에서 admin 토큰 발급 */
     private String fetchAdminTokenFromIam() {
         String url = iamApiEndpoint;
 
@@ -62,7 +69,7 @@ public class TokenService {
                                         "user", Map.of(
                                                 "name", cvcServiceId,
                                                 "domain", Map.of("name", "service"),
-                                                "password", cvcServicePw
+                                                "password", "***masked***"
                                         )
                                 )
                         )
@@ -73,13 +80,31 @@ public class TokenService {
         headers.setContentType(MediaType.APPLICATION_JSON);
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
 
-        String token = response.getHeaders().getFirst("X-Subject-Token");
-        if (token == null || token.isBlank()) {
-            throw new IllegalStateException("Keystone으로부터 admin 토큰을 획득하지 못함");
+        try {
+            Instant t0 = Instant.now();
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
+            long cost = Duration.between(t0, Instant.now()).toMillis();
+
+            String token = response.getHeaders().getFirst("X-Subject-Token");
+            log.debug("[AdminToken] IAM POST status={} costMs={} hasTokenHeader={}",
+                    response.getStatusCodeValue(), cost, token != null);
+
+            if (token == null || token.isBlank()) {
+                log.error("[AdminToken] missing X-Subject-Token header. status={} bodySize={}",
+                        response.getStatusCodeValue(), safeLen(response.getBody()));
+                throw new IllegalStateException("IAM으로부터 admin 토큰을 획득하지 못함");
+            }
+            return token;
+
+        } catch (HttpStatusCodeException e) {
+            log.error("[AdminToken] IAM POST failed status={} body={}",
+                    e.getStatusCode().value(), safeSnippet(e.getResponseBodyAsString(), 512));
+            throw e;
+        } catch (Exception e) {
+            log.error("[AdminToken] IAM POST unexpected error: {}", e.toString(), e);
+            throw e;
         }
-        return token;
     }
 
     /**
@@ -98,55 +123,99 @@ public class TokenService {
 
         HttpEntity<Void> request = new HttpEntity<>(headers);
 
+        // 운영자 디버깅에 도움 되는 컨피그 로그 (info 1회/요청)
+        log.debug("[Validate] cfg expectedDomain={} whitelist={}",
+                nullSafeLower(securityProps.getUserDomain()),
+                securityProps.getWhitelistUserNames());
+
         try {
+            Instant t0 = Instant.now();
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
-            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+            long cost = Duration.between(t0, Instant.now()).toMillis();
+
+            if (!response.getStatusCode().is2xxSuccessful()) {
+                log.warn("[Validate] IAM GET non-2xx status={} costMs={} body={}",
+                        response.getStatusCodeValue(), cost, safeSnippet(response.getBody(), 512));
                 return false;
             }
+            if (response.getBody() == null) {
+                log.warn("[Validate] IAM GET body=null costMs={}", cost);
+                return false;
+            }
+
+            String body = response.getBody();
+            log.debug("[Validate] IAM GET ok costMs={} bodySize={}", cost, safeLen(body));
 
             ObjectMapper objectMapper = new ObjectMapper();
-            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode root = objectMapper.readTree(body);
             JsonNode tokenNode = root.path("token");
 
-            // Q1) domain.name == configured domain ?
+            // 추출: user/domain/roles
             String expectedDomain = nullSafeLower(securityProps.getUserDomain());
             String actualDomain = nullSafeLower(tokenNode.path("user").path("domain").path("name").asText(null));
+            String userName     = tokenNode.path("user").path("name").asText(null);
+
+            log.debug("[Validate] claims userName={} actualDomain={}", userName, actualDomain);
+
+            // 1) domain 체크
             if (expectedDomain != null && !expectedDomain.equals(actualDomain)) {
+                log.warn("[Validate] domain mismatch expected={} actual={}", expectedDomain, actualDomain);
                 return false;
             }
 
-            // Q2) user.name in whitelist ?
-            String userName = tokenNode.path("user").path("name").asText(null);
-            if (!isWhitelistedUser(userName)) {
+            // 2) 화이트리스트 체크
+            boolean whitelisted = isWhitelistedUser(userName);
+            if (!whitelisted) {
+                log.warn("[Validate] user not in whitelist userName={}", userName);
                 return false;
             }
 
-            // admin role ?
+            // 3) admin role 체크
             JsonNode roles = tokenNode.path("roles");
-            if (!hasAdminRole(roles)) {
+            boolean isAdmin = hasAdminRole(roles);
+            log.debug("[Validate] rolesCount={} isAdmin={}", roles != null && roles.isArray() ? roles.size() : -1, isAdmin);
+            if (!isAdmin) {
+                log.warn("[Validate] admin role missing for userName={}", userName);
                 return false;
             }
 
+            log.info("[Validate] success userName={} domain={} result=true", userName, actualDomain);
             return true;
 
+        } catch (HttpStatusCodeException e) {
+            log.error("[Validate] IAM GET failed status={} body={} userToken={} adminToken={}",
+                    e.getStatusCode().value(),
+                    safeSnippet(e.getResponseBodyAsString(), 512),
+                    maskToken(userToken),
+                    maskToken(adminToken));
+            return false; // 운영 관점에선 401로 빠져야 하므로 false 반환
         } catch (Exception e) {
-            throw new RuntimeException("토큰 검증 응답 파싱 오류", e);
+            log.error("[Validate] unexpected error: {} userToken={} adminToken={}",
+                    e.toString(), maskToken(userToken), maskToken(adminToken), e);
+            return false;
         }
     }
 
     private boolean isWhitelistedUser(String userName) {
-        if (userName == null) return false;
-        // 설정값을 소문자 Set으로 정규화
+        if (userName == null) {
+            log.debug("[Whitelist] userName=null");
+            return false;
+        }
         Set<String> white = securityProps.getWhitelistUserNames()
                 .stream()
                 .filter(n -> n != null && !n.isBlank())
                 .map(this::nullSafeLower)
                 .collect(Collectors.toUnmodifiableSet());
-        return white.contains(userName.toLowerCase());
+        boolean contains = white.contains(userName.toLowerCase());
+        log.debug("[Whitelist] userName={} allowed={}", userName, contains);
+        return contains;
     }
 
     private boolean hasAdminRole(JsonNode roles) {
-        if (roles == null || !roles.isArray()) return false;
+        if (roles == null || !roles.isArray()) {
+            log.debug("[Roles] roles missing or not array");
+            return false;
+        }
         for (JsonNode role : roles) {
             String roleName = role.path("name").asText("");
             if ("admin".equalsIgnoreCase(roleName)) {
@@ -154,6 +223,25 @@ public class TokenService {
             }
         }
         return false;
+    }
+
+    /** 보안: 토큰 마스킹(앞 6자리만 노출) */
+    private String maskToken(String t) {
+        if (t == null) return "null";
+        int keep = Math.min(6, t.length());
+        return t.substring(0, keep) + "****(" + t.length() + ")";
+    }
+
+    /** 본문 길이만 로깅 */
+    private int safeLen(String s) {
+        return s == null ? -1 : s.length();
+    }
+
+    /** 본문 스니펫 로깅(민감값 있을 수 있으므로 길이 제한) */
+    private String safeSnippet(String s, int max) {
+        if (s == null) return "null";
+        String snippet = s.replaceAll("\\s+", " ");
+        return snippet.length() <= max ? snippet : snippet.substring(0, max) + "...";
     }
 
     private String nullSafeLower(String s) {
