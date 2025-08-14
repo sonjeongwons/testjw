@@ -377,6 +377,101 @@ services:
       - "host.docker.internal:host-gateway"
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+services:
+  otel-collector:
+    user: "0:0"
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0
+    volumes:
+      - /cvc/otelcol-0.118.0.yaml:/etc/otelcol-contrib/config.yaml
+      - /var/lib/otelcol/file_storage/gateway:/var/lib/otelcol/file_storage/gateway
+      - /cvc/log:/cvc/log
+      - /:/hostfs:ro
+    environment:
+      - AWS_ACCESS_KEY_ID=2ea2be5027cf41789f42f86de3a2ff8d
+      - AWS_SECRET_ACCESS_KEY=3ef2f008-6a20-4af2-8d7c-65d2a39320dc
+    ports:
+      - 1888:1888   # pprof extension
+      - 8888:8888   # Prometheus metrics (Collector)
+      - 8889:8889   # Prometheus exporter metrics
+      - 13133:13133 # health_check
+      - 4317:4317   # OTLP gRPC
+      - 4318:4318   # OTLP HTTP
+      - 55679:55679 # zpages
+    extra_hosts:
+      - "cortex-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      - "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      - "object-store.private.kr-west1.dev2.samsungsdscloud.com:198.19.126.41"
+    depends_on:
+      - data-prepper
+    restart: unless-stopped
+
+  data-prepper:
+    image: harbor-paasdev.samsungsdscloud.com/lma/data-prepper:2.10.1
+    container_name: data-prepper
+    # 내부에서 otel-collector가 service name으로 붙으므로 포트 공개는 필수 아님.
+    # 외부(호스트)에서 확인/테스트할 수 있도록 관리 포트는 노출.
+    ports:
+      - "4900:4900"     # Data Prepper Node/HTTP 관리 포트
+      # 필요 시 외부에서 바로 보낼 경우만 열 것:
+      # - "21890:21890" # OTEL trace source
+      # - "21892:21892" # OTEL logs source
+    volumes:
+      - ./pipelines.yaml:/usr/share/data-prepper/pipelines/pipelines.yaml:ro
+      - ./data-prepper-config.yaml:/usr/share/data-prepper/config/data-prepper-config.yaml:ro
+    extra_hosts:
+      - "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      # docker run 예시 따라 dashboard 호스트도 추가(필요시)
+      - "opensearch-dashboard-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+    environment: []
+    restart: unless-stopped
+
+  scanner:
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest
+    ports:
+      - 8081:8081
+    volumes:
+      - /cvc/log:/cvc/log
+      - /tmp:/tmp
+    environment:
+      - CVC_KEYSTONE_ID=cvc-service
+      - CVC_KEYSTONE_PW=CVCscanner1!
+      - IAM_API_ENDPOINT=https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null
+    extra_hosts:
+      - "iam-i.kr-west1.dev2.samsungsdscloud.com:198.18.2.52"
+      - "identity-i.kr-west1.dev2.samsungsdscloud.com:198.18.2.52"
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
   
 
   
