@@ -1,12 +1,43 @@
-# 1) Data Prepper 리스닝 유무
-docker exec -it data-prepper sh -c "ss -ltnp | grep 21890 || netstat -ltnp | grep 21890 || true"
-
-# 2) Collector 컨테이너에서 포트 열림 확인
-docker exec -it cvc-otel-collector-1 sh -c \
-"getent hosts data-prepper; (command -v nc >/dev/null && nc -vz data-prepper 21890) || (command -v busybox >/dev/null && busybox nc -vz data-prepper 21890)"
-
-# 3) Data Prepper 로그(초반부 에러) 확인
-docker logs --since=15m data-prepper | sed -n '1,300p'
-
-# 4) 관리 포트에서 등록된 파이프라인명 다시 확인
-curl -s http://localhost:4900/list/pipelines
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker exec -it data-prepper sh -c "ss -ltnp | grep 21890 || netstat -ltnp | grep 21890 || true"
+sh: line 1: ss: command not found
+sh: line 1: netstat: command not found
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker exec -it cvc-otel-collector-1 sh -c \
+> 
+OCI runtime exec failed: exec failed: unable to start container process: exec: "sh": executable file not found in $PATH: unknown
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker exec -it cvc-otel-collector-1 sh -c \
+> "getent hosts data-prepper; (command -v nc >/dev/null && nc -vz data-prepper 21890) || (command -v busybox >/dev/null && busybox nc -vz data-prepper 21890)"
+OCI runtime exec failed: exec failed: unable to start container process: exec: "sh": executable file not found in $PATH: unknown
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker logs --since=15m data-prepper | sed -n '1,300p'
+Reading pipelines and data-prepper configuration files from Data Prepper home directory.
+/usr/bin/java
+Found openjdk version  of 17.0
+2025-08-18T07:11:32,495 [main] INFO  org.opensearch.dataprepper.DataPrepperArgumentConfiguration - Command line args: /usr/share/data-prepper/pipelines,/usr/share/data-prepper/config/data-prepper-config.yaml
+2025-08-18T07:11:33,186 [main] INFO  org.opensearch.dataprepper.pipeline.parser.transformer.DynamicConfigTransformer - No transformation needed
+2025-08-18T07:11:33,750 [main] INFO  org.opensearch.dataprepper.plugins.kafka.extension.KafkaClusterConfigExtension - Applying Kafka Cluster Config Extension.
+2025-08-18T07:11:34,321 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building pipeline [otel-trace-pipeline] from provided configuration
+2025-08-18T07:11:34,322 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [otel_trace_source] as source component for the pipeline [otel-trace-pipeline]
+2025-08-18T07:11:34,490 [main] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - Creating otel-trace-source without authentication. This is not secure.
+2025-08-18T07:11:34,490 [main] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - In order to set up Http Basic authentication for the otel-trace-source, go here: https://github.com/opensearch-project/data-
+prepper/tree/main/data-prepper-plugins/otel-trace-source#authentication-configurations
+2025-08-18T07:11:34,510 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building buffer for the pipeline [otel-trace-pipeline]
+2025-08-18T07:11:34,514 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building processors for the pipeline [otel-trace-pipeline]
+2025-08-18T07:11:34,515 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building sinks for the pipeline [otel-trace-pipeline]
+2025-08-18T07:11:34,515 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [stdout] as sink component
+2025-08-18T07:11:34,525 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Constructing MultiBufferDecorator with [0] secondary buffers for pipeline [otel-trace-pipeline]
+2025-08-18T07:11:34,595 [main] WARN  org.opensearch.dataprepper.pipeline.server.config.DataPrepperServerConfiguration - Creating data prepper server without authentication. This is not secure.
+2025-08-18T07:11:34,595 [main] WARN  org.opensearch.dataprepper.pipeline.server.config.DataPrepperServerConfiguration - In order to set up Http Basic authentication for the data prepper server, go here: https://github.com/opensearc
+h-project/data-prepper/blob/main/docs/core_apis.md#authentication
+2025-08-18T07:11:34,689 [main] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - Initiating pipeline execution
+2025-08-18T07:11:34,691 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] Sink is ready, starting source...
+2025-08-18T07:11:34,701 [main] WARN  org.opensearch.dataprepper.pipeline.server.HttpServerProvider - Creating Data Prepper server without TLS. This is not secure.
+2025-08-18T07:11:34,702 [main] WARN  org.opensearch.dataprepper.pipeline.server.HttpServerProvider - In order to set up TLS for the Data Prepper server, go here: https://github.com/opensearch-project/data-prepper/blob/main/docs/con
+figuration.md#server-configuration
+2025-08-18T07:11:34,788 [main] INFO  org.opensearch.dataprepper.pipeline.server.DataPrepperServer - Data Prepper server running at :4900
+2025-08-18T07:11:36,909 [otel-trace-pipeline-sink-worker-2-thread-1] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - Creating otel_trace_source without SSL/TLS. This is not secure.
+2025-08-18T07:11:36,910 [otel-trace-pipeline-sink-worker-2-thread-1] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - In order to set up TLS for the otel_trace_source, go here: https://github.com/opensear
+ch-project/data-prepper/tree/main/data-prepper-plugins/otel-trace-source#ssl
+2025-08-18T07:11:37,236 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - Started otel_trace_source on port 21890...
+2025-08-18T07:11:37,236 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - Submitting request to initiate the pipeline processing
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# curl -s http://localhost:4900/list/pipelines
+{"pipelines":[{"name":"otel-trace-pipeline"}]}[root@d2-krw1a-dp-cvc-engine-01 cvc]# 
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# 
