@@ -1,19 +1,248 @@
-otel-trace-pipeline:
-  source:
-    otel_trace_source:
-      port: 21890
-      ssl: false
-      authentication:
-        unauthenticated:
-  sink:
-    - pipeline:
-        name: raw-trace-pipeline
+너가 말해준 대로 trace에 대한 tls를 아래와 같이 수정했는데, 아래 메세지가 나왔어.
 
-raw-trace-pipeline:
-  source:
-    pipeline:
-      name: otel-trace-pipeline
-  processor:
-    - otel_trace_raw:
-  sink:
-    - stdout: {}   # 임시로 콘솔 출력 (기동/수신 확인용)
+
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker ps
+CONTAINER ID   IMAGE                                                                                                           COMMAND                  CREATED         STATUS                          PORTS                          
+                                                                                                                 NAMES
+517f4dba44b3   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0   "/otelcol-contrib --…"   6 minutes ago   Restarting (1) 37 seconds ago                                  
+                                                                                                                 cvc-otel-collector-1
+3f0ed987fa22   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest                        "java -javaagent:/ap…"   6 minutes ago   Up 6 minutes                    0.0.0.0:8081->8081/tcp, [::]:80
+81->8081/tcp                                                                                                     cvc-scanner-1
+f5b21a62eae2   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/data-prepper:2.10.1                       "bin/data-prepper"       6 minutes ago   Up 6 minutes                    0.0.0.0:4900->4900/tcp, [::]:49
+00->4900/tcp, 0.0.0.0:21890->21890/tcp, [::]:21890->21890/tcp, 0.0.0.0:21892->21892/tcp, [::]:21892->21892/tcp   data-prepper
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker logs 517f4dba44b3 
+Error: failed to get config: cannot unmarshal the configuration: decoding failed due to the following error(s):
+
+error decoding 'exporters': error reading configuration for "otlp/trace-data-prepper": decoding failed due to the following error(s):
+
+'' has invalid keys: insecure
+2025/08/18 05:37:32 collector server run finished with error: failed to get config: cannot unmarshal the configuration: decoding failed due to the following error(s):
+
+error decoding 'exporters': error reading configuration for "otlp/trace-data-prepper": decoding failed due to the following error(s):
+
+'' has invalid keys: insecure
+Error: failed to get config: cannot unmarshal the configuration: decoding failed due to the following error(s):
+
+error decoding 'exporters': error reading configuration for "otlp/trace-data-prepper": decoding failed due to the following error(s):
+
+'' has invalid keys: insecure
+2025/08/18 05:37:36 collector server run finished with error: failed to get config: cannot unmarshal the configuration: decoding failed due to the following error(s):
+
+error decoding 'exporters': error reading configuration for "otlp/trace-data-prepper": decoding failed due to the following error(s):
+
+'' has invalid keys: insecure
+Error: failed to get config: cannot unmarshal the configuration: decoding failed due to the following error(s):
+
+error decoding 'exporters': error reading configuration for "otlp/trace-data-prepper": decoding failed due to the following error(s):
+
+'' has invalid keys: insecure
+2025/08/18 05:37:40 collector server run finished with error: failed to get config: cannot unmarshal the configuration: decoding failed due to the following error(s):
+
+error decoding 'exporters': error reading configuration for "otlp/trace-data-prepper": decoding failed due to the following error(s):
+
+
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# cat otelcol-0.118.0.yaml 
+extensions:
+  basicauth/otel:
+    client_auth:
+      username: 'cvc_data' # PARAM : connection.env value update
+      password: '!CVC_PW123' # PARAM : connection.env value update
+  file_storage/logs:
+    create_directory: true
+    directory: /var/lib/otelcol/file_storage/gateway
+    timeout: 1s
+    compaction:
+      on_rebound: true
+      rebound_needed_threshold_mib: 100
+      rebound_trigger_threshold_mib: 10
+      check_interval: 5s
+      cleanup_on_start: true
+      directory: /var/lib/otelcol/file_storage/gateway/tmp
+
+processors:
+  batch: {}
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 462
+    limit_percentage: 80
+    spike_limit_mib: 92
+    spike_limit_percentage: 25
+  resourcedetection/system:
+    detectors: ["system"]
+    system:
+      hostname_sources: ["os"]
+  resource:
+    attributes:
+      - key: "lma-tenant"
+        value: "cvc"  # PARAM :: vmdb1
+        action: insert
+      - key: "node"
+        value: 'cvc01'
+        action: insert
+  transform:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["host.name"], resource.attributes["host.name"])
+          - set(attributes["node.ip"], resource.attributes["node.ip"])
+          - set(attributes["process.command"], resource.attributes["process.command"])
+          - set(attributes["process.command_line"], resource.attributes["process.command_line"])
+          - set(attributes["process.executable.name"], resource.attributes["process.executable.name"])
+          - set(attributes["process.executable.path"], resource.attributes["process.executable.path"])
+          - set(attributes["process.owner"], resource.attributes["process.owner"])
+          - set(attributes["process.parent_pid"], resource.attributes["process.parent_pid"])
+          - set(attributes["process.pid"], resource.attributes["process.pid"])
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: '0.0.0.0:4317'
+      http:
+        endpoint: '0.0.0.0:4318'
+
+  # METRIC Reciever START
+  hostmetrics:
+    collection_interval: 30s
+    root_path: /hostfs
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.logical.count:
+            enabled: true
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+          system.memory.limit:
+            enabled: true
+      load:
+      disk:
+      filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+      network:
+      paging:
+      processes:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'otel-collector-cvc01'  # PARAM :: -db1 
+          scrape_interval: 30s # default 5s
+          static_configs:
+            - targets: ['0.0.0.0:8888']
+  # METRIC Reciever END
+
+  # LOG Reciever START
+  filelog:
+    exclude:
+    - /var/log/pods/lma_agent-opentelemetry-collector*_*/opentelemetry-collector/*.log
+    include:
+    - /cvc/log/scanner*.log
+    include_file_name: false
+    include_file_path: true
+    retry_on_failure:
+      enabled: true
+    start_at: end
+  # LOG Reciever END
+
+exporters:
+  debug: {}
+  # if you need to debug log on pod, use this exporters on piplines
+  prometheusremotewrite/otel:
+    endpoint: "https://cortex-paas.kr-west1.dev2.samsungsdscloud.com/api/v1/push" # vmware cortex remote write url
+    tls:
+      insecure: true
+    external_labels:
+      otel_collector: server
+      node_name: 'cvc01'
+      node_ip: 'cvc01'
+    headers:
+      X-Scope-OrgID: 'cvc' # PARAM :: cortex tenant id.
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 24h
+    remote_write_queue:
+      enabled: true
+      queue_size: 10000
+    # timeout: 5s
+  opensearch/otel:
+    # Index Pattern will be : ss4o_{type}-{dataset}-{namespace}
+    #dataset: apps
+    #namespace: otel
+    # If use this, pattern will be {logs_index}
+    logs_index: cvc-logs
+    http:
+      tls:
+        insecure_skip_verify: true
+      endpoint: https://opensearch-paas.kr-west1.dev2.samsungsdscloud.com
+      timeout: 2m
+      headers:
+        #Content-Type: "application/json"
+      auth:
+        authenticator: basicauth/otel
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 24h
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 100000
+      storage: file_storage/logs
+    # timeout: 5s
+  awss3/otel:
+    s3uploader:
+      region: 'kr-west1'
+      s3_bucket: 'paas-lma-logs'
+      s3_prefix: 'cvc'
+      s3_partition: 'hour'
+      s3_force_path_style: true
+      disable_ssl: true
+      endpoint: 'https://object-store.private.kr-west1.dev2.samsungsdscloud.com'
+    sending_queue:
+      enabled: true
+      num_consumers: 1
+      queue_size: 100000
+      storage: file_storage/logs
+  otlp/trace-data-prepper:
+    endpoint: data-prepper:21890
+    insecure: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 24h
+    sending_queue:
+      enabled: true
+      num_consumers: 3
+      queue_size: 100000
+      storage: file_storage/logs
+    timeout: 5s
+service:
+  extensions:
+    - basicauth/otel
+    - file_storage/logs
+  telemetry:
+    metrics:
+      address: 0.0.0.0:8888
+      level: detailed
+  pipelines:
+    logs:
+      exporters: [opensearch/otel, awss3/otel]
+      processors: [resource, transform, memory_limiter, batch]
+      receivers: [otlp, filelog]
+    metrics:
+      exporters: [prometheusremotewrite/otel]
+      processors: [resourcedetection/system, resource, transform, memory_limiter, batch]
+      receivers: [otlp, hostmetrics, prometheus]
+    traces:
+      exporters: [otlp/trace-data-prepper]
+      processors: [memory_limiter, batch]
+      receivers: [otlp]
