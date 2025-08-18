@@ -1,45 +1,182 @@
-너가 알려준 점검 방법을 아래와 같이 수행한 결과를 첨부할게. 에러 원인이 뭘까?
+핵심부터 정리할게.
 
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker exec -it data-prepper sh -c "ss -ltnp | grep 21890 || netstat -ltnp | grep 21890 || true"
-sh: line 1: ss: command not found
-sh: line 1: netstat: command not found
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker exec -it cvc-otel-collector-1 sh -c \
-> 
-OCI runtime exec failed: exec failed: unable to start container process: exec: "sh": executable file not found in $PATH: unknown
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker exec -it cvc-otel-collector-1 sh -c \
-> "getent hosts data-prepper; (command -v nc >/dev/null && nc -vz data-prepper 21890) || (command -v busybox >/dev/null && busybox nc -vz data-prepper 21890)"
-OCI runtime exec failed: exec failed: unable to start container process: exec: "sh": executable file not found in $PATH: unknown
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker logs --since=15m data-prepper | sed -n '1,300p'
-Reading pipelines and data-prepper configuration files from Data Prepper home directory.
-/usr/bin/java
-Found openjdk version  of 17.0
-2025-08-18T07:11:32,495 [main] INFO  org.opensearch.dataprepper.DataPrepperArgumentConfiguration - Command line args: /usr/share/data-prepper/pipelines,/usr/share/data-prepper/config/data-prepper-config.yaml
-2025-08-18T07:11:33,186 [main] INFO  org.opensearch.dataprepper.pipeline.parser.transformer.DynamicConfigTransformer - No transformation needed
-2025-08-18T07:11:33,750 [main] INFO  org.opensearch.dataprepper.plugins.kafka.extension.KafkaClusterConfigExtension - Applying Kafka Cluster Config Extension.
-2025-08-18T07:11:34,321 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building pipeline [otel-trace-pipeline] from provided configuration
-2025-08-18T07:11:34,322 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [otel_trace_source] as source component for the pipeline [otel-trace-pipeline]
-2025-08-18T07:11:34,490 [main] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - Creating otel-trace-source without authentication. This is not secure.
-2025-08-18T07:11:34,490 [main] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - In order to set up Http Basic authentication for the otel-trace-source, go here: https://github.com/opensearch-project/data-
-prepper/tree/main/data-prepper-plugins/otel-trace-source#authentication-configurations
-2025-08-18T07:11:34,510 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building buffer for the pipeline [otel-trace-pipeline]
-2025-08-18T07:11:34,514 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building processors for the pipeline [otel-trace-pipeline]
-2025-08-18T07:11:34,515 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building sinks for the pipeline [otel-trace-pipeline]
-2025-08-18T07:11:34,515 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [stdout] as sink component
-2025-08-18T07:11:34,525 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Constructing MultiBufferDecorator with [0] secondary buffers for pipeline [otel-trace-pipeline]
-2025-08-18T07:11:34,595 [main] WARN  org.opensearch.dataprepper.pipeline.server.config.DataPrepperServerConfiguration - Creating data prepper server without authentication. This is not secure.
-2025-08-18T07:11:34,595 [main] WARN  org.opensearch.dataprepper.pipeline.server.config.DataPrepperServerConfiguration - In order to set up Http Basic authentication for the data prepper server, go here: https://github.com/opensearc
-h-project/data-prepper/blob/main/docs/core_apis.md#authentication
-2025-08-18T07:11:34,689 [main] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - Initiating pipeline execution
-2025-08-18T07:11:34,691 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] Sink is ready, starting source...
-2025-08-18T07:11:34,701 [main] WARN  org.opensearch.dataprepper.pipeline.server.HttpServerProvider - Creating Data Prepper server without TLS. This is not secure.
-2025-08-18T07:11:34,702 [main] WARN  org.opensearch.dataprepper.pipeline.server.HttpServerProvider - In order to set up TLS for the Data Prepper server, go here: https://github.com/opensearch-project/data-prepper/blob/main/docs/con
-figuration.md#server-configuration
-2025-08-18T07:11:34,788 [main] INFO  org.opensearch.dataprepper.pipeline.server.DataPrepperServer - Data Prepper server running at :4900
-2025-08-18T07:11:36,909 [otel-trace-pipeline-sink-worker-2-thread-1] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - Creating otel_trace_source without SSL/TLS. This is not secure.
-2025-08-18T07:11:36,910 [otel-trace-pipeline-sink-worker-2-thread-1] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - In order to set up TLS for the otel_trace_source, go here: https://github.com/opensear
-ch-project/data-prepper/tree/main/data-prepper-plugins/otel-trace-source#ssl
-2025-08-18T07:11:37,236 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - Started otel_trace_source on port 21890...
-2025-08-18T07:11:37,236 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - Submitting request to initiate the pipeline processing
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# curl -s http://localhost:4900/list/pipelines
-{"pipelines":[{"name":"otel-trace-pipeline"}]}[root@d2-krw1a-dp-cvc-engine-01 cvc]# 
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# 
+Data Prepper 로그에 **“Started otel_trace_source on port 21890…”**가 찍혔으니 소스 자체는 기동했어.
+
+그럼에도 Collector 쪽에서 **connection refused**가 난다는 건 두 가지 케이스뿐이야:
+
+1. Data Prepper가 루프백(127.0.0.1) 에만 바인드되어 있고, 컨테이너 간(172.18.x.x) 접근은 거절되는 경우
+
+
+2. 서로 다른 Docker 네트워크에 붙어 있거나, 네임스페이스/네트워크 경로가 달라서 해당 IP:포트에 리스너가 없다고 판정되는 경우
+
+
+
+
+bind_address를 넣었는데도 동일하다면, 가장 현실적인 원인은 네트워크 경로 문제(2번) 쪽이야. distroless라 쉘이 없어서 컨테이너 내부에서 바로 nc 확인을 못 한 상황이기도 하고.
+
+
+---
+
+원인 특정 및 즉시 우회 테스트
+
+A) 같은 네트워크인지 먼저 확인
+
+호스트에서 아래를 실행해 data-prepper와 cvc-otel-collector-1의 네트워크 이름이 동일한지 보자.
+
+docker inspect data-prepper --format '{{json .NetworkSettings.Networks}}'
+docker inspect cvc-otel-collector-1 --format '{{json .NetworkSettings.Networks}}'
+
+키 이름(예: "cvc_default")이 서로 다르면 같은 Compose 파일이어도 다른 네트워크에 물려 있음 → 이게 바로 connection refused의 흔한 원인.
+
+
+B) 동일 네트워크에서 TCP가 열려 있는지 제3 컨테이너로 테스트
+
+Collector에 쉘이 없으니, 같은 네트워크에 busybox를 띄워 직접 연결해보자.
+
+1. 네트워크 이름 확인:
+
+
+
+docker network ls | grep _default
+# 또는 위 inspect 결과의 키 이름 사용
+
+2. 그 네트워크로 nc 테스트:
+
+
+
+docker run --rm --network <cvc_default같은_네트워크명> busybox sh -c "nc -vz data-prepper 21890"
+
+succeeded면 네트워크/리스너 정상, Collector만 경로가 다른 것.
+
+refused면 해당 네트워크 경로에서 리스너 없음으로 보이는 상태 → (대개 루프백 바인드/네트워크 mismatch)
+
+
+
+---
+
+빠른 해결책 3가지 (하나 선택)
+
+방법 1) 공통 사용자 정의 네트워크에 명시적으로 붙이기(권장)
+
+docker-compose.yaml에 네트워크를 명시해서 모든 서비스가 같은 네트워크를 쓰도록 강제:
+
+services:
+  otel-collector:
+    networks: [cvc-net]
+    ...
+  data-prepper:
+    networks: [cvc-net]
+    ...
+  scanner:
+    networks: [cvc-net]
+    ...
+
+networks:
+  cvc-net:
+    driver: bridge
+
+적용:
+
+docker compose down
+docker compose up -d
+
+방법 2) 호스트 포트로 우회 연결(확인용)
+
+Collector가 Data Prepper의 퍼블리시된 호스트 포트(21890) 로 붙게끔 바꿔서, 네트워크 문제를 우회하고 TCP 레벨부터 확인:
+
+1. Collector에 호스트 게이트웨이 주소 추가:
+
+
+
+otel-collector:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+2. Collector exporter 엔드포인트를 호스트로 변경:
+
+
+
+exporters:
+  otlp/trace-data-prepper:
+    endpoint: host.docker.internal:21890
+    tls:
+      insecure: true
+
+→ 이렇게 하면 Collector → 호스트(21890) → NAT → Data Prepper 경로로 접속.
+접속이 성립하면, 문제는 컨테이너 간 네트워크 경로임이 확정.
+
+방법 3) Data Prepper의 바인드 주소를 확실히 적용
+
+넣은 키가 무시되었을 수도 있어. Data Prepper 2.10 기준으로 otel_trace_source는 아래 형태가 안전하다:
+
+otel-trace-pipeline:
+  source:
+    otel_trace_source:
+      # endpoint 형태로 바인드+포트 동시 지정 (bind_address 대신)
+      endpoint: 0.0.0.0:21890
+      ssl: false
+      authentication:
+        unauthenticated:
+  sink:
+    - stdout: {}
+
+일부 버전/플러그인에서 bind_address 대신 endpoint를 사용하는 케이스가 있다.
+
+이 형태로 바꾸고 다시 올린 뒤, 방법 B의 busybox nc 테스트를 꼭 수행.
+
+
+
+---
+
+otelcol-0.118.0.yaml 수정 필요성
+
+Collector 쪽은 이미 올바르게 되어 있어:
+
+exporters:
+  otlp/trace-data-prepper:
+    endpoint: data-prepper:21890
+    tls:
+      insecure: true
+
+네트워크 경로 문제만 해소되면, Collector 수정은 더 이상 필요 없어.
+
+단, 방법 2 우회 테스트를 할 때만 일시적으로 endpoint: host.docker.internal:21890로 바꾸는 거야.
+
+
+
+---
+
+최종 체크리스트
+
+1. 동일 네트워크인지 docker inspect ...NetworkSettings.Networks로 비교
+
+
+2. busybox로 nc 테스트(동일 네트워크에서 data-prepper:21890 접속 성공 여부)
+
+
+3. 실패 시
+
+공통 사용자 정의 네트워크(cvc-net) 강제
+
+또는 Data Prepper 소스에 endpoint: 0.0.0.0:21890로 명시
+
+또는 우회 테스트로 host.docker.internal:21890 사용해 Collector에서 연결 성립 확인
+
+
+
+
+
+---
+
+Q1
+
+두 컨테이너의 NetworkSettings.Networks 출력이 서로 다른 네트워크로 나오니? 결과를 붙여줘.
+
+Q2
+
+busybox를 같은 네트워크에 붙여 nc -vz data-prepper 21890 했을 때 성공/실패 중 무엇이 나왔는지 보여줘.
+
+Q3
+
+endpoint: 0.0.0.0:21890로 바꿨을 때 Data Prepper 로그 맨 끝에 “Started otel_trace_source on port 21890” 대신 바인드 주소까지 표기되는지 확인해볼까?
+
