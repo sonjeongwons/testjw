@@ -1,361 +1,226 @@
-아래 CodeService.java, HttpCallService.java, CodeDTO.java, TokenScheduler.java 파일을 참고해서 CodeService.java 파일 내에 scanCodeFile메소드를 작성하려고해. scanCodeFile메소드는 cvc라는 엔드포인트 API에게 파일에 대한 악성코드를 검사요청하는 API를 로직화할거야. scanCodeFile메소드로직은 아래와 같은 내용들을 충족시킬 수 있는 항목을 반영해서 개편됐으면해.
-1. "https://cvc.private.kr-west1.dev2.samsungsdscloud.com/api/v1/scanner/multipart-scan" API를 post 방식으로 호출하기
-2. "X-Subject-Token" 헤더에 대한 값으로 tokenScheduler.getAccessToken() 값 넣기
-3. 알맞게 CodeDTO.java 파일 내 변수들을 이에 맞게 활용하기
-4. HttpCallService.java, CodeDTO.java 코드를 활용해서 CodeService.java 내 scanCodeFile메소드 작성하기
-5. 악성코드 검사할 파일은 cvc 쪽에 멀티파트 방식으로 요청하기
-
-## CodeService.java
-package com.scf.manager.service;
-
-import com.scf.manager.dto.CodeDTO;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.io.FileUtils;
-import org.springframework.core.io.ClassPathResource;
-
-import java.io.*;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.PosixFilePermission;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Set;
-
-@Slf4j
-@org.springframework.stereotype.Service
-@RequiredArgsConstructor
-public class CodeService {
-    public static void createDirectory(CodeDTO reqDto)  {
-        String path = reqDto.getPath();
-        log.info("[CodeServiceDP : {}] Path : {}", "CreateDirectory", path);
-
-        File functionDir = new File(path);
-
-        // 해당 파일 경로가 없을 경우 디렉토리를 생성
-        if (!functionDir.exists()) {
-            try {
-                functionDir.mkdirs();
-            } catch (Exception e) {
-                e.printStackTrace();
-                log.error("[CodeServiceDP/Error : {}] Path : {}", "CreateDirectory", path);
-                throw new RuntimeException("디렉토리 생성에 실패하였습니다.");
-            }
-        }
-    }
-
-    public static void deleteDirectory(CodeDTO reqDto)  {
-        String path = reqDto.getPath();
-        log.info("[CodeServiceDP : {}] Path : {}", "DeleteDirectory", path);
-
-        File functionDir = new File(path);
-
-        try {
-            FileUtils.deleteDirectory(functionDir);
-        } catch (Exception e) {
-            e.printStackTrace();
-            log.error("[CodeServiceDP/Error : {}] Path : {}", "DeleteDirectory", path);
-            throw new RuntimeException("디렉토리 삭제에 실패하였습니다.");
-        }
-    }
-
-    public static void deleteFile (CodeDTO reqDto)  {
-        String path = reqDto.getPath();
-        log.info("[CodeServiceDP : {}] Path : {}", "DeleteFile", path);
-
-        File functionFile = new File(path);
-
-        // 해당 파일이 존재하는 경우, 파일 삭제
-        if (functionFile.exists()) {
-            try {
-                FileUtils.delete(functionFile);
-            } catch (Exception e) {
-                e.printStackTrace();
-                log.error("[CodeServiceDP/Error : {}] Path : {}", "DeleteFile", path);
-            }
-        }
-    }
-
-    public static void createFile(CodeDTO reqDto) throws IOException {
-        String path = reqDto.getPath();
-        String content = reqDto.getContent();
-        log.info("[CodeServiceDP : {}] Path : {}", "CreateFile", path);
-        log.info("[CodeServiceDP : {}] Content : {}", "CreateFile", content);
-
-        Path functionFile = Paths.get(path);
-
-        if (Files.exists(functionFile)) {
-            Files.delete(functionFile);
-        }
-
-        Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
-
-        defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
-        defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
-        defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
-        defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
-
-        Files.createFile(functionFile);
-        Files.setPosixFilePermissions(functionFile, defaultPosixPermissions);  //Assure the permissions again after the file is created
-        // 사용자 인풋 값 추가
-        ArrayList<String> messageList = new ArrayList<>();
-        byte[] decodedBytes = java.util.Base64.getDecoder().decode(content.getBytes());
-        messageList.add(new String(decodedBytes, StandardCharsets.UTF_8));
-
-        Files.write(functionFile, messageList, StandardCharsets.UTF_8);
-    }
-
-    public static void moveFile(CodeDTO reqDto) throws IOException {
-        String path = reqDto.getPath();
-        String originPath = reqDto.getOriginPath();
-        log.info("[CodeServiceDP : {}] From: {} To: {}", "MoveFile", originPath, path);
-
-        // 해당 파일이 없을 경우 함수명의 파일 생성
-        Path functionFile = Paths.get(path);
-        Path downloadFile = Paths.get(originPath);
-
-        Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
-
-        defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
-        defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
-        defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
-        defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
-
-        if (Files.exists(downloadFile)) {
-            Files.move(downloadFile, functionFile, StandardCopyOption.REPLACE_EXISTING);
-        } else {
-            log.error("[CodeServiceDP : {}] No download.jar! / From: {} To: {}", "MoveFile", originPath, path);
-            System.out.println("download.jar가 존재하지 않습니다.");
-        }
-        Files.setPosixFilePermissions(functionFile, defaultPosixPermissions);  //Assure the permissions again after the file is created
-    }
-
-    public static void downloadFile(CodeDTO reqDto) throws IOException {
-        String path = reqDto.getPath();
-        String defaultYn = reqDto.getDefaultYn();
-
-        log.info("[CodeServiceDP : {}] DefaultYn: {} Path: {}",
-                "DownloadFile", defaultYn, path);
-
-        // 해당 파일이 없을 경우 함수명의 파일 생성
-        Path functionFile = Paths.get(path);
-
-        Set<PosixFilePermission> defaultPosixPermissions = new HashSet<>();
-
-        defaultPosixPermissions.add(PosixFilePermission.OWNER_READ);
-        defaultPosixPermissions.add(PosixFilePermission.OWNER_WRITE);
-        defaultPosixPermissions.add(PosixFilePermission.GROUP_READ);
-        defaultPosixPermissions.add(PosixFilePermission.OTHERS_READ);
-
-        copyJarFromResource("codetemplates/handler/java/helloworld.jar", path);
-
-        // TBD
-        // Object Storage 연계를 통해 파일 다운로드
-
-        Files.setPosixFilePermissions(functionFile, defaultPosixPermissions); //Assure the permissions again after the file is created
-    }
-
-    public static void copyJarFromResource(String resourcePath, String targetPath) throws IOException {
-        ClassPathResource resource = new ClassPathResource(resourcePath);
-        try (InputStream in = resource.getInputStream();
-             OutputStream out = new FileOutputStream(targetPath)) {
-            byte[] buffer = new byte[8192];
-            int bytesRead;
-            while ((bytesRead = in.read(buffer)) != -1) {
-                out.write(buffer, 0, bytesRead);
-            }
-        }
-    }
-}
-
-
-
-
-## HttpCallService.java
-
-package com.scf.manager.service;
-
-import com.scf.manager.common.util.AppUtil;
-import com.scf.manager.config.security.TokenScheduler;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.*;
-import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
-
-import java.nio.charset.StandardCharsets;
-
-@Slf4j
-@Service
-public class HttpCallService {
-    @Autowired
-    private TokenScheduler tokenScheduler;
-
-    public static final String IntenralAuthTokenHeader = "X-Auth-Token";
-
-    public <T, R> ResponseEntity<R> callPublicHttpReqeust(String httpUrlString, String method, T requestBody, HttpHeaders requestHeaders, Class<R> responseType, boolean log) {
-//        requestHeaders.set("content-type", "application/json"); // 기존 값에 추가
-        requestHeaders.set("Accept", "application/json"); // 기존 값에 추가
-
-        return callHttpReqeust(httpUrlString, method, requestBody, requestHeaders, responseType, log);
-    }
-
-    public <T, R> ResponseEntity<R> callInternalHttpReqeust(String httpUrlString, String method, T requestBody, HttpHeaders requestHeaders, Class<R> responseType, boolean log) {
-        //토큰값을 실어서 보내줌
-        requestHeaders.set(IntenralAuthTokenHeader, tokenScheduler.getAccessToken());
-        requestHeaders.set("content-type", "application/json"); // 기존 값에 추가
-        requestHeaders.set("Accept", "application/json"); // 기존 값에 추가
-
-//        requestHeaders.add("Custom-Header", "CustomValue"); // 예: 커스텀 헤더
-
-        return callHttpReqeust(httpUrlString, method, requestBody, requestHeaders, responseType, log);
-    }
-
-    private static <T, R> ResponseEntity<R> callHttpReqeust(String httpUrlString, String method, T requestBody, HttpHeaders requestHeaders, Class<R> responseType, boolean logEnabled) {
-        // String 타입의 method를 HttpMethod로 변환
-        HttpMethod httpMethod;
-        try { httpMethod = HttpMethod.valueOf(method.toUpperCase());}
-        catch (IllegalArgumentException e) {throw new IllegalArgumentException("Invalid HTTP method: " + method, e);       }
-
-        if (requestBody != null && requestHeaders.getContentType() == null) {
-            requestHeaders.setContentType(MediaType.APPLICATION_JSON);
-        }
-
-
-        // RestClient 설정
-        RestClient restClient = RestClient.builder().build();
-
-
-        if (logEnabled){restClient = setRestClientWithLogging(restClient);}
-
-        // RestClient를 사용한 요청
-        try {
-
-            ResponseEntity<R> response = restClient
-                    .method(httpMethod)
-                    .uri(httpUrlString)
-                    .headers(headers -> headers.addAll(requestHeaders))
-                    .body(requestBody != null ? requestBody : "{}")
-                    .retrieve()
-                    .toEntity(responseType);
-            return response;
-        } catch (RestClientException e) {
-            log.warn("[callHttpReqeust: FAILED] {}", e.getMessage());
-            throw new RuntimeException("API 호출 실패: " + e.getMessage(), e);
-        }
-    }
-
-    public static RestClient setRestClientWithLogging(RestClient restClient) {
-        return RestClient.builder()
-                .requestInterceptor((request, body, execution) -> {
-                    // 요청 로깅 설정
-                    log.info("HTTP Request: {} / {}", request.getMethod(), request.getURI());
-
-                    // 헤더 로깅
-                    log.info("HTTP Request / Headers:");
-                    for (var header : request.getHeaders().entrySet()) {
-                        log.info("  {}: {}", header.getKey(), header.getValue());
-                    }
-
-                    try {
-                        // Log body (handle byte[] safely)
-                        String bodyContent = body != null ? new String(body, StandardCharsets.UTF_8) : "null";
-                        log.info("HTTP Request / Body: \n {}", AppUtil.JSONStringPrettyPrinter(bodyContent));
-                    } catch (NullPointerException e) {}
-
-                    return execution.execute(request, body);
-                })
-                .build();
-    }
-}
-
-
-
-## CodeDTO.java
-
-
-package com.scf.manager.dto;
-
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-@Builder
-public class CodeDTO {
-    private String path;
-    private String content;
-    private String originPath;
-
-    private String defaultYn;
-}
-
-
-
-## TokenScheduler.java
-package com.scf.manager.config.security;
-
-import com.scf.manager.common.util.AppUtil;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
-
-import javax.annotation.PostConstruct;
-import java.net.HttpURLConnection;
-
-@Slf4j
-@Component
-public class TokenScheduler {
-
-    private final static String loginBodyTemplate = AppUtil.getSourceCodeFromFile("codetemplates/api/login.json");
-
-    private String accessToken;
-
-    @Value("${SCF_KEYSTONE_ID}")
-    private String scfId;
-    @Value("${SCF_KEYSTONE_PW}")
-    private String scfPw;
-    @Value("${IDENTITY_URL}")
-    private String identityUrl;
-
-    private static String jsonString;
-    private static String requestUrl;
-
-    // 초기 실행 시 토큰 한번 갱신 (옵션)
-    @PostConstruct
-    public void init() {
-        jsonString = loginBodyTemplate
-                .replace("$SCF_KEYSTONE_ID$", scfId)
-                .replace("$SCF_KEYSTONE_PW$", scfPw);
-
-        requestUrl = identityUrl + "/v3/auth/tokens?nocatalog=null";
-
-        refreshToken();
-    }
-
-    @Scheduled(cron = "0 0/15 * * * ?") // 15분마다 실행
-    public void scheduledTokenRefresh() {
-        refreshToken();
-    }
-
-    private void refreshToken() {
-        HttpURLConnection httpURLConnection = AppUtil.httpCall(requestUrl, "POST", jsonString, null);
-        if (httpURLConnection != null && httpURLConnection.getHeaderField("X-Subject-Token") != null) {
-            this.accessToken = httpURLConnection.getHeaderField("X-Subject-Token");
-            log.info("토큰 갱신 완료: {}", this.accessToken);
-        } else {
-            log.error("토큰 갱신 실패");
-        }
-    }
-
-    public String getAccessToken() {return accessToken;}
-
-}
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker ps
+CONTAINER ID   IMAGE                                                                                                           COMMAND                  CREATED         STATUS                            PORTS                        
+                 NAMES
+c8d440c574ae   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0   "/usr/local/bin/with…"   5 minutes ago   Restarting (255) 33 seconds ago                                
+                 cvc-otel-collector-1
+465366a52d8b   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/data-prepper:2.10.1                       "bin/data-prepper"       5 minutes ago   Up 5 minutes (unhealthy)          0.0.0.0:4900->4900/tcp, [::]:
+4900->4900/tcp   data-prepper
+c04288c85b5e   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest                        "/usr/local/bin/with…"   5 minutes ago   Restarting (0) 38 seconds ago                                  
+                 cvc-scanner-1
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker logs c8d440c574ae 
+exec /usr/local/bin/with-secrets: no such file or directory
+exec /usr/local/bin/with-secrets: no such file or directory
+exec /usr/local/bin/with-secrets: no such file or directory
+exec /usr/local/bin/with-secrets: no such file or directory
+exec /usr/local/bin/with-secrets: no such file or directory
+exec /usr/local/bin/with-secrets: no such file or directory
+exec /usr/local/bin/with-secrets: no such file or directory
+exec /usr/local/bin/with-secrets: no such file or directory
+exec /usr/local/bin/with-secrets: no such file or directory
+exec /usr/local/bin/with-secrets: no such file or directory
+exec /usr/local/bin/with-secrets: no such file or directory
+exec /usr/local/bin/with-secrets: no such file or directory
+exec /usr/local/bin/with-secrets: no such file or directory
+exec /usr/local/bin/with-secrets: no such file or directory
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker logs c04288c85b5e
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker logs 465366a52d8b 
+Reading pipelines and data-prepper configuration files from Data Prepper home directory.
+/usr/bin/java
+Found openjdk version  of 17.0
+2025-08-18T02:25:04,991 [main] INFO  org.opensearch.dataprepper.DataPrepperArgumentConfiguration - Command line args: /usr/share/data-prepper/pipelines,/usr/share/data-prepper/config/data-prepper-config.yaml
+2025-08-18T02:25:05,533 [main] INFO  org.opensearch.dataprepper.pipeline.parser.transformer.DynamicConfigTransformer - No transformation needed
+2025-08-18T02:25:06,028 [main] INFO  org.opensearch.dataprepper.plugins.kafka.extension.KafkaClusterConfigExtension - Applying Kafka Cluster Config Extension.
+2025-08-18T02:25:06,430 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building pipeline [otel-trace-pipeline] from provided configuration
+2025-08-18T02:25:06,430 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [otel_trace_source] as source component for the pipeline [otel-trace-pipeline]
+2025-08-18T02:25:06,568 [main] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - Creating otel-trace-source without authentication. This is not secure.
+2025-08-18T02:25:06,568 [main] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - In order to set up Http Basic authentication for the otel-trace-source, go here: https://github.com/opensearch-project/data-
+prepper/tree/main/data-prepper-plugins/otel-trace-source#authentication-configurations
+2025-08-18T02:25:06,575 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building buffer for the pipeline [otel-trace-pipeline]
+2025-08-18T02:25:06,579 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building processors for the pipeline [otel-trace-pipeline]
+2025-08-18T02:25:06,594 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building sinks for the pipeline [otel-trace-pipeline]
+2025-08-18T02:25:06,594 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [pipeline] as sink component
+2025-08-18T02:25:06,595 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [pipeline] as sink component
+2025-08-18T02:25:06,596 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Constructing MultiBufferDecorator with [0] secondary buffers for pipeline [otel-trace-pipeline]
+2025-08-18T02:25:06,603 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building pipeline [raw-trace-pipeline] from provided configuration
+2025-08-18T02:25:06,603 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [pipeline] as source component for the pipeline [raw-trace-pipeline]
+2025-08-18T02:25:06,603 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building buffer for the pipeline [raw-trace-pipeline]
+2025-08-18T02:25:06,605 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building processors for the pipeline [raw-trace-pipeline]
+2025-08-18T02:25:06,605 [main] WARN  org.opensearch.dataprepper.plugin.DefaultPluginFactory - Plugin name 'otel_trace_raw' is deprecated and will be removed in the next major release. Consider using the updated plugin name 'otel_tr
+aces'.
+2025-08-18T02:25:06,617 [main] INFO  org.opensearch.dataprepper.plugins.processor.oteltrace.OTelTraceRawProcessor - Configured Trace Raw Processor with a trace flush interval of 180000 ms.
+2025-08-18T02:25:06,636 [main] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the username provided in the config.
+2025-08-18T02:25:06,792 [main] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the trust all strategy
+2025-08-18T02:25:06,938 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building sinks for the pipeline [raw-trace-pipeline]
+2025-08-18T02:25:06,938 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [opensearch] as sink component
+2025-08-18T02:25:06,965 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Constructing MultiBufferDecorator with [1] secondary buffers for pipeline [raw-trace-pipeline]
+2025-08-18T02:25:06,966 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building pipeline [service-map-pipeline] from provided configuration
+2025-08-18T02:25:06,966 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [pipeline] as source component for the pipeline [service-map-pipeline]
+2025-08-18T02:25:06,966 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building buffer for the pipeline [service-map-pipeline]
+2025-08-18T02:25:06,968 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building processors for the pipeline [service-map-pipeline]
+2025-08-18T02:25:06,968 [main] WARN  org.opensearch.dataprepper.plugin.DefaultPluginFactory - Plugin name 'service_map_stateful' is deprecated and will be removed in the next major release. Consider using the updated plugin name 's
+ervice_map'.
+2025-08-18T02:25:07,246 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building sinks for the pipeline [service-map-pipeline]
+2025-08-18T02:25:07,246 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [opensearch] as sink component
+2025-08-18T02:25:07,250 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Constructing MultiBufferDecorator with [2] secondary buffers for pipeline [service-map-pipeline]
+2025-08-18T02:25:07,251 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building pipeline [otel-logs-pipeline] from provided configuration
+2025-08-18T02:25:07,251 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [otel_logs_source] as source component for the pipeline [otel-logs-pipeline]
+2025-08-18T02:25:07,259 [main] WARN  org.opensearch.dataprepper.plugins.source.otellogs.OTelLogsSource - Creating otel-logs-source without authentication. This is not secure.
+2025-08-18T02:25:07,259 [main] WARN  org.opensearch.dataprepper.plugins.source.otellogs.OTelLogsSource - In order to set up Http Basic authentication for the otel-logs-source, go here: https://github.com/opensearch-project/data-pre
+pper/tree/main/data-prepper-plugins/otel-logs-source#authentication-configurations
+2025-08-18T02:25:07,261 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building buffer for the pipeline [otel-logs-pipeline]
+2025-08-18T02:25:07,262 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building processors for the pipeline [otel-logs-pipeline]
+2025-08-18T02:25:07,264 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building sinks for the pipeline [otel-logs-pipeline]
+2025-08-18T02:25:07,264 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [opensearch] as sink component
+2025-08-18T02:25:07,267 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Constructing MultiBufferDecorator with [2] secondary buffers for pipeline [otel-logs-pipeline]
+2025-08-18T02:25:07,321 [main] WARN  org.opensearch.dataprepper.pipeline.server.config.DataPrepperServerConfiguration - Creating data prepper server without authentication. This is not secure.
+2025-08-18T02:25:07,321 [main] WARN  org.opensearch.dataprepper.pipeline.server.config.DataPrepperServerConfiguration - In order to set up Http Basic authentication for the data prepper server, go here: https://github.com/opensearc
+h-project/data-prepper/blob/main/docs/core_apis.md#authentication
+2025-08-18T02:25:07,829 [main] WARN  org.opensearch.dataprepper.peerforwarder.server.PeerForwarderHttpServerProvider - Creating Peer Forwarder server without SSL/TLS. This is not secure.
+2025-08-18T02:25:08,165 [main] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - Initiating pipeline execution
+2025-08-18T02:25:08,169 [main] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [raw-trace-pipeline] - Initiating pipeline execution
+2025-08-18T02:25:08,170 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - sink is not ready for execution, retrying
+2025-08-18T02:25:08,170 [main] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [service-map-pipeline] - Initiating pipeline execution
+2025-08-18T02:25:08,170 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] Waiting for Sink to be ready
+2025-08-18T02:25:08,170 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [raw-trace-pipeline] - sink is not ready for execution, retrying
+2025-08-18T02:25:08,171 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.OpenSearchSink - Initializing OpenSearch sink
+2025-08-18T02:25:08,171 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the username provided in the config.
+2025-08-18T02:25:08,171 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the trust all strategy
+2025-08-18T02:25:08,172 [main] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-logs-pipeline] - Initiating pipeline execution
+2025-08-18T02:25:08,172 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-logs-pipeline] - sink is not ready for execution, retrying
+2025-08-18T02:25:08,172 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.OpenSearchSink - Initializing OpenSearch sink
+2025-08-18T02:25:08,173 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the username provided in the config.
+2025-08-18T02:25:08,173 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [service-map-pipeline] - sink is not ready for execution, retrying
+2025-08-18T02:25:08,174 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the trust all strategy
+2025-08-18T02:25:08,174 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.OpenSearchSink - Initializing OpenSearch sink
+2025-08-18T02:25:08,174 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the username provided in the config.
+2025-08-18T02:25:08,174 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the trust all strategy
+2025-08-18T02:25:08,183 [main] WARN  org.opensearch.dataprepper.pipeline.server.HttpServerProvider - Creating Data Prepper server without TLS. This is not secure.
+2025-08-18T02:25:08,183 [main] WARN  org.opensearch.dataprepper.pipeline.server.HttpServerProvider - In order to set up TLS for the Data Prepper server, go here: https://github.com/opensearch-project/data-prepper/blob/main/docs/con
+figuration.md#server-configuration
+2025-08-18T02:25:08,225 [main] INFO  org.opensearch.dataprepper.pipeline.server.DataPrepperServer - Data Prepper server running at :4900
+2025-08-18T02:25:08,376 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - sink is not ready for execution, retrying
+2025-08-18T02:25:08,577 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - sink is not ready for execution, retrying
+2025-08-18T02:25:08,593 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.index.AbstractIndexManager - Found version 0 for existing index template otel-v1-apm-service-map-index-t
+emplate
+2025-08-18T02:25:08,594 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.index.AbstractIndexManager - Index template otel-v1-apm-service-map-index-template should not be updated
+, current version 0 >= existing version 0
+2025-08-18T02:25:08,636 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.OpenSearchSink - Initialized OpenSearch sink
+2025-08-18T02:25:08,636 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [service-map-pipeline] Sink is ready, starting source...
+2025-08-18T02:25:08,636 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [service-map-pipeline] - Submitting request to initiate the pipeline processing
+2025-08-18T02:25:08,778 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - sink is not ready for execution, retrying
+2025-08-18T02:25:08,979 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - sink is not ready for execution, retrying
+2025-08-18T02:25:09,024 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.index.AbstractIndexManager - Found version 1 for existing index template otel-v1-apm-span-index-template
+2025-08-18T02:25:09,024 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.index.AbstractIndexManager - Index template otel-v1-apm-span-index-template should not be updated, current
+ version 1 >= existing version 1
+2025-08-18T02:25:09,064 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.OpenSearchSink - Initialized OpenSearch sink
+2025-08-18T02:25:09,064 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [raw-trace-pipeline] Sink is ready, starting source...
+2025-08-18T02:25:09,064 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [raw-trace-pipeline] - Submitting request to initiate the pipeline processing
+2025-08-18T02:25:09,123 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.OpenSearchSink - Initialized OpenSearch sink
+2025-08-18T02:25:09,123 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-logs-pipeline] Sink is ready, starting source...
+2025-08-18T02:25:09,179 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] Sink is ready, starting source...
+2025-08-18T02:25:09,816 [otel-logs-pipeline-sink-worker-8-thread-1] WARN  org.opensearch.dataprepper.plugins.source.otellogs.OTelLogsSource - Creating otel_logs_source without SSL/TLS. This is not secure.
+
+2025-08-18T02:25:09,816 [otel-logs-pipeline-sink-worker-8-thread-1] WARN  org.opensearch.dataprepper.plugins.source.otellogs.OTelLogsSource - In order to set up TLS for the otel_logs_source, go here: https://github.com/opensearch-p
+roject/data-prepper/tree/main/data-prepper-plugins/otel-logs-source#ssl
+2025-08-18T02:25:09,826 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.plugins.source.otellogs.OTelLogsSource - Started otel_logs_source...
+2025-08-18T02:25:09,826 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-logs-pipeline] - Submitting request to initiate the pipeline processing
+2025-08-18T02:25:09,883 [otel-trace-pipeline-sink-worker-2-thread-1] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - Creating otel_trace_source without SSL/TLS. This is not secure.
+2025-08-18T02:25:09,884 [otel-trace-pipeline-sink-worker-2-thread-1] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - In order to set up TLS for the otel_trace_source, go here: https://github.com/opensear
+ch-project/data-prepper/tree/main/data-prepper-plugins/otel-trace-source#ssl
+2025-08-18T02:25:09,889 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - Started otel_trace_source on port 21890...
+2025-08-18T02:25:09,889 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - Submitting request to initiate the pipeline processing
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# cat docker-compose.yaml 
+services:
+  otel-collector:
+    user: "0:0"
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0
+
+    # 민감값은 파일로 마운트
+    volumes:
+      - /cvc/otelcol-0.118.0.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - /var/lib/otelcol/file_storage/gateway:/var/lib/otelcol/file_storage/gateway
+      - /cvc/log:/cvc/log
+      - /:/hostfs:ro
+      - ./secrets/aws_access_key_id:/run/secrets/aws_access_key_id:ro
+      - ./secrets/aws_secret_access_key:/run/secrets/aws_secret_access_key:ro
+      - ./entrypoints/with-secrets.sh:/usr/local/bin/with-secrets:ro
+
+    # 안전 엔트리포인트: 파일→env export 후 collector 실행
+    entrypoint: ["/usr/local/bin/with-secrets"]
+    command: ["/otelcol-contrib", "--config", "/etc/otelcol-contrib/config.yaml"]
+
+    ports:
+      - 1888:1888   # pprof extension
+      - 8888:8888   # Prometheus metrics (Collector)
+      - 8889:8889   # Prometheus exporter metrics
+      - 13133:13133 # health_check
+      - 4317:4317   # OTLP gRPC
+      - 4318:4318   # OTLP HTTP
+      - 55679:55679 # zpages
+
+    extra_hosts:
+      - "cortex-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      - "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      - "object-store.private.kr-west1.dev2.samsungsdscloud.com:198.19.126.41"
+
+    depends_on:
+      - data-prepper
+
+    
+    restart: unless-stopped
+
+  data-prepper:
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/data-prepper:2.10.1
+    container_name: data-prepper
+    # 내부에서 otel-collector가 service name으로 붙으므로 포트공개는 필수 아님
+    # 외부(호스트)에서 확인/테스트할 수 있도록 관리 포트는 노출
+
+    ports:
+      - "4900:4900"     # 관리 포트
+      # 외부에서 직접 수집받을 게 아니라면 21890/21892는 노출 불필요
+      # 필요 시 외부에서 바로 보낼 경우만 열 것:
+      # - "21890:21890" # OTEL trace source
+      # - "21892:21892" # OTEL logs source
+
+    volumes:
+      - ./pipelines.yaml:/usr/share/data-prepper/pipelines/pipelines.yaml:ro
+      - ./data-prepper-config.yaml:/usr/share/data-prepper/config/data-prepper-config.yaml:ro
+
+    extra_hosts:
+      - "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+      - "opensearch-dashboard-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
+
+    # 헬스체크(준비 여부 확인 후 collector가 붙도록)
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4900"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+    restart: unless-stopped
+
+  scanner:
+    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest
+    ports:
+      - 8081:8081
+
+    volumes:
+      - /cvc/log:/cvc/log
+      - /tmp:/tmp
+      - ./secrets/cvc_keystone_id:/run/secrets/cvc_keystone_id:ro
+      - ./secrets/cvc_keystone_pw:/run/secrets/cvc_keystone_pw:ro
+      - ./entrypoints/with-secrets.sh:/usr/local/bin/with-secrets:ro
+
+    # 중요: 이미지의 기본 CMD를 유지하고, 우리 스크립트가 그 CMD를 exec한다.
+    # 대부분의 Spring Boot/Java 이미지에서 CMD가 설정되어 있으므로 작동한다.
+    # 만약 이미지가 ENTRYPOINT 기반이라면, 아래 주석 블록 참고.
+    entrypoint: ["/usr/local/bin/with-secrets"]
+
+    extra_hosts:
+      - "iam-i.kr-west1.dev2.samsungsdscloud.com:198.18.2.52"
+      - "identity-i.kr-west1.dev2.samsungsdscloud.com:198.18.2.52"
+      - "host.docker.internal:host-gateway"
+
+    restart: unless-stopped
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# 
