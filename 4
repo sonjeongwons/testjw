@@ -1,208 +1,93 @@
-아래와 같이 Dockerfile과 docker-compose.yaml 파일을 작성했는데 컨테이너에서 에러로그가 나와 원인이뭐야?
-
-# Dockerfile
-FROM harbor-paasdev.samsungsdscloud.com/cvc/cvc-scanner-base:17-debian
- 
-# Proxy 설정
-ARG http_proxy=http://70.10.15.10:8080
-ARG https_proxy=http://70.10.15.10:8080
- 
-ADD sds.crt /usr/local/share/ca-certificates/
-RUN update-ca-certificates
-RUN sed 's/SECLEVEL=2/SECLEVEL=1/' -i /etc/ssl/openssl.cnf
- 
-RUN echo "Acquire::http::proxy \"http://70.10.15.10:8080/\";" >> /etc/apt/apt.conf.d/90proxy
-RUN echo "Acquire::https::proxy\"http://70.10.15.10:8080/\";" >> /etc/apt/apt.conf.d/90proxy
- 
- 
-RUN apt-get update && \
-    apt-get install -y curl ca-certificates telnet vim wget dnsutils && \
-    rm -rf /var/lib/apt/lists/*
- 
-# OpenTelemetry Java Agent 다운로드
-ENV OTEL_AGENT_VERSION=1.33.2
-RUN curl -L -o /opentelemetry-javaagent.jar \
-    https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar
- 
- 
-# 작업 디렉토리 설정
-WORKDIR /app
-COPY V3Scanner.properties /app/V3Scanner.properties
- 
-# OpenTelemetry Java Agent 복사
-COPY opentelemetry-javaagent.jar /app/opentelemetry-javaagent.jar
- 
-# 환경변수 설정
-ENV JAVA_TOOL_OPTIONS="-javaagent:/app/opentelemetry-javaagent.jar"
-ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
-ENV OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-ENV OTEL_METRICS_EXPORTER=otlp
-ENV OTEL_SERVICE_NAME=cvc-otel-agent
-# 트레이스, 로그도 추가 수집하려면 다음도 설정 가능:
-ENV OTEL_TRACES_EXPORTER=otlp
-ENV OTEL_LOGS_EXPORTER=otlp
-ENV no_proxy=localhost,127.0.0.1,otel-collector
- 
-# Proxy 설정 제거
-RUN rm /etc/apt/apt.conf.d/90proxy
-RUN rm /usr/local/share/ca-certificates/sds.crt
-RUN update-ca-certificates --fresh
-RUN sed 's/SECLEVEL=1/SECLEVEL=2/' -i /etc/ssl/openssl.cnf
-
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker logs 1aade04ecd7b
-Picked up JAVA_TOOL_OPTIONS: -javaagent:/app/opentelemetry-javaagent.jar
-OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
-[otel.javaagent 2025-08-18 08:41:05:730 +0000] [main] INFO io.opentelemetry.javaagent.tooling.VersionLogger - opentelemetry-javaagent - version: 1.33.2
-OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
-08:41:08,911 |-INFO in ch.qos.logback.classic.LoggerContext[default] - This is logback-classic version 1.5.12
-08:41:08,913 |-INFO in ch.qos.logback.classic.util.ContextInitializer@733f1395 - Here is a list of configurators discovered as a service, by rank: 
-08:41:08,913 |-INFO in ch.qos.logback.classic.util.ContextInitializer@733f1395 -   org.springframework.boot.logging.logback.RootLogLevelConfigurator
-08:41:08,913 |-INFO in ch.qos.logback.classic.util.ContextInitializer@733f1395 - They will be invoked in order until ExecutionStatus.DO_NOT_INVOKE_NEXT_IF_ANY is returned.
-08:41:08,913 |-INFO in ch.qos.logback.classic.util.ContextInitializer@733f1395 - Constructed configurator of type class org.springframework.boot.logging.logback.RootLogLevelConfigurator
-08:41:08,948 |-INFO in ch.qos.logback.classic.util.ContextInitializer@733f1395 - org.springframework.boot.logging.logback.RootLogLevelConfigurator.configure() call lasted 1 milliseconds. ExecutionStatus=INVOKE_NEXT_IF_ANY
-08:41:08,948 |-INFO in ch.qos.logback.classic.util.ContextInitializer@733f1395 - Trying to configure with ch.qos.logback.classic.joran.SerializedModelConfigurator
-08:41:08,949 |-INFO in ch.qos.logback.classic.util.ContextInitializer@733f1395 - Constructed configurator of type class ch.qos.logback.classic.joran.SerializedModelConfigurator
-08:41:08,963 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.scmo]
-08:41:08,963 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback.scmo]
-08:41:08,963 |-INFO in ch.qos.logback.classic.util.ContextInitializer@733f1395 - ch.qos.logback.classic.joran.SerializedModelConfigurator.configure() call lasted 14 milliseconds. ExecutionStatus=INVOKE_NEXT_IF_ANY
-08:41:08,963 |-INFO in ch.qos.logback.classic.util.ContextInitializer@733f1395 - Trying to configure with ch.qos.logback.classic.util.DefaultJoranConfigurator
-08:41:08,964 |-INFO in ch.qos.logback.classic.util.ContextInitializer@733f1395 - Constructed configurator of type class ch.qos.logback.classic.util.DefaultJoranConfigurator
-08:41:08,965 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.xml]
-08:41:08,965 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback.xml]
-08:41:08,965 |-INFO in ch.qos.logback.classic.util.ContextInitializer@733f1395 - ch.qos.logback.classic.util.DefaultJoranConfigurator.configure() call lasted 1 milliseconds. ExecutionStatus=INVOKE_NEXT_IF_ANY
-08:41:08,965 |-INFO in ch.qos.logback.classic.util.ContextInitializer@733f1395 - Trying to configure with ch.qos.logback.classic.BasicConfigurator
-08:41:08,966 |-INFO in ch.qos.logback.classic.util.ContextInitializer@733f1395 - Constructed configurator of type class ch.qos.logback.classic.BasicConfigurator
-08:41:08,966 |-INFO in ch.qos.logback.classic.BasicConfigurator@21dea711 - Setting up default configuration.
-08:41:09,001 |-INFO in ch.qos.logback.classic.util.ContextInitializer@733f1395 - ch.qos.logback.classic.BasicConfigurator.configure() call lasted 35 milliseconds. ExecutionStatus=NEUTRAL
-08:41:10,017 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - Processing appender named [ROLLING_FILE]
-08:41:10,017 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - About to instantiate appender of type [ch.qos.logback.core.rolling.RollingFileAppender]
-08:41:10,035 |-INFO in ch.qos.logback.core.model.processor.ModelInterpretationContext@7772d266 - value "/cvc/log/scanner.log" substituted for "${LOG_PATH}/${LOG_FILE}.log"
-08:41:10,039 |-INFO in ch.qos.logback.core.model.processor.ModelInterpretationContext@7772d266 - value "/cvc/log/scanner-%d{yyyy-MM-dd}.log" substituted for "${LOG_PATH}/${LOG_FILE}-%d{yyyy-MM-dd}.log"
-08:41:10,040 |-WARN in ch.qos.logback.core.model.processor.ImplicitModelHandler - Ignoring unknown property [maxFileSize] in [ch.qos.logback.core.rolling.TimeBasedRollingPolicy]
-08:41:10,060 |-INFO in c.q.l.core.rolling.TimeBasedRollingPolicy@10624116 - No compression will be used
-08:41:10,061 |-INFO in c.q.l.core.rolling.TimeBasedRollingPolicy@10624116 - Will use the pattern /cvc/log/scanner-%d{yyyy-MM-dd}.log for the active file
-08:41:10,067 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - The date pattern is 'yyyy-MM-dd' from file name pattern '/cvc/log/scanner-%d{yyyy-MM-dd}.log'.
-08:41:10,067 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - Roll-over at midnight.
-08:41:10,076 |-INFO in c.q.l.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy - Setting initial period to 2025-08-18T08:41:01.698Z
-8:41:10,077 |-INFO in ch.qos.logback.core.model.processor.ImplicitModelHandler - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
-08:41:10,120 |-INFO in ch.qos.logback.core.rolling.RollingFileAppender[ROLLING_FILE] - Active log file name: /cvc/log/scanner.log
-08:41:10,120 |-INFO in ch.qos.logback.core.rolling.RollingFileAppender[ROLLING_FILE] - File property is set to [/cvc/log/scanner.log]
-08:41:10,121 |-INFO in ch.qos.logback.classic.model.processor.RootLoggerModelHandler - Setting level of ROOT logger to INFO
-08:41:10,125 |-INFO in ch.qos.logback.classic.jul.LevelChangePropagator@b8a144e - Propagating INFO level on Logger[ROOT] onto the JUL framework
-08:41:10,128 |-INFO in ch.qos.logback.core.model.processor.AppenderRefModelHandler - Attaching appender named [ROLLING_FILE] to Logger[ROOT]
-08:41:10,128 |-INFO in ch.qos.logback.core.model.processor.DefaultProcessor@5fb8dc01 - End of configuration.
-08:41:10,128 |-INFO in org.springframework.boot.logging.logback.SpringBootJoranConfigurator@3e38c472 - Registering current configuration as safe fallback point
-
-
-  .   ____          _            __ _ _
- /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
-( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
- \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
-  '  |____| .__|_| |_|_| |_\__, | / / / /
- =========|_|==============|___/=/_/_/_/
-
- :: Spring Boot ::                (v3.4.1)
-
-[otel.javaagent 2025-08-18 08:41:14:721 +0000] [OkHttp http://otel-collector:4318/...] ERROR io.opentelemetry.exporter.internal.http.HttpExporter - Failed to export logs. The request could not be executed. Full error message: otel-
-collector
-java.net.UnknownHostException: otel-collector
-at java.base/java.net.InetAddress$CachedAddresses.get(InetAddress.java:801)
-at java.base/java.net.InetAddress.getAllByName0(InetAddress.java:1533)
-at java.base/java.net.InetAddress.getAllByName(InetAddress.java:1385)
-at java.base/java.net.InetAddress.getAllByName(InetAddress.java:1306)
-at okhttp3.Dns$Companion$DnsSystem.lookup(Dns.kt:49)
-at okhttp3.internal.connection.RouteSelector.resetNextInetSocketAddress(RouteSelector.kt:169)
-at okhttp3.internal.connection.RouteSelector.nextProxy(RouteSelector.kt:131)
-at okhttp3.internal.connection.RouteSelector.next(RouteSelector.kt:73)
-at okhttp3.internal.connection.ExchangeFinder.findConnection(ExchangeFinder.kt:205)
-at okhttp3.internal.connection.ExchangeFinder.findHealthyConnection(ExchangeFinder.kt:106)
-at okhttp3.internal.connection.ExchangeFinder.find(ExchangeFinder.kt:74)
-at okhttp3.internal.connection.RealCall.initExchange$okhttp(RealCall.kt:255)
-at okhttp3.internal.connection.ConnectInterceptor.intercept(ConnectInterceptor.kt:32)
-at okhttp3.internal.http.RealInterceptorChain.proceed(RealInterceptorChain.kt:109)
-at okhttp3.internal.cache.CacheInterceptor.intercept(CacheInterceptor.kt:95)
-at okhttp3.internal.http.RealInterceptorChain.proceed(RealInterceptorChain.kt:109)
-at okhttp3.internal.http.BridgeInterceptor.intercept(BridgeInterceptor.kt:83)
-at okhttp3.internal.http.RealInterceptorChain.proceed(RealInterceptorChain.kt:109)
-at okhttp3.internal.http.RetryAndFollowUpInterceptor.intercept(RetryAndFollowUpInterceptor.kt:76)
-at okhttp3.internal.http.RealInterceptorChain.proceed(RealInterceptorChain.kt:109)
-at okhttp3.internal.connection.RealCall.getResponseWithInterceptorChain$okhttp(RealCall.kt:201)
-at okhttp3.internal.connection.RealCall$AsyncCall.run(RealCall.kt:517)
-at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
-at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
-at java.base/java.lang.Thread.run(Thread.java:833)
-  
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# cat docker-compose.yaml 
-services:
-  data-prepper:
-    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/data-prepper:2.10.1
-    #container_name: data-prepper
-    # 내부에서 otel-collector가 service name으로 붙으므로 포트 공개는 필수 아님.
-    # 외부(호스트)에서 확인/테스트할 수 있도록 관리 포트는 노출.
-    ports:
-      - "4900:4900"     # Data Prepper Node/HTTP 관리 포트
-      # 필요 시 외부에서 바로 보낼 경우만 열 것:
-      #- "21890:21890" # OTEL trace source
-      #- "21892:21892" # OTEL logs source
-    volumes:
-      - ./pipelines.yaml:/usr/share/data-prepper/pipelines/pipelines.yaml:ro
-      - ./data-prepper-config.yaml:/usr/share/data-prepper/config/data-prepper-config.yaml:ro
-    extra_hosts:
-      - "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
-      # docker run 예시 따라 dashboard 호스트도 추가(필요시)
-      #- "opensearch-dashboard-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
-    environment: []
-    restart: unless-stopped
-  
-  wait-dp:
-    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/busybox:latest
-    #container_name: wait-dp
-    depends_on:
-      - data-prepper
-    command: sh -c "until nc -z data-prepper 21890; do sleep 1; done"
-  otel-collector:
-    user: "0:0"
-    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0
-    #container_name: otel-collector
-    volumes:
-- /cvc/otelcol-0.118.0.yaml:/etc/otelcol-contrib/config.yaml
-- /var/lib/otelcol/file_storage/gateway:/var/lib/otelcol/file_storage/gateway
-- /cvc/log:/cvc/log
-- /:/hostfs:ro
-    environment:
-- AWS_ACCESS_KEY_ID=2ea2be5027cf41789f42f86de3a2ff8d
-- AWS_SECRET_ACCESS_KEY=3ef2f008-6a20-4af2-8d7c-65d2a39320dc
-    ports:
-- 1888:1888   # pprof extension
-- 8888:8888   # Prometheus metrics (Collector)
-- 8889:8889   # Prometheus exporter metrics
-- 13133:13133 # health_check
-- 4317:4317   # OTLP gRPC
-- 4318:4318   # OTLP HTTP
-- 55679:55679 # zpages
-    extra_hosts:
-- "cortex-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
-- "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
-- "object-store.private.kr-west1.dev2.samsungsdscloud.com:198.19.126.41"
-depends_on:
-wait-dp:
-condition: service_completed_successfully
-restart: unless-stopped
-
-scanner:
-image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest
-#container_name: scanner
-ports:
-- 8081:8081
-volumes:
-- /cvc/log:/cvc/log
-- /tmp:/tmp
-environment:
-- CVC_KEYSTONE_ID=cvc-service
-- CVC_KEYSTONE_PW=CVCscanner1!
-- IAM_API_ENDPOINT=https://identity-i.kr-west1.dev2.samsungsdscloud.com/v3/auth/tokens?nocatalog=null
-extra_hosts:
-- "iam-i.kr-west1.dev2.samsungsdscloud.com:198.18.2.52"
-- "identity-i.kr-west1.dev2.samsungsdscloud.com:198.18.2.52"
-- "host.docker.internal:host-gateway"
-restart: unless-stopped
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# cat pipelines.yaml 
+otel-logs-pipeline:
+  buffer:
+    bounded_blocking:
+      batch_size: 200
+      buffer_size: 50000
+  processor:
+  - date:
+      destination: '@timestamp'
+      from_time_received: true
+  sink:
+  - opensearch:
+      hosts:
+      - https://opensearch-paas.kr-west1.dev2.samsungsdscloud.com
+      index: cvc-logs-%{yyyy.MM.dd}
+      index_type: custom
+      insecure: true
+      password: '!CVC_PW123'
+      username: cvc_data
+  source:
+    otel_logs_source:
+      authentication:
+        unauthenticated:
+      port: 21892
+      ssl: false
+  workers: 3
+otel-trace-pipeline:
+  buffer:
+    bounded_blocking:
+      batch_size: 200
+      buffer_size: 50000
+  delay: "100"
+  processor:
+  - date:
+      destination: '@timestamp'
+      from_time_received: true
+  sink:
+  - pipeline:
+      name: raw-trace-pipeline
+  - pipeline:
+       name: service-map-pipeline
+  source:
+    otel_trace_source:
+      authentication:
+        unauthenticated:
+      port: 21890
+      ssl: false
+  workers: 3
+raw-trace-pipeline:
+  buffer:
+    bounded_blocking:
+      batch_size: 200
+      buffer_size: 50000
+  processor:
+  - otel_trace_raw:
+  - otel_trace_group:
+      hosts:
+      - https://opensearch-paas.kr-west1.dev2.samsungsdscloud.com
+      insecure: true
+      password: '!CVC_PW123'
+      username: cvc_data
+  sink:
+  - opensearch:
+      hosts:
+      - https://opensearch-paas.kr-west1.dev2.samsungsdscloud.com
+      index_type: trace-analytics-raw
+      insecure: true
+      password: '!CVC_PW123'
+      username: cvc_data
+  source:
+    pipeline:
+      name: otel-trace-pipeline
+  workers: 3
+service-map-pipeline:
+  buffer:
+    bounded_blocking:
+      batch_size: 200
+      buffer_size: 50000
+  delay: "100"
+  processor:
+  - service_map_stateful:
+  sink:
+  - opensearch:
+      hosts:
+      - https://opensearch-paas.kr-west1.dev2.samsungsdscloud.com
+      index_type: trace-analytics-service-map
+      insecure: true
+      password: '!CVC_PW123'
+           username: cvc_data
+  source:
+    pipeline:
+      name: otel-trace-pipeline
+  workers: 3
