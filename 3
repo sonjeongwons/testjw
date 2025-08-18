@@ -1,10 +1,12 @@
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# cat pipelines.yaml 
-otel-trace-pipeline:
-  sink:
-  - stdout: {}
-  source:
-    otel_trace_source:
-      authentication:
-        unauthenticated:
-      port: 21890
-      ssl: false
+# 1) Data Prepper 리스닝 유무
+docker exec -it data-prepper sh -c "ss -ltnp | grep 21890 || netstat -ltnp | grep 21890 || true"
+
+# 2) Collector 컨테이너에서 포트 열림 확인
+docker exec -it cvc-otel-collector-1 sh -c \
+"getent hosts data-prepper; (command -v nc >/dev/null && nc -vz data-prepper 21890) || (command -v busybox >/dev/null && busybox nc -vz data-prepper 21890)"
+
+# 3) Data Prepper 로그(초반부 에러) 확인
+docker logs --since=15m data-prepper | sed -n '1,300p'
+
+# 4) 관리 포트에서 등록된 파이프라인명 다시 확인
+curl -s http://localhost:4900/list/pipelines
