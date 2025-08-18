@@ -1,226 +1,36 @@
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker ps
-CONTAINER ID   IMAGE                                                                                                           COMMAND                  CREATED         STATUS                            PORTS                        
-                 NAMES
-c8d440c574ae   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0   "/usr/local/bin/with…"   5 minutes ago   Restarting (255) 33 seconds ago                                
-                 cvc-otel-collector-1
-465366a52d8b   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/data-prepper:2.10.1                       "bin/data-prepper"       5 minutes ago   Up 5 minutes (unhealthy)          0.0.0.0:4900->4900/tcp, [::]:
-4900->4900/tcp   data-prepper
-c04288c85b5e   paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest                        "/usr/local/bin/with…"   5 minutes ago   Restarting (0) 38 seconds ago                                  
-                 cvc-scanner-1
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker logs c8d440c574ae 
-exec /usr/local/bin/with-secrets: no such file or directory
-exec /usr/local/bin/with-secrets: no such file or directory
-exec /usr/local/bin/with-secrets: no such file or directory
-exec /usr/local/bin/with-secrets: no such file or directory
-exec /usr/local/bin/with-secrets: no such file or directory
-exec /usr/local/bin/with-secrets: no such file or directory
-exec /usr/local/bin/with-secrets: no such file or directory
-exec /usr/local/bin/with-secrets: no such file or directory
-exec /usr/local/bin/with-secrets: no such file or directory
-exec /usr/local/bin/with-secrets: no such file or directory
-exec /usr/local/bin/with-secrets: no such file or directory
-exec /usr/local/bin/with-secrets: no such file or directory
-exec /usr/local/bin/with-secrets: no such file or directory
-exec /usr/local/bin/with-secrets: no such file or directory
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker logs c04288c85b5e
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# docker logs 465366a52d8b 
-Reading pipelines and data-prepper configuration files from Data Prepper home directory.
-/usr/bin/java
-Found openjdk version  of 17.0
-2025-08-18T02:25:04,991 [main] INFO  org.opensearch.dataprepper.DataPrepperArgumentConfiguration - Command line args: /usr/share/data-prepper/pipelines,/usr/share/data-prepper/config/data-prepper-config.yaml
-2025-08-18T02:25:05,533 [main] INFO  org.opensearch.dataprepper.pipeline.parser.transformer.DynamicConfigTransformer - No transformation needed
-2025-08-18T02:25:06,028 [main] INFO  org.opensearch.dataprepper.plugins.kafka.extension.KafkaClusterConfigExtension - Applying Kafka Cluster Config Extension.
-2025-08-18T02:25:06,430 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building pipeline [otel-trace-pipeline] from provided configuration
-2025-08-18T02:25:06,430 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [otel_trace_source] as source component for the pipeline [otel-trace-pipeline]
-2025-08-18T02:25:06,568 [main] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - Creating otel-trace-source without authentication. This is not secure.
-2025-08-18T02:25:06,568 [main] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - In order to set up Http Basic authentication for the otel-trace-source, go here: https://github.com/opensearch-project/data-
-prepper/tree/main/data-prepper-plugins/otel-trace-source#authentication-configurations
-2025-08-18T02:25:06,575 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building buffer for the pipeline [otel-trace-pipeline]
-2025-08-18T02:25:06,579 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building processors for the pipeline [otel-trace-pipeline]
-2025-08-18T02:25:06,594 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building sinks for the pipeline [otel-trace-pipeline]
-2025-08-18T02:25:06,594 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [pipeline] as sink component
-2025-08-18T02:25:06,595 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [pipeline] as sink component
-2025-08-18T02:25:06,596 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Constructing MultiBufferDecorator with [0] secondary buffers for pipeline [otel-trace-pipeline]
-2025-08-18T02:25:06,603 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building pipeline [raw-trace-pipeline] from provided configuration
-2025-08-18T02:25:06,603 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [pipeline] as source component for the pipeline [raw-trace-pipeline]
-2025-08-18T02:25:06,603 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building buffer for the pipeline [raw-trace-pipeline]
-2025-08-18T02:25:06,605 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building processors for the pipeline [raw-trace-pipeline]
-2025-08-18T02:25:06,605 [main] WARN  org.opensearch.dataprepper.plugin.DefaultPluginFactory - Plugin name 'otel_trace_raw' is deprecated and will be removed in the next major release. Consider using the updated plugin name 'otel_tr
-aces'.
-2025-08-18T02:25:06,617 [main] INFO  org.opensearch.dataprepper.plugins.processor.oteltrace.OTelTraceRawProcessor - Configured Trace Raw Processor with a trace flush interval of 180000 ms.
-2025-08-18T02:25:06,636 [main] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the username provided in the config.
-2025-08-18T02:25:06,792 [main] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the trust all strategy
-2025-08-18T02:25:06,938 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building sinks for the pipeline [raw-trace-pipeline]
-2025-08-18T02:25:06,938 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [opensearch] as sink component
-2025-08-18T02:25:06,965 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Constructing MultiBufferDecorator with [1] secondary buffers for pipeline [raw-trace-pipeline]
-2025-08-18T02:25:06,966 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building pipeline [service-map-pipeline] from provided configuration
-2025-08-18T02:25:06,966 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [pipeline] as source component for the pipeline [service-map-pipeline]
-2025-08-18T02:25:06,966 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building buffer for the pipeline [service-map-pipeline]
-2025-08-18T02:25:06,968 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building processors for the pipeline [service-map-pipeline]
-2025-08-18T02:25:06,968 [main] WARN  org.opensearch.dataprepper.plugin.DefaultPluginFactory - Plugin name 'service_map_stateful' is deprecated and will be removed in the next major release. Consider using the updated plugin name 's
-ervice_map'.
-2025-08-18T02:25:07,246 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building sinks for the pipeline [service-map-pipeline]
-2025-08-18T02:25:07,246 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [opensearch] as sink component
-2025-08-18T02:25:07,250 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Constructing MultiBufferDecorator with [2] secondary buffers for pipeline [service-map-pipeline]
-2025-08-18T02:25:07,251 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building pipeline [otel-logs-pipeline] from provided configuration
-2025-08-18T02:25:07,251 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [otel_logs_source] as source component for the pipeline [otel-logs-pipeline]
-2025-08-18T02:25:07,259 [main] WARN  org.opensearch.dataprepper.plugins.source.otellogs.OTelLogsSource - Creating otel-logs-source without authentication. This is not secure.
-2025-08-18T02:25:07,259 [main] WARN  org.opensearch.dataprepper.plugins.source.otellogs.OTelLogsSource - In order to set up Http Basic authentication for the otel-logs-source, go here: https://github.com/opensearch-project/data-pre
-pper/tree/main/data-prepper-plugins/otel-logs-source#authentication-configurations
-2025-08-18T02:25:07,261 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building buffer for the pipeline [otel-logs-pipeline]
-2025-08-18T02:25:07,262 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building processors for the pipeline [otel-logs-pipeline]
-2025-08-18T02:25:07,264 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building sinks for the pipeline [otel-logs-pipeline]
-2025-08-18T02:25:07,264 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Building [opensearch] as sink component
-2025-08-18T02:25:07,267 [main] INFO  org.opensearch.dataprepper.parser.PipelineTransformer - Constructing MultiBufferDecorator with [2] secondary buffers for pipeline [otel-logs-pipeline]
-2025-08-18T02:25:07,321 [main] WARN  org.opensearch.dataprepper.pipeline.server.config.DataPrepperServerConfiguration - Creating data prepper server without authentication. This is not secure.
-2025-08-18T02:25:07,321 [main] WARN  org.opensearch.dataprepper.pipeline.server.config.DataPrepperServerConfiguration - In order to set up Http Basic authentication for the data prepper server, go here: https://github.com/opensearc
-h-project/data-prepper/blob/main/docs/core_apis.md#authentication
-2025-08-18T02:25:07,829 [main] WARN  org.opensearch.dataprepper.peerforwarder.server.PeerForwarderHttpServerProvider - Creating Peer Forwarder server without SSL/TLS. This is not secure.
-2025-08-18T02:25:08,165 [main] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - Initiating pipeline execution
-2025-08-18T02:25:08,169 [main] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [raw-trace-pipeline] - Initiating pipeline execution
-2025-08-18T02:25:08,170 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - sink is not ready for execution, retrying
-2025-08-18T02:25:08,170 [main] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [service-map-pipeline] - Initiating pipeline execution
-2025-08-18T02:25:08,170 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] Waiting for Sink to be ready
-2025-08-18T02:25:08,170 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [raw-trace-pipeline] - sink is not ready for execution, retrying
-2025-08-18T02:25:08,171 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.OpenSearchSink - Initializing OpenSearch sink
-2025-08-18T02:25:08,171 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the username provided in the config.
-2025-08-18T02:25:08,171 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the trust all strategy
-2025-08-18T02:25:08,172 [main] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-logs-pipeline] - Initiating pipeline execution
-2025-08-18T02:25:08,172 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-logs-pipeline] - sink is not ready for execution, retrying
-2025-08-18T02:25:08,172 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.OpenSearchSink - Initializing OpenSearch sink
-2025-08-18T02:25:08,173 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the username provided in the config.
-2025-08-18T02:25:08,173 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [service-map-pipeline] - sink is not ready for execution, retrying
-2025-08-18T02:25:08,174 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the trust all strategy
-2025-08-18T02:25:08,174 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.OpenSearchSink - Initializing OpenSearch sink
-2025-08-18T02:25:08,174 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the username provided in the config.
-2025-08-18T02:25:08,174 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.ConnectionConfiguration - Using the trust all strategy
-2025-08-18T02:25:08,183 [main] WARN  org.opensearch.dataprepper.pipeline.server.HttpServerProvider - Creating Data Prepper server without TLS. This is not secure.
-2025-08-18T02:25:08,183 [main] WARN  org.opensearch.dataprepper.pipeline.server.HttpServerProvider - In order to set up TLS for the Data Prepper server, go here: https://github.com/opensearch-project/data-prepper/blob/main/docs/con
-figuration.md#server-configuration
-2025-08-18T02:25:08,225 [main] INFO  org.opensearch.dataprepper.pipeline.server.DataPrepperServer - Data Prepper server running at :4900
-2025-08-18T02:25:08,376 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - sink is not ready for execution, retrying
-2025-08-18T02:25:08,577 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - sink is not ready for execution, retrying
-2025-08-18T02:25:08,593 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.index.AbstractIndexManager - Found version 0 for existing index template otel-v1-apm-service-map-index-t
-emplate
-2025-08-18T02:25:08,594 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.index.AbstractIndexManager - Index template otel-v1-apm-service-map-index-template should not be updated
-, current version 0 >= existing version 0
-2025-08-18T02:25:08,636 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.OpenSearchSink - Initialized OpenSearch sink
-2025-08-18T02:25:08,636 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [service-map-pipeline] Sink is ready, starting source...
-2025-08-18T02:25:08,636 [service-map-pipeline-sink-worker-6-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [service-map-pipeline] - Submitting request to initiate the pipeline processing
-2025-08-18T02:25:08,778 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - sink is not ready for execution, retrying
-2025-08-18T02:25:08,979 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - sink is not ready for execution, retrying
-2025-08-18T02:25:09,024 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.index.AbstractIndexManager - Found version 1 for existing index template otel-v1-apm-span-index-template
-2025-08-18T02:25:09,024 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.index.AbstractIndexManager - Index template otel-v1-apm-span-index-template should not be updated, current
- version 1 >= existing version 1
-2025-08-18T02:25:09,064 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.OpenSearchSink - Initialized OpenSearch sink
-2025-08-18T02:25:09,064 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [raw-trace-pipeline] Sink is ready, starting source...
-2025-08-18T02:25:09,064 [raw-trace-pipeline-sink-worker-4-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [raw-trace-pipeline] - Submitting request to initiate the pipeline processing
-2025-08-18T02:25:09,123 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.plugins.sink.opensearch.OpenSearchSink - Initialized OpenSearch sink
-2025-08-18T02:25:09,123 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-logs-pipeline] Sink is ready, starting source...
-2025-08-18T02:25:09,179 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] Sink is ready, starting source...
-2025-08-18T02:25:09,816 [otel-logs-pipeline-sink-worker-8-thread-1] WARN  org.opensearch.dataprepper.plugins.source.otellogs.OTelLogsSource - Creating otel_logs_source without SSL/TLS. This is not secure.
+[root@d2-krw1a-dp-cvc-engine-01 entrypoints]# ls -al
+total 4
+drwxr-xr-x 2 root root   29 Aug 14 19:03 .
+drwxr-xr-x 6 root root  175 Aug 18 11:30 ..
+-r-xr-xr-x 1 root root 1181 Aug 14 19:03 with-secrets.sh
+[root@d2-krw1a-dp-cvc-engine-01 entrypoints]# cat with-secrets.sh 
+#!/bin/sh
+# 최소 권한(0555)로 배포, set -x 금지, 출력 금지
 
-2025-08-18T02:25:09,816 [otel-logs-pipeline-sink-worker-8-thread-1] WARN  org.opensearch.dataprepper.plugins.source.otellogs.OTelLogsSource - In order to set up TLS for the otel_logs_source, go here: https://github.com/opensearch-p
-roject/data-prepper/tree/main/data-prepper-plugins/otel-logs-source#ssl
-2025-08-18T02:25:09,826 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.plugins.source.otellogs.OTelLogsSource - Started otel_logs_source...
-2025-08-18T02:25:09,826 [otel-logs-pipeline-sink-worker-8-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-logs-pipeline] - Submitting request to initiate the pipeline processing
-2025-08-18T02:25:09,883 [otel-trace-pipeline-sink-worker-2-thread-1] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - Creating otel_trace_source without SSL/TLS. This is not secure.
-2025-08-18T02:25:09,884 [otel-trace-pipeline-sink-worker-2-thread-1] WARN  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - In order to set up TLS for the otel_trace_source, go here: https://github.com/opensear
-ch-project/data-prepper/tree/main/data-prepper-plugins/otel-trace-source#ssl
-2025-08-18T02:25:09,889 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.plugins.source.oteltrace.OTelTraceSource - Started otel_trace_source on port 21890...
-2025-08-18T02:25:09,889 [otel-trace-pipeline-sink-worker-2-thread-1] INFO  org.opensearch.dataprepper.pipeline.Pipeline - Pipeline [otel-trace-pipeline] - Submitting request to initiate the pipeline processing
-[root@d2-krw1a-dp-cvc-engine-01 cvc]# cat docker-compose.yaml 
-services:
-  otel-collector:
-    user: "0:0"
-    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/opentelemetry-collector-contrib:0.118.0
+# 안전한 읽기 함수: 파일 존재/권한만 검사, 값은 출력/로그 금지
+read_secret() {
+  f="$1"
+  [ -r "$f" ] || { echo "secret not readable: $f" >&2; exit 1; }
+  # shellcheck disable=SC2002
+  cat "$f"
+}
 
-    # 민감값은 파일로 마운트
-    volumes:
-      - /cvc/otelcol-0.118.0.yaml:/etc/otelcol-contrib/config.yaml:ro
-      - /var/lib/otelcol/file_storage/gateway:/var/lib/otelcol/file_storage/gateway
-      - /cvc/log:/cvc/log
-      - /:/hostfs:ro
-      - ./secrets/aws_access_key_id:/run/secrets/aws_access_key_id:ro
-      - ./secrets/aws_secret_access_key:/run/secrets/aws_secret_access_key:ro
-      - ./entrypoints/with-secrets.sh:/usr/local/bin/with-secrets:ro
+# 필요한 경우에만 export. 값은 절대 echo/printf로 출력하지 않음.
+[ -f /run/secrets/aws_access_key_id ]       && export AWS_ACCESS_KEY_ID="$(read_secret /run/secrets/aws_access_key_id)"
+[ -f /run/secrets/aws_secret_access_key ]   && export AWS_SECRET_ACCESS_KEY="$(read_secret /run/secrets/aws_secret_access_key)"
+[ -f /run/secrets/cvc_keystone_id ]         && export CVC_KEYSTONE_ID="$(read_secret /run/secrets/cvc_keystone_id)"
+[ -f /run/secrets/cvc_keystone_pw ]         && export CVC_KEYSTONE_PW="$(read_secret /run/secrets/cvc_keystone_pw)"
 
-    # 안전 엔트리포인트: 파일→env export 후 collector 실행
-    entrypoint: ["/usr/local/bin/with-secrets"]
-    command: ["/otelcol-contrib", "--config", "/etc/otelcol-contrib/config.yaml"]
+# 추가로, SDK 표준 경로 사용이 필요하면 여기에 설정 (값 자체는 비밀이 아님)
+# export AWS_SHARED_CREDENTIALS_FILE=/run/secrets/aws_credentials
+# export AWS_PROFILE=default
 
-    ports:
-      - 1888:1888   # pprof extension
-      - 8888:8888   # Prometheus metrics (Collector)
-      - 8889:8889   # Prometheus exporter metrics
-      - 13133:13133 # health_check
-      - 4317:4317   # OTLP gRPC
-      - 4318:4318   # OTLP HTTP
-      - 55679:55679 # zpages
-
-    extra_hosts:
-      - "cortex-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
-      - "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
-      - "object-store.private.kr-west1.dev2.samsungsdscloud.com:198.19.126.41"
-
-    depends_on:
-      - data-prepper
-
-    
-    restart: unless-stopped
-
-  data-prepper:
-    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/data-prepper:2.10.1
-    container_name: data-prepper
-    # 내부에서 otel-collector가 service name으로 붙으므로 포트공개는 필수 아님
-    # 외부(호스트)에서 확인/테스트할 수 있도록 관리 포트는 노출
-
-    ports:
-      - "4900:4900"     # 관리 포트
-      # 외부에서 직접 수집받을 게 아니라면 21890/21892는 노출 불필요
-      # 필요 시 외부에서 바로 보낼 경우만 열 것:
-      # - "21890:21890" # OTEL trace source
-      # - "21892:21892" # OTEL logs source
-
-    volumes:
-      - ./pipelines.yaml:/usr/share/data-prepper/pipelines/pipelines.yaml:ro
-      - ./data-prepper-config.yaml:/usr/share/data-prepper/config/data-prepper-config.yaml:ro
-
-    extra_hosts:
-      - "opensearch-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
-      - "opensearch-dashboard-paas.kr-west1.dev2.samsungsdscloud.com:198.18.3.136"
-
-    # 헬스체크(준비 여부 확인 후 collector가 붙도록)
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4900"]
-      interval: 15s
-      timeout: 3s
-      retries: 10
-      start_period: 20s
-
-    restart: unless-stopped
-
-  scanner:
-    image: paascommon-edcnnztb.scr.private.kr-west1.dev2.samsungsdscloud.com/cvc/cvc-scanner:latest
-    ports:
-      - 8081:8081
-
-    volumes:
-      - /cvc/log:/cvc/log
-      - /tmp:/tmp
-      - ./secrets/cvc_keystone_id:/run/secrets/cvc_keystone_id:ro
-      - ./secrets/cvc_keystone_pw:/run/secrets/cvc_keystone_pw:ro
-      - ./entrypoints/with-secrets.sh:/usr/local/bin/with-secrets:ro
-
-    # 중요: 이미지의 기본 CMD를 유지하고, 우리 스크립트가 그 CMD를 exec한다.
-    # 대부분의 Spring Boot/Java 이미지에서 CMD가 설정되어 있으므로 작동한다.
-    # 만약 이미지가 ENTRYPOINT 기반이라면, 아래 주석 블록 참고.
-    entrypoint: ["/usr/local/bin/with-secrets"]
-
-    extra_hosts:
-      - "iam-i.kr-west1.dev2.samsungsdscloud.com:198.18.2.52"
-      - "identity-i.kr-west1.dev2.samsungsdscloud.com:198.18.2.52"
-      - "host.docker.internal:host-gateway"
-
-    restart: unless-stopped
+# 프로세스를 교체하여 환경변수만 남기고 쉘은 종료 (ps에 쉘 인자/히스토리 최소화)
+exec "$@"
+[root@d2-krw1a-dp-cvc-engine-01 entrypoints]# pwd
+/cvc/entrypoints
+[root@d2-krw1a-dp-cvc-engine-01 entrypoints]# cd ..
+[root@d2-krw1a-dp-cvc-engine-01 cvc]# ls
+data-prepper-config.yaml  docker-compose.yaml  entrypoints  log  otelcol-0.118.0.yaml  pipelines.yaml  secrets
 [root@d2-krw1a-dp-cvc-engine-01 cvc]# 
+
