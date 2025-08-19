@@ -1,79 +1,22 @@
-방법 A) 필터에서 직접 401 JSON 바디를 쓰고 체인을 중단(가장 단순/안전)
-// src/main/java/com/cvc/scanner/security/SubjectTokenPresenceFilter.java
-package com.cvc.scanner.security;
-
-import com.cvc.scanner.error.ApiError;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.web.filter.OncePerRequestFilter;
-
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
-
-@Order(Ordered.HIGHEST_PRECEDENCE) // 되도록 앞단에서 실행
-public class SubjectTokenPresenceFilter extends OncePerRequestFilter {
-
-    private final ObjectMapper mapper = new ObjectMapper();
-
-    @Override
-    protected void doFilterInternal(
-            HttpServletRequest request, HttpServletResponse response, FilterChain chain)
-            throws ServletException, IOException {
-
-        String uri = request.getRequestURI();
-
-        // /error 자체는 제외(재귀 방지). 필요 시 static 자원 경로도 제외.
-        if (uri.startsWith("/api/v1/scanner/") && !"/error".equals(uri)) {
-            String token = request.getHeader("X-Subject-Token");
-            if (token == null || token.isBlank()) {
-                response.setStatus(HttpStatus.UNAUTHORIZED.value());
-                response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                response.getWriter().write(
-                        mapper.writeValueAsString(ApiError.of("Unauthorized"))
-                );
-                return; // 체인 중단 → 컨트롤러로 안 간다
-            }
-        }
-
-        chain.doFilter(request, response);
-    }
-}
-
-
-등록(하나만 선택):
-
-// 1) @Configuration로 FilterRegistrationBean
-import org.springframework.boot.web.servlet.FilterRegistrationBean;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-
-@Configuration
-public class FilterConfig {
-    @Bean
-    public FilterRegistrationBean<SubjectTokenPresenceFilter> tokenPresenceFilter() {
-        FilterRegistrationBean<SubjectTokenPresenceFilter> reg = new FilterRegistrationBean<>();
-        reg.setFilter(new SubjectTokenPresenceFilter());
-        reg.addUrlPatterns("/*");  // 전역 적용 후 필터 내부에서 URI 선별
-        reg.setOrder(1);
-        return reg;
-    }
-}
-
-
-혹은
-
-// 2) @Component로 빈 등록(패키지 스캔 루트 하위에 위치)
-import org.springframework.stereotype.Component;
-
-@Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
-public class SubjectTokenPresenceFilter extends OncePerRequestFilter { ... }
-
-
-장점: 전역 예외처리와 무관하게 항상 401로 나감. “필수 헤더 누락 → 401 + {timestamp, errorMessage}” 보장.
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/urllib3/connectionpool.py", line 600, in urlopen
+    chunked=chunked)
+  File "/usr/lib/python3.6/site-packages/urllib3/connectionpool.py", line 354, in _make_request
+    conn.request(method, url, **httplib_request_kw)
+  File "/usr/lib64/python3.6/http/client.py", line 1273, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/usr/lib64/python3.6/http/client.py", line 1319, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/usr/lib64/python3.6/http/client.py", line 1268, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib64/python3.6/http/client.py", line 1083, in _send_output
+    self.send(chunk)
+  File "/usr/lib64/python3.6/http/client.py", line 1004, in send
+    self.sock.sendall(data)
+  File "/usr/lib64/python3.6/ssl.py", line 968, in sendall
+    v = self.send(byte_view[count:])
+  File "/usr/lib64/python3.6/ssl.py", line 937, in send
+    return self._sslobj.write(data)
+  File "/usr/lib64/python3.6/ssl.py", line 601, in write
+    return self._sslobj.write(data)
+BrokenPipeError: [Errno 32] Broken pipe
