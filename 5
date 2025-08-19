@@ -1,22 +1,85 @@
-Traceback (most recent call last):
-  File "/usr/lib/python3.6/site-packages/urllib3/connectionpool.py", line 600, in urlopen
-    chunked=chunked)
-  File "/usr/lib/python3.6/site-packages/urllib3/connectionpool.py", line 354, in _make_request
-    conn.request(method, url, **httplib_request_kw)
-  File "/usr/lib64/python3.6/http/client.py", line 1273, in request
-    self._send_request(method, url, body, headers, encode_chunked)
-  File "/usr/lib64/python3.6/http/client.py", line 1319, in _send_request
-    self.endheaders(body, encode_chunked=encode_chunked)
-  File "/usr/lib64/python3.6/http/client.py", line 1268, in endheaders
-    self._send_output(message_body, encode_chunked=encode_chunked)
-  File "/usr/lib64/python3.6/http/client.py", line 1083, in _send_output
-    self.send(chunk)
-  File "/usr/lib64/python3.6/http/client.py", line 1004, in send
-    self.sock.sendall(data)
-  File "/usr/lib64/python3.6/ssl.py", line 968, in sendall
-    v = self.send(byte_view[count:])
-  File "/usr/lib64/python3.6/ssl.py", line 937, in send
-    return self._sslobj.write(data)
-  File "/usr/lib64/python3.6/ssl.py", line 601, in write
-    return self._sslobj.write(data)
-BrokenPipeError: [Errno 32] Broken pipe
+A. 필터에서 직접 401 JSON 응답 + 연결 정리 (가장 확실)
+
+예외를 던지지 말고, 직접 상태코드·본문을 작성하고 체인을 종료.
+
+응답을 커밋한 뒤 남은 요청 바디를 삼키는(swallow) 설정을 켠다(아래 B 섹션).
+
+/error는 반드시 제외(재귀 방지).
+
+// src/main/java/com/cvc/scanner/security/SubjectTokenPresenceFilter.java
+package com.cvc.scanner.security;
+
+import com.cvc.scanner.error.ApiError;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletInputStream;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+
+@Order(Ordered.HIGHEST_PRECEDENCE)
+public class SubjectTokenPresenceFilter extends OncePerRequestFilter {
+
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws ServletException, IOException {
+
+        String path = request.getRequestURI();
+        if (path.startsWith("/api/v1/scanner/") && !"/error".equals(path)) {
+            String token = request.getHeader("X-Subject-Token");
+            if (token == null || token.isBlank()) {
+                // 1) 응답 작성
+                response.setStatus(HttpStatus.UNAUTHORIZED.value());
+                response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                response.getWriter().write(mapper.writeValueAsString(ApiError.of("Unauthorized")));
+                response.getWriter().flush();
+
+                // 2) (선택) 요청 바디 일부 드레인 → 커넥션 재사용/끊김 이슈 완화
+                //    아주 큰 파일이면 전량 드레인은 비효율적이므로, 톰캣 swallow 설정(B)을 함께 걸어 두는 게 실전적.
+                try {
+                    ServletInputStream in = request.getInputStream();
+                    byte[] buf = new byte[8192];
+                    int read, drained = 0, LIMIT = 1024 * 1024; // 최대 1MB만 드레인
+                    while (!in.isFinished() && (read = in.read(buf)) != -1) {
+                        drained += read;
+                        if (drained >= LIMIT) break;
+                    }
+                } catch (Exception ignore) { /* no-op */ }
+
+                // 3) 체인 중단
+                return;
+            }
+        }
+
+        chain.doFilter(request, response);
+    }
+}
+
+
+포인트
+
+예외를 던지지 않는다. 필터에서 던진 예외는 DispatcherServlet 바깥이라 전역 예외처리가 못 잡고, 컨테이너가 커넥션을 빨리 닫아 Broken pipe가 더 잘 난다.
+
+일부 드레인 + 톰캣 swallow(-1) 설정을 같이 쓰면, 업로드 중간 차단 시에도 커넥션이 부드럽게 정리된다.
+
+B. Tomcat이 남은 요청 바디를 삼키도록 설정
+
+application.properties
+
+# 업로드 차단 시 남은 요청 바디를 톰캣이 끝까지 삼키도록(무제한)
+server.tomcat.max-swallow-size=-1
+
+
+조기 응답(401/403/413 등) 시 톰캣이 입력 스트림을 읽어 버퍼를 비워 커넥션 재사용을 돕는다.
+
+이게 없으면 서버가 응답을 보낸 직후 소켓을 빨리 닫아, 클라이언트가 계속 쓰다가 BrokenPipeError를 더 쉽게 맞는다.
