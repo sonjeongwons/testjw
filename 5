@@ -1,42 +1,187 @@
-방법 B: 예외 + 전역 예외 처리로 일관성 있게 (추천)
-
-여러 엔드포인트에서 같은 정책을 유지하려면, 커스텀 예외와 전역 예외 처리기를 만들어라.
-
-1) 커스텀 예외 정의
+1) 에러 응답 DTO
+// src/main/java/com/cvc/scanner/error/ApiError.java
 package com.cvc.scanner.error;
 
-public class UnauthorizedTokenException extends RuntimeException {
-    public UnauthorizedTokenException() { super(); }
-    public UnauthorizedTokenException(String message) { super(message); }
-}
+import lombok.Builder;
+import lombok.Data;
 
-2) 전역 예외 처리기(@ControllerAdvice)
-package com.cvc.scanner.error;
+import java.time.Instant;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.ControllerAdvice;
-import org.springframework.web.bind.annotation.ExceptionHandler;
+@Data
+@Builder
+public class ApiError {
+    private String timestamp;     // ISO-8601 UTC
+    private String errorMessage;
 
-@ControllerAdvice
-public class GlobalAuthExceptionHandler {
-    private static final Logger log = LoggerFactory.getLogger(GlobalAuthExceptionHandler.class);
-
-    @ExceptionHandler(UnauthorizedTokenException.class)
-    public ResponseEntity<Void> handleUnauthorized(UnauthorizedTokenException ex) {
-        log.warn("Unauthorized request blocked: {}", ex.getMessage());
-        // 본문 없이 401
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                // 필요하면 인증 스킴 힌트 제공
-                //.header(HttpHeaders.WWW_AUTHENTICATE, "Bearer realm=\"cvc\"")
+    public static ApiError of(String message) {
+        return ApiError.builder()
+                .timestamp(Instant.now().toString())
+                .errorMessage(message)
                 .build();
     }
 }
 
-3) 컨트롤러에서 예외 던지기
+2) 인증 예외 (401 전용)
+// src/main/java/com/cvc/scanner/error/UnauthorizedTokenException.java
+package com.cvc.scanner.error;
+
+public class UnauthorizedTokenException extends RuntimeException {
+    public UnauthorizedTokenException(String message) { super(message); }
+}
+
+
+필요하면 403용으로 ForbiddenOperationException 같은 커스텀 예외도 추가 가능.
+
+3) 전역 예외 처리기: 모든 오류를 “상태코드 + {timestamp, errorMessage} 바디”로
+// src/main/java/com/cvc/scanner/error/GlobalErrorAdvice.java
+package com.cvc.scanner.error;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.*;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.BindException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.ServletRequestBindingException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+import java.nio.file.AccessDeniedException;
+
+@RestControllerAdvice
+public class GlobalErrorAdvice extends ResponseEntityExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalErrorAdvice.class);
+
+    private ResponseEntity<Object> body(HttpStatus status, String message) {
+        return ResponseEntity.status(status)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ApiError.of(message));
+    }
+
+    /* ===== 400 Bad Request ===== */
+    @Override
+    protected ResponseEntity<Object> handleMethodArgumentNotValid(
+            MethodArgumentNotValidException ex, HttpHeaders headers, HttpStatusCode status, org.springframework.web.context.request.WebRequest request) {
+        log.warn("400 MethodArgumentNotValid: {}", ex.getMessage());
+        return body(HttpStatus.BAD_REQUEST, "Invalid request");
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleBindException(
+            BindException ex, HttpHeaders headers, HttpStatusCode status, org.springframework.web.context.request.WebRequest request) {
+        log.warn("400 BindException: {}", ex.getMessage());
+        return body(HttpStatus.BAD_REQUEST, "Invalid request");
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleMissingServletRequestParameter(
+            MissingServletRequestParameterException ex, HttpHeaders headers, HttpStatusCode status, org.springframework.web.context.request.WebRequest request) {
+        log.warn("400 MissingParam: {}", ex.getParameterName());
+        return body(HttpStatus.BAD_REQUEST, "Missing required parameter");
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, org.springframework.web.context.request.WebRequest request) {
+        log.warn("400 NotReadable: {}", ex.getMessage());
+        return body(HttpStatus.BAD_REQUEST, "Malformed request");
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Object> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        log.warn("400 TypeMismatch: {}", ex.getMessage());
+        return body(HttpStatus.BAD_REQUEST, "Invalid parameter type");
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleServletRequestBindingException(
+            ServletRequestBindingException ex, HttpHeaders headers, HttpStatusCode status, org.springframework.web.context.request.WebRequest request) {
+        log.warn("400 Binding: {}", ex.getMessage());
+        return body(HttpStatus.BAD_REQUEST, "Invalid request");
+    }
+
+    /* ===== 401 Unauthorized ===== */
+    @ExceptionHandler(UnauthorizedTokenException.class)
+    public ResponseEntity<Object> handleUnauthorized(UnauthorizedTokenException ex) {
+        log.warn("401 Unauthorized: {}", ex.getMessage());
+        return body(HttpStatus.UNAUTHORIZED, "Unauthorized");
+    }
+
+    /* ===== 403 Forbidden ===== */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Object> handleAccessDenied(AccessDeniedException ex) {
+        log.warn("403 AccessDenied: {}", ex.getMessage());
+        return body(HttpStatus.FORBIDDEN, "Forbidden");
+    }
+
+    /* ===== 404 Not Found ===== */
+    @Override
+    protected ResponseEntity<Object> handleNoHandlerFoundException(
+            NoHandlerFoundException ex, HttpHeaders headers, HttpStatusCode status, org.springframework.web.context.request.WebRequest request) {
+        log.info("404 NoHandlerFound: {} {}", ex.getHttpMethod(), ex.getRequestURL());
+        return body(HttpStatus.NOT_FOUND, "Not Found");
+    }
+
+    /* ===== 405/406/415 ===== */
+    @Override
+    protected ResponseEntity<Object> handleHttpRequestMethodNotSupported(
+            HttpRequestMethodNotSupportedException ex, HttpHeaders headers, HttpStatusCode status, org.springframework.web.context.request.WebRequest request) {
+        log.warn("405 MethodNotSupported: {}", ex.getMethod());
+        return body(HttpStatus.METHOD_NOT_ALLOWED, "Method Not Allowed");
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleHttpMediaTypeNotSupported(
+            HttpMediaTypeNotSupportedException ex, HttpHeaders headers, HttpStatusCode status, org.springframework.web.context.request.WebRequest request) {
+        log.warn("415 MediaTypeNotSupported: {}", ex.getContentType());
+        return body(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported Media Type");
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleHttpMediaTypeNotAcceptable(
+            HttpMediaTypeNotAcceptableException ex, HttpHeaders headers, HttpStatusCode status, org.springframework.web.context.request.WebRequest request) {
+        log.warn("406 NotAcceptable: {}", ex.getMessage());
+        return body(HttpStatus.NOT_ACCEPTABLE, "Not Acceptable");
+    }
+
+    /* ===== 500 Internal Server Error (기타 미처리 예외) ===== */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Object> handleAnyUnhandled(Exception ex) {
+        // 내부 로그는 상세히, 응답 메시지는 일반화
+        log.error("500 Unhandled: {}", ex.toString(), ex);
+        return body(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
+    }
+}
+
+4) 404를 예외로 승격 + 기본 에러 페이지 끄기 (필수 설정)
+# src/main/resources/application.yml
+spring:
+  mvc:
+    throw-exception-if-no-handler-found: true   # 404를 NoHandlerFoundException으로 던짐
+  web:
+    resources:
+      add-mappings: false                       # 정적리소스 기본 매핑 해제(선택)
+
+server:
+  error:
+    whitelabel:
+      enabled: false                            # 내장 에러 페이지 비활성화
+    include-message: never
+    include-exception: false
+
+
+이 설정 덕분에 404도 우리가 만든 전역 핸들러에서 {timestamp, errorMessage} 바디로 통일됨.
+
+5) 컨트롤러 수정: 인증 실패 시 401 바디 규격으로
+// 기존 컨트롤러 일부 발췌
 @PostMapping(value = "/multipart-scan", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 public ResponseEntity<FileDto.Response> scanMultipartFile(
         @RequestHeader("X-Subject-Token") String token,
@@ -45,7 +190,7 @@ public ResponseEntity<FileDto.Response> scanMultipartFile(
     logger.info("Multipart file scan requested. Filename: {}", file.getOriginalFilename());
 
     if (!tokenService.validateToken(token)) {
-        // 전역 예외 처리기로 위임 → 빈 본문 401
+        // 전역 핸들러가 401 + {timestamp, errorMessage}로 변환
         throw new UnauthorizedTokenException("invalid token");
     }
 
@@ -54,6 +199,80 @@ public ResponseEntity<FileDto.Response> scanMultipartFile(
 }
 
 
-장점: 다른 API에서도 같은 정책을 재사용 가능.
+다른 엔드포인트에서도 같은 정책을 원하면 동일 패턴으로 throw new UnauthorizedTokenException("invalid token") 또는 상황에 맞게 new AccessDeniedException("...") 등을 던지면 전역 처리기가 알아서 바디를 만들어 준다.
 
-운영 로그는 남기되, 클라이언트에는 절대 바디를 주지 않음.
+6) (선택) 토큰 누락 사전 차단 필터
+
+토큰 헤더 자체가 누락되면 401로:
+
+// src/main/java/com/cvc/scanner/security/SubjectTokenPresenceFilter.java
+package com.cvc.scanner.security;
+
+import com.cvc.scanner.error.UnauthorizedTokenException;
+import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+
+@Component
+public class SubjectTokenPresenceFilter implements Filter {
+    @Override
+    public void doFilter(ServletRequest req, ServletResponse res, FilterChain chain)
+            throws IOException, ServletException {
+        HttpServletRequest http = (HttpServletRequest) req;
+        String uri = http.getRequestURI();
+
+        if (uri.startsWith("/api/v1/scanner/")) {
+            String token = http.getHeader("X-Subject-Token");
+            if (token == null || token.isBlank()) {
+                throw new UnauthorizedTokenException("missing X-Subject-Token");
+            }
+        }
+        chain.doFilter(req, res);
+    }
+}
+
+7) 동작 예시 (응답 바디 예)
+
+401 응답:
+
+{
+  "timestamp": "2025-08-19T07:28:13.941Z",
+  "errorMessage": "Unauthorized"
+}
+
+
+404 응답:
+
+{
+  "timestamp": "2025-08-19T07:28:15.112Z",
+  "errorMessage": "Not Found"
+}
+
+
+500 응답:
+
+{
+  "timestamp": "2025-08-19T07:28:17.003Z",
+  "errorMessage": "Internal Server Error"
+}
+
+
+메시지는 고정 문구로 단순화했고, 내부 상세 사유는 서버 로그로만 남긴다(보안·운영 관점 최선).
+
+8) 테스트 체크리스트
+
+400: 잘못된 JSON/필수 파라미터 누락/타입 미스매치 → Invalid/Malformed/Missing… 메시지와 타임스탬프
+
+401: 토큰 누락/무효 → Unauthorized
+
+403: 권한 부족 → Forbidden
+
+404: 잘못된 경로 → Not Found
+
+405/406/415: 메서드/어셉트/콘텐츠 타입 오류 → 각 메시지
+
+500: 미처리 예외 → Internal Server Error
+
+원하는 “모든 에러에서 timestamp + errorMessage 바디”와 “5xx 내부 서버 에러 응답”을 전역으로 완료했다. 이 구조로 가면 컨트롤러는 정상 흐름에만 집중하고, 에러 표현은 전역에서 통일된다.
