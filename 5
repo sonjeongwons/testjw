@@ -1,201 +1,79 @@
-3) 전역 예외 처리기: 400/401/403/405/406/415/기타 런타임
-// src/main/java/com/cvc/scanner/error/GlobalErrorAdvice.java
-package com.cvc.scanner.error;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.http.*;
-import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.springframework.validation.BindException;
-import org.springframework.web.HttpMediaTypeNotAcceptableException;
-import org.springframework.web.HttpMediaTypeNotSupportedException;
-import org.springframework.web.HttpRequestMethodNotSupportedException;
-import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.MissingServletRequestParameterException;
-import org.springframework.web.bind.ServletRequestBindingException;
-import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-
-import java.nio.file.AccessDeniedException;
-
-@RestControllerAdvice
-public class GlobalErrorAdvice {
-    private static final Logger log = LoggerFactory.getLogger(GlobalErrorAdvice.class);
-
-    private ResponseEntity<ApiError> body(HttpStatus status, String message) {
-        return ResponseEntity.status(status)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(ApiError.of(message));
-    }
-
-    /* ===== 400 Bad Request ===== */
-    @ExceptionHandler({
-            MethodArgumentNotValidException.class,
-            BindException.class,
-            MissingServletRequestParameterException.class,
-            ServletRequestBindingException.class,
-            HttpMessageNotReadableException.class,
-            MethodArgumentTypeMismatchException.class
-    })
-    public ResponseEntity<ApiError> handleBadRequest(Exception ex) {
-        log.warn("400 BadRequest: {}", ex.getMessage());
-        return body(HttpStatus.BAD_REQUEST, "Invalid request");
-    }
-
-    /* ===== 401 Unauthorized ===== */
-    @ExceptionHandler(UnauthorizedTokenException.class)
-    public ResponseEntity<ApiError> handleUnauthorized(UnauthorizedTokenException ex) {
-        log.warn("401 Unauthorized: {}", ex.getMessage());
-        return body(HttpStatus.UNAUTHORIZED, "Unauthorized");
-    }
-
-    /* ===== 403 Forbidden ===== */
-    @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ApiError> handleForbidden(AccessDeniedException ex) {
-        log.warn("403 Forbidden: {}", ex.getMessage());
-        return body(HttpStatus.FORBIDDEN, "Forbidden");
-    }
-
-    /* ===== 405/406/415 ===== */
-    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<ApiError> handle405(HttpRequestMethodNotSupportedException ex) {
-        log.warn("405 MethodNotAllowed: {}", ex.getMethod());
-        return body(HttpStatus.METHOD_NOT_ALLOWED, "Method Not Allowed");
-    }
-
-    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
-    public ResponseEntity<ApiError> handle406(HttpMediaTypeNotAcceptableException ex) {
-        log.warn("406 NotAcceptable: {}", ex.getMessage());
-        return body(HttpStatus.NOT_ACCEPTABLE, "Not Acceptable");
-    }
-
-    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
-    public ResponseEntity<ApiError> handle415(HttpMediaTypeNotSupportedException ex) {
-        log.warn("415 UnsupportedMediaType: {}", ex.getContentType());
-        return body(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported Media Type");
-    }
-
-    /* ===== 500 Internal Server Error (미처리 예외) ===== */
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiError> handle500(Exception ex) {
-        log.error("500 Unhandled: {}", ex.toString(), ex);
-        return body(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
-    }
-}
-
-
-컨트롤러/서비스에서 발생하는 주요 예외는 여기서 처리. /multipart-scan 등에서 토큰 실패 시 throw new UnauthorizedTokenException("invalid token")으로 401을 유도하면 된다.
-
-4) ErrorController: 404 및 서블릿 레벨 에러의 단일 출구
-
-throw-exception-if-no-handler-found 없이도 404/서블릿 에러는 /error로 들어온다. 해당 엔드포인트를 JSON 두 필드 포맷으로 고정한다.
-
-// src/main/java/com/cvc/scanner/error/GlobalErrorController.java
-package com.cvc.scanner.error;
-
-import jakarta.servlet.RequestDispatcher;
-import jakarta.servlet.http.HttpServletRequest;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.http.*;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.boot.web.servlet.error.ErrorController;
-
-@RestController
-public class GlobalErrorController implements ErrorController {
-
-    private static final Logger log = LoggerFactory.getLogger(GlobalErrorController.class);
-
-    @RequestMapping("/error")
-    public ResponseEntity<ApiError> handleError(HttpServletRequest request) {
-        Object sc = request.getAttribute(RequestDispatcher.ERROR_STATUS_CODE);
-        int code = (sc instanceof Integer) ? (Integer) sc : 500;
-
-        HttpStatus status = HttpStatus.resolve(code);
-        if (status == null) status = HttpStatus.INTERNAL_SERVER_ERROR;
-
-        // 서블릿이 제공하는 에러 메시지(없으면 상태문구)
-        Object msg = request.getAttribute(RequestDispatcher.ERROR_MESSAGE);
-        String message = (msg instanceof String && !((String) msg).isBlank())
-                ? (String) msg
-                : status.getReasonPhrase();
-
-        // 라우팅/리소스 미존재 등 404 케이스 로깅
-        if (status.is4xxClientError()) {
-            Object uri = request.getAttribute(RequestDispatcher.ERROR_REQUEST_URI);
-            Object method = request.getAttribute(RequestDispatcher.ERROR_REQUEST_URI) != null
-                    ? request.getMethod() : "UNKNOWN";
-            log.info("{} {} -> {} {}", method, uri, code, message);
-        } else {
-            log.error("Server error {}: {}", code, message);
-        }
-
-        return ResponseEntity.status(status)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(ApiError.of(message));
-    }
-}
-
-
-이 컨트롤러가 404 Not Found, 서블릿 레벨 5xx까지 모두 {timestamp, errorMessage} 로 통일한다.
-별도 deprecate 옵션 없이 최신 부트에서도 안전하게 동작.
-
-5) application.properties (간단/안전 설정)
-# 기본 에러 HTML 비활성화(Whitelabel 끔)
-server.error.whitelabel.enabled=false
-
-# 응답 바디엔 우리가 만든 JSON만 사용 → 스프링 기본 메시지/예외 노출 안 함
-server.error.include-message=never
-server.error.include-exception=false
-
-
-spring.mvc.throw-exception-if-no-handler-found 는 사용하지 않는다.
-정적 리소스 매핑을 쓰지 않거나 404를 모두 JSON으로 강제하고 싶다면 Nginx/Envoy 등 프록시에서 자체 에러 페이지 삽입도 꺼두는 게 좋다.
-
-6) 컨트롤러 예시(토큰 검증 반영)
-@PostMapping(value = "/multipart-scan", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-public ResponseEntity<FileDto.Response> scanMultipartFile(
-        @RequestHeader("X-Subject-Token") String token,
-        @RequestPart("file") MultipartFile file) {
-
-    logger.info("Multipart file scan requested. Filename: {}", file.getOriginalFilename());
-
-    if (!tokenService.validateToken(token)) {
-        // 전역 처리기(401)로: {timestamp, "Unauthorized"}
-        throw new UnauthorizedTokenException("invalid token");
-    }
-
-    FileDto.Response response = v3ScannerService.scanMultipartFile(file);
-    return ResponseEntity.ok(response);
-}
-
-7) (선택) 토큰 누락 사전 차단 필터
+방법 A) 필터에서 직접 401 JSON 바디를 쓰고 체인을 중단(가장 단순/안전)
 // src/main/java/com/cvc/scanner/security/SubjectTokenPresenceFilter.java
 package com.cvc.scanner.security;
 
-import com.cvc.scanner.error.UnauthorizedTokenException;
-import jakarta.servlet.*;
+import com.cvc.scanner.error.ApiError;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.stereotype.Component;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
-@Component
-public class SubjectTokenPresenceFilter implements Filter {
-    @Override
-    public void doFilter(ServletRequest req, ServletResponse res, FilterChain chain)
-            throws IOException, ServletException {
-        HttpServletRequest http = (HttpServletRequest) req;
+@Order(Ordered.HIGHEST_PRECEDENCE) // 되도록 앞단에서 실행
+public class SubjectTokenPresenceFilter extends OncePerRequestFilter {
 
-        if (http.getRequestURI().startsWith("/api/v1/scanner/")) {
-            String token = http.getHeader("X-Subject-Token");
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws ServletException, IOException {
+
+        String uri = request.getRequestURI();
+
+        // /error 자체는 제외(재귀 방지). 필요 시 static 자원 경로도 제외.
+        if (uri.startsWith("/api/v1/scanner/") && !"/error".equals(uri)) {
+            String token = request.getHeader("X-Subject-Token");
             if (token == null || token.isBlank()) {
-                throw new UnauthorizedTokenException("missing X-Subject-Token");
+                response.setStatus(HttpStatus.UNAUTHORIZED.value());
+                response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                response.getWriter().write(
+                        mapper.writeValueAsString(ApiError.of("Unauthorized"))
+                );
+                return; // 체인 중단 → 컨트롤러로 안 간다
             }
         }
-        chain.doFilter(req, res);
+
+        chain.doFilter(request, response);
     }
 }
 
-8) 응답 예시
+
+등록(하나만 선택):
+
+// 1) @Configuration로 FilterRegistrationBean
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class FilterConfig {
+    @Bean
+    public FilterRegistrationBean<SubjectTokenPresenceFilter> tokenPresenceFilter() {
+        FilterRegistrationBean<SubjectTokenPresenceFilter> reg = new FilterRegistrationBean<>();
+        reg.setFilter(new SubjectTokenPresenceFilter());
+        reg.addUrlPatterns("/*");  // 전역 적용 후 필터 내부에서 URI 선별
+        reg.setOrder(1);
+        return reg;
+    }
+}
+
+
+혹은
+
+// 2) @Component로 빈 등록(패키지 스캔 루트 하위에 위치)
+import org.springframework.stereotype.Component;
+
+@Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
+public class SubjectTokenPresenceFilter extends OncePerRequestFilter { ... }
+
+
+장점: 전역 예외처리와 무관하게 항상 401로 나감. “필수 헤더 누락 → 401 + {timestamp, errorMessage}” 보장.
