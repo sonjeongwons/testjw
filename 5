@@ -1,85 +1,26 @@
-A. 필터에서 직접 401 JSON 응답 + 연결 정리 (가장 확실)
+exit status 1
+13:10:59.283 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/CVCScannerApplication.java)
+13:10:59.283 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/MultipartConfigLogger.java)
+13:10:59.283 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/TestClass.java)
+13:10:59.283 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/aspect/LogAspect.java)
+13:10:59.283 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/config/CacheConfig.java)
+13:10:59.283 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/config/FilterConfig.java)
+13:10:59.283 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/config/KeepAliveLogger.java)
+13:10:59.283 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/config/TokenSecurityProperties.java)
+13:10:59.283 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/controller/GlobalErrorController.java)
+13:10:59.283 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/controller/V3ScannerController.java)
+13:10:59.284 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/dto/ApiError.java)
+13:10:59.284 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/dto/FileDto.java)
+13:10:59.284 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/error/GlobalAuthExceptionHandler.java)
+13:10:59.284 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/error/GlobalErrorAdvice.java)
+13:10:59.284 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/error/UnauthorizedTokenException.java)
+13:10:59.284 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/security/SubjectTokenPresenceFilter.java)
+13:10:59.284 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/service/TokenService.java)
+13:10:59.284 ERROR c.s.s.java.target.TargetFileManager - The binary for this file could not be found. (/data/codebot/workspace/sdspaas/cvc-scanner/2025-08-22_13.10.21.151039148/src/main/java/com/cvc/scanner/service/V3ScannerService.java)
+13:10:59.284 ERROR c.s.s.java.target.TargetFileManager - 18 files have no binary file. Please check the binary path. (target files: 18, binary files: 0)
+Exception in thread "main" java.lang.RuntimeException: 18 files have no binary file. Please check the binary path. (target files: 18, binary files: 0)
+	at com.samsungsds.sam.java.target.TargetFileManager.getTargetFileList(TargetFileManager.java:167)
+	at com.samsungsds.sam.java.App.process(App.java:83)
+	at com.samsungsds.sam.java.App.main(App.java:45)
 
-예외를 던지지 말고, 직접 상태코드·본문을 작성하고 체인을 종료.
-
-응답을 커밋한 뒤 남은 요청 바디를 삼키는(swallow) 설정을 켠다(아래 B 섹션).
-
-/error는 반드시 제외(재귀 방지).
-
-// src/main/java/com/cvc/scanner/security/SubjectTokenPresenceFilter.java
-package com.cvc.scanner.security;
-
-import com.cvc.scanner.error.ApiError;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.web.filter.OncePerRequestFilter;
-
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.ServletInputStream;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
-
-@Order(Ordered.HIGHEST_PRECEDENCE)
-public class SubjectTokenPresenceFilter extends OncePerRequestFilter {
-
-    private final ObjectMapper mapper = new ObjectMapper();
-
-    @Override
-    protected void doFilterInternal(
-            HttpServletRequest request, HttpServletResponse response, FilterChain chain)
-            throws ServletException, IOException {
-
-        String path = request.getRequestURI();
-        if (path.startsWith("/api/v1/scanner/") && !"/error".equals(path)) {
-            String token = request.getHeader("X-Subject-Token");
-            if (token == null || token.isBlank()) {
-                // 1) 응답 작성
-                response.setStatus(HttpStatus.UNAUTHORIZED.value());
-                response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                response.getWriter().write(mapper.writeValueAsString(ApiError.of("Unauthorized")));
-                response.getWriter().flush();
-
-                // 2) (선택) 요청 바디 일부 드레인 → 커넥션 재사용/끊김 이슈 완화
-                //    아주 큰 파일이면 전량 드레인은 비효율적이므로, 톰캣 swallow 설정(B)을 함께 걸어 두는 게 실전적.
-                try {
-                    ServletInputStream in = request.getInputStream();
-                    byte[] buf = new byte[8192];
-                    int read, drained = 0, LIMIT = 1024 * 1024; // 최대 1MB만 드레인
-                    while (!in.isFinished() && (read = in.read(buf)) != -1) {
-                        drained += read;
-                        if (drained >= LIMIT) break;
-                    }
-                } catch (Exception ignore) { /* no-op */ }
-
-                // 3) 체인 중단
-                return;
-            }
-        }
-
-        chain.doFilter(request, response);
-    }
-}
-
-
-포인트
-
-예외를 던지지 않는다. 필터에서 던진 예외는 DispatcherServlet 바깥이라 전역 예외처리가 못 잡고, 컨테이너가 커넥션을 빨리 닫아 Broken pipe가 더 잘 난다.
-
-일부 드레인 + 톰캣 swallow(-1) 설정을 같이 쓰면, 업로드 중간 차단 시에도 커넥션이 부드럽게 정리된다.
-
-B. Tomcat이 남은 요청 바디를 삼키도록 설정
-
-application.properties
-
-# 업로드 차단 시 남은 요청 바디를 톰캣이 끝까지 삼키도록(무제한)
-server.tomcat.max-swallow-size=-1
-
-
-조기 응답(401/403/413 등) 시 톰캣이 입력 스트림을 읽어 버퍼를 비워 커넥션 재사용을 돕는다.
-
-이게 없으면 서버가 응답을 보낸 직후 소켓을 빨리 닫아, 클라이언트가 계속 쓰다가 BrokenPipeError를 더 쉽게 맞는다.
+Error : exit status 1
