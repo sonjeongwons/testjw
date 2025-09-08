@@ -1,3 +1,551 @@
+좋아. “Lambda용 VPC 엔드포인트(Interface, PrivateLink)”로 VPC 내부에서 Lambda API를 사설로 호출하도록 만들면 돼. 핵심은 com.amazonaws.<region>.lambda 서비스에 Interface VPC Endpoint를 만들고, Private DNS 활성화 + 엔드포인트 정책 + 보안그룹(443) 을 정확히 붙이는 것.
+
+설계 요점
+
+종류: Interface VPC Endpoint(PrivateLink)만 해당. Gateway endpoint 아님. 
+
+DNS: Private DNS를 켜면 lambda.ap-northeast-2.amazonaws.com 이 VPC 내부에서 엔드포인트의 사설 IP로 해석됨. VPC에 enableDnsHostnames, enableDnsSupport 켜져 있어야 함. 
+
+대상: 이 엔드포인트는 Lambda API 호출(예: Invoke, ListFunctions 등)에 쓰인다. Function URL은 PrivateLink 미지원이라 공용 인터넷만 가능하다는 점 주의. 사설 호출이 필요하면 API Gateway(Private) 등으로 앞단을 세팅해야 한다. 
+
+정교한 제한:
+
+엔드포인트 정책으로 누가 어떤 Lambda 액션을 호출할지 제한. 
+
+Lambda 리소스 기반 정책에서 aws:SourceVpce 조건으로 특정 VPCE에서만 Invoke 허용 같은 패턴을 적용 가능. 
+
+
+
+
+---
+
+1) 콘솔/CLI로 Interface VPC Endpoint 생성
+
+콘솔 절차(요약)
+
+1. VPC → Endpoints → Create endpoint
+
+
+2. Service category: AWS services
+
+
+3. Service name: com.amazonaws.ap-northeast-2.lambda 선택
+
+
+4. VPC/서브넷: Lambda API를 사설로 호출할 프라이빗 서브넷들 선택
+
+
+5. 보안그룹: 443 인바운드 허용(소스: 호출 주체의 SG 또는 서브넷 CIDR)
+
+
+6. Enable Private DNS 체크
+
+
+7. Policy: “Custom”으로 붙여서 최소 권한 정책 적용(예시는 아래)
+
+
+
+AWS CLI 예시
+
+aws ec2 create-vpc-endpoint \
+  --vpc-id vpc-xxxxxxxx \
+  --vpc-endpoint-type Interface \
+  --service-name com.amazonaws.ap-northeast-2.lambda \
+  --subnet-ids subnet-a subnet-b \
+  --security-group-ids sg-vpce-lambda-https \
+  --private-dns-enabled \
+  --policy-document file://vpce-lambda-policy.json \
+  --region ap-northeast-2
+
+Interface 엔드포인트 생성 방법과 Private DNS 동작은 공식 가이드 흐름대로다. 
+
+
+---
+
+2) 엔드포인트 정책(vpce-lambda-policy.json) 최소 예시
+
+“특정 사용자/역할만, 특정 함수만 Invoke” 같은 식으로 세분화 가능:
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowInvokeSpecificFunctionViaThisVPCE",
+      "Effect": "Allow",
+      "Principal": {"AWS": ["arn:aws:iam::123456789012:user/MyUser"]},
+      "Action": ["lambda:InvokeFunction"],
+      "Resource": ["arn:aws:lambda:ap-northeast-2:123456789012:function:my-function"]
+    }
+  ]
+}
+
+엔드포인트 정책으로 이 엔드포인트를 통해 누가 어떤 Lambda 액션을 쓸지 제어한다. 
+
+
+---
+
+3) Lambda 리소스 기반 정책(선택) — VPCE로만 호출 제한
+
+리소스 기반 정책에 aws:SourceVpce 조건을 추가해서 해당 VPCE를 경유한 요청만 허용할 수 있다. 예시는 CLI add-permission로 추가하거나, IaC에서 Condition 절을 붙이면 된다:
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowInvokeOnlyFromThisVPCE",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:ap-northeast-2:123456789012:function:my-function",
+      "Condition": {
+        "StringEquals": {"aws:SourceVpce": "vpce-0abc123def4567890"}
+      }
+    }
+  ]
+}
+
+리소스 기반 정책 개념과 조건 키 활용은 공식 문서 흐름대로다. 
+
+
+---
+
+4) 보안그룹 & 네트워크 체크리스트
+
+VPCE의 SG 인바운드: TCP 443, 소스로 호출자 SG 또는 VPC CIDR
+
+서브넷/NACL: egress 443 허용
+
+DNS: VPC의 enableDnsHostnames/enableDnsSupport 활성화(Private DNS 필요). 
+
+
+
+---
+
+5) 호출/테스트 방법
+
+VPC 내부(엔드포인트 연결 서브넷)에서 SDK/CLI로 일반 엔드포인트를 그대로 사용:
+
+aws lambda invoke \
+  --function-name my-function \
+  --payload '{"ping":"pong"}' \
+  out.json \
+  --region ap-northeast-2
+
+Private DNS를 켰다면 lambda.ap-northeast-2.amazonaws.com 이 VPCE의 사설 IP로 해석되어 인터넷/NAT 없이 호출된다. 
+
+
+---
+
+6) 자주 나오는 오해 정리
+
+Function URL은 PrivateLink 불가 → 항상 퍼블릭. 사설만 원하면 API Gateway Private 또는 ALB/NLB(+Lambda 파트너 통합) 같은 대안 고려. 
+
+Lambda가 VPC에 붙을 때는 “Lambda → 다른 AWS 서비스” 접근을 위해 그 서비스용 VPC 엔드포인트(S3, DynamoDB, STS, Secrets Manager 등)를 별도로 만들어야 한다. 이건 “Lambda용”이 아니라 대상 서비스용 엔드포인트다. 
+
+
+
+---
+
+7) Terraform 스니펫(참고)
+
+resource "aws_vpc_endpoint" "lambda" {
+  vpc_id             = var.vpc_id
+  service_name       = "com.amazonaws.ap-northeast-2.lambda"
+  vpc_endpoint_type  = "Interface"
+  private_dns_enabled = true
+  subnet_ids         = var.private_subnet_ids
+  security_group_ids = [aws_security_group.vpce_lambda_https.id]
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AllowInvokeSpecificFunction"
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::123456789012:user/MyUser" }
+      Action    = ["lambda:InvokeFunction"]
+      Resource  = "arn:aws:lambda:ap-northeast-2:123456789012:function:my-function"
+    }]
+  })
+}
+
+Interface 엔드포인트 생성/정책 패턴은 VPC PrivateLink 가이드와 Lambda 전용 가이드를 그대로 따른다. 
+
+
+---
+
+마무리 체크리스트
+
+[ ] VPCE 생성: com.amazonaws.ap-northeast-2.lambda
+
+[ ] Private DNS 활성화 + VPC DNS 옵션 ON 
+
+[ ] VPCE SG: 443 인바운드 허용
+
+[ ] 엔드포인트 정책 최소화(필요 액션·리소스만) 
+
+[ ] 필요하면 Lambda 리소스 기반 정책에 aws:SourceVpce 적용 
+
+[ ] Function URL이 필요한 경우: 사설화 불가 → Private API Gateway 등으로 대체 설계 
+
+
+
+---
+
+추가로 원하면 너의 환경(ap-northeast-2, 사설 서브넷 구성, SG 룰, IAM 경로)에 맞춘 정확한 정책/보안그룹/Route53 확인 목록까지 바로 써줄게.
+
+Q1
+
+내 VPC에서 Lambda Invoke를 특정 역할/사용자만 가능하게 하려면 엔드포인트 정책과 Lambda 리소스 정책을 각각 어떻게 써야 할까? 원하는 JSON 예시로 만들어줘.
+
+Q2
+
+VPC 내부 Lambda가 S3/Secrets Manager/STS에 나가지 않고 접근하려면, 각 서비스별 VPC 엔드포인트와 엔드포인트 정책을 어떻게 조합해야 해?
+
+Q3
+
+Function URL 대신 Private API Gateway로 사설 호출을 구성하려면, execute-api VPCE + 리소스 정책(특정 VPCE/역할만 허용) 설계를 단계별로 그려줄래? 
+
+
+
+
+
+
+
+
+
+결론부터: 아니. Lambda의 “EPS(엔드포인트 서비스)” 쪽으로 Outbound를 지정할 필요 없다.
+Interface VPC Endpoint는 엔드포인트 ENI(사설 IP) 로 TCP 443(HTTPS) 통신만 열어두면 되고, SG는 상태저장(stateful) 이라 요청에 대한 응답은 자동 허용된다. 즉,
+
+VPCE에 붙인 SG(Inbound): 호출 소스(EC2 등) → TCP 443 허용
+
+VPCE에 붙인 SG(Outbound): 별도 지정 없어도 됨(응답은 stateful로 자동 통과). 보통 기본 All outbound면 충분. 
+
+
+포트/대상 요약
+
+클라이언트 → VPCE ENI: TCP 443
+
+VPCE ENI → 클라이언트(응답): 에페메랄 포트(클라이언트 측) 로 돌아옴 → SG가 stateful이라 별도 Outbound 규칙 불필요. 다만 NACL은 stateless 이므로 서브넷 NACL을 쓰고 있다면 443/에페메랄 포트 왕복을 허용해야 한다. 
+
+
+“EPS IP/포트”를 굳이 지정하지 않는 이유
+
+Interface VPCE는 AWS 내부에서 서비스까지의 뒷구간을 AWS가 관리한다. 사용자는 VPCE ENI까지만 보안정책을 잡으면 되고, 서비스 측 IP/포트로의 Outbound를 직접 지정하지 않는다. 설정 포인트는 VPCE ENI의 SG뿐이다. 
+
+체크리스트
+
+VPCE SG Inbound: 443 (소스: 호출자 SG 또는 CIDR) 
+
+호출자(EC2 등) SG Outbound: 443 → VPCE ENI(대상은 VPCE SG를 보안그룹 참조로 지정해도 좋음)
+
+NACL 사용 시 443/에페메랄 포트 양방향 허용 확인 
+
+Private DNS를 써서 lambda.<region>.amazonaws.com → VPCE 사설 IP로 해석되는지 확인(선택) 
+
+
+원문의 핵심 문구:
+
+“엔드포인트 네트워크 인터페이스의 SG에 HTTPS Inbound 허용” (Interface VPCE 가이드) 
+
+“SG는 상태저장(Stateful)… 응답 트래픽은 자동 허용” (EC2 SG 기본 동작) 
+
+
+Q1
+
+내 EC2 보안그룹 egress를 “VPCE SG 참조 + 443만”으로 최소화하려면 어떤 규칙이 안전하고도 운영에 무리가 없을까? 사례 기준으로 잡아줘.
+
+Q2
+
+서브넷에 NACL이 있는 구조에서, Lambda VPCE 호출이 타임아웃 날 때 체크해야 할 에페메랄 포트 범위와 양방향 규칙은 어떻게 설정해야 하나?
+
+Q3
+
+같은 VPC에 여러 VPCE(Lambda, STS, Secrets Manager 등) 를 둘 때, SG/Route/DNS 관점에서 표준 템플릿을 만들어줄 수 있을까?
+
+
+
+
+
+
+
+
+
+
+핵심만 정리해줄게.
+
+결론
+
+Lambda VPC Endpoint(Interface) 는 엔드포인트 ENI의 443 으로만 통신해.
+
+Outbound에서 Lambda “EPS IP/포트”를 지정할 필요 없음. VPCE 뒤쪽(AWS 내부)은 AWS가 관리하고, 우리는 VPCE ENI까지의 보안만 신경 쓰면 된다.
+
+SG는 stateful 이라 요청의 응답은 자동 허용된다.
+
+
+보안그룹 설계(정답 템플릿)
+
+1) 호출자(EC2 등) SG
+
+Outbound: TCP 443 → VPCE SG(대상 SG 참조) 혹은 VPCE ENI IP
+
+더 촘촘히: “대상 = VPCE SG”로 참조하면 IP 변경에도 안전.
+
+
+
+2) VPCE SG
+
+Inbound: TCP 443 ← 호출자 SG(소스 SG 참조)
+
+Outbound: 기본 All outbound 또는 최소화가 목표면 응답용 에페메랄 포트 허용(일반적으로 All outbound로 운영 단순화)
+
+
+> 추가 설명: Outbound에서 “Lambda 서비스의 특정 IP/EPS” 를 지정하지 않는다. 우리는 VPCE ENI(사설 IP) 를 종착점으로 본다.
+
+
+
+NACL 사용하는 경우(있을 때만)
+
+서브넷 NACL은 stateless 이므로 왕복 모두 열어야 한다.
+
+아웃바운드: TCP 443 → VPCE ENI 서브넷
+
+인바운드: 에페메랄 포트(보통 1024–65535) ← VPCE ENI 서브넷
+
+
+NACL을 보수적으로 운영하면 타임아웃이 빈발하니, 가능하면 VPCE 서브넷과 호출자 서브넷 사이 443/에페메랄 왕복 허용을 명시.
+
+
+DNS 체크
+
+Private DNS 활성화 시 lambda.<region>.amazonaws.com 이 VPCE ENI 사설 IP로 해석됨.
+
+VPC의 enableDnsSupport, enableDnsHostnames 가 true 여야 한다.
+
+
+빠른 점검 절차
+
+1. EC2 → VPCE ENI:443 통신 확인
+
+# VPCE ENI 사설 IP로 테스트(보안그룹이 IP 접근을 허용해야 함)
+nc -vz <vpce-eni-ip> 443
+
+
+2. DNS 확인
+
+dig +short lambda.ap-northeast-2.amazonaws.com
+# 사설 IP(ENI)면 OK
+
+
+3. IAM/정책
+
+엔드포인트 정책이 과도하게 막고 있지 않은지
+
+Lambda 함수 리소스정책에 aws:SourceVpce 조건이 있으면 해당 VPCE ID가 맞는지
+
+
+
+
+자주 틀리는 포인트
+
+“VPCE Outbound를 Lambda EPS로 박아야 하나요?” → 아니오. 불필요
+
+NACL만 강하게 막아두고 SG만 풀어둠 → 타임아웃 발생
+
+호출자 SG Outbound를 0.0.0.0/0:443 으로 풀어둠 → 동작은 하지만 불필요하게 과오픈. 대상 = VPCE SG 참조가 깔끔
+
+
+
+---
+
+Q1
+
+내 EC2 보안그룹 Outbound를 “TCP 443 → VPCE SG 참조” 한 줄로 최소화하려면, 현재 SG 구조에서 어떤 식으로 규칙을 써야 하지? 예시 규칙을 그대로 알려줘.
+
+Q2
+
+서브넷에 NACL이 적용돼 있어. 타임아웃 이슈 없이 굴리려면 에페메랄 포트 범위를 얼마로 잡고, 인바운드/아웃바운드 각각 어떤 방향으로 열어야 해?
+
+Q3
+
+한 VPC에 여러 VPCE(Lambda, STS, Secrets Manager) 가 공존할 때, SG 참조 기반 표준 템플릿(호출자 SG ↔ 각 VPCE SG)을 만들어줄 수 있어?
+
+
+
+
+
+
+
+
+좋아. “Lambda를 VPC에 붙여서(Enable VPC) EC2와 사설 통신”하는 방법을 핵심부터 전체 흐름까지 정리했어. 아래 순서대로 따라가면 바로 동작한다.
+
+개념 한 장 요약
+
+무엇을 하는가: Lambda 함수에 VPC 설정(서브넷 + 보안그룹) 을 붙이면, 함수가 그 VPC의 사설 IP(ENI) 를 통해 EC2(사설 IP) 등 VPC 리소스와 직접 통신한다. 
+
+어떻게 동작하나: Lambda는 Hyperplane ENI 를 사용해 선택한 서브넷에 ENI를 관리하고, 그 ENI를 통해 VPC로 들어온다. 과거 대비 연결/콜드스타트가 개선된 구조다. 
+
+네트워크 주의점: NACL을 쓰면 에페메랄 포트(1024–65535) 왕복 허용이 필요하다. SG는 stateful이라 별도 응답 허용 규칙이 필요 없다. 
+
+인터넷이 필요하면: VPC에 붙은 Lambda는 기본적으로 인터넷이 막힌다 → NAT 게이트웨이(또는 VPC 엔드포인트)로 해소. 
+
+IAM 권한: ENI 생성을 위해 실행 역할에 AWSLambdaVPCAccessExecutionRole(관리형 정책) 또는 동등 권한이 필요하다. 콘솔로 VPC 설정 시 자동 부여되며, 구성 후 최소권한으로 조정 가능. 
+
+
+
+---
+
+절차(콘솔/CLI/Terraform)
+
+1) 네트워크 설계
+
+서브넷: 최소 2개 AZ의 프라이빗 서브넷(고가용성) 선택.
+
+라우팅: Lambda가 접속할 EC2의 사설 IP 경로가 존재해야 함(같은 VPC면 기본 OK, 피어링/TGW면 라우트 전파/ACL 확인).
+
+보안그룹(SG) 표준 패턴
+
+Lambda SG (sg-lambda): 아웃바운드로 EC2 포트(예: 3003) 허용(대상 = sg-ec2 참조 권장).
+
+EC2 SG (sg-ec2): 인바운드에 해당 포트(3003) 소스 = sg-lambda 허용.
+
+SG 참조 기반 설계가 IP 고정 없이 가장 안전·유연하다. 
+
+
+NACL: 사용하는 경우 3003(요청) 및 에페메랄(1024–65535) 응답을 양방향으로 허용. 
+
+
+2) Lambda에 VPC 붙이기
+
+콘솔
+
+Lambda → 함수 → Configuration → VPC → Edit
+
+VPC 선택 → 프라이빗 서브넷 2+개 선택 → Security groups 에 sg-lambda 선택 → 저장.
+
+콘솔은 실행 역할에 AWSLambdaVPCAccessExecutionRole 정책을 자동 부여한다. 
+
+
+
+CLI
+
+# 1) (필요시) 실행 역할에 VPC 접근용 정책 부여
+aws iam attach-role-policy \
+  --role-name <lambda-exec-role> \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+
+# 2) 함수에 VPC 설정 적용
+aws lambda update-function-configuration \
+  --function-name my-fn \
+  --vpc-config SubnetIds=subnet-a,subnet-b,SecurityGroupIds=sg-lambda
+
+필요 권한과 업데이트 절차는 공식 가이드를 따른다. 
+
+Terraform (요지)
+
+resource "aws_security_group" "lambda" { # sg-lambda
+  vpc_id = var.vpc_id
+  egress {
+    from_port       = 3003
+    to_port         = 3003
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ec2.id] # sg-ec2 참조
+  }
+}
+
+resource "aws_security_group" "ec2" {      # sg-ec2
+  vpc_id = var.vpc_id
+  ingress {
+    from_port       = 3003
+    to_port         = 3003
+    protocol        = "tcp"
+    security_groups = [aws_security_group.lambda.id] # sg-lambda에서만 허용
+  }
+}
+
+resource "aws_lambda_function" "fn" {
+  function_name = "my-fn"
+  role          = aws_iam_role.lambda_exec.arn
+  runtime       = "python3.12"
+  handler       = "lambda_function.lambda_handler"
+
+  vpc_config {
+    subnet_ids         = [var.subnet_a, var.subnet_b]
+    security_group_ids = [aws_security_group.lambda.id]
+  }
+}
+
+3) (옵션) 인터넷/다른 AWS 서비스 접근
+
+인터넷 필요: 프라이빗 서브넷 → NAT 게이트웨이 경유 라우팅(0.0.0.0/0 → NAT). 콘솔의 “Create VPC (VPC and more)” 마법사는 NAT/IGW/라우트를 한 번에 만들어준다. 
+
+NAT 없이 운영: 필요한 VPC 엔드포인트(PrivateLink/Gateway) 를 추가
+
+예) CloudWatch Logs: com.amazonaws.<region>.logs Interface 엔드포인트를 만들면 로그를 사설로 전송 가능. 
+
+그 외 S3(게이트웨이), STS/KMS/Secrets Manager(인터페이스) 등 업무에 필요한 것만 선별.
+
+
+
+
+---
+
+동작 원리(조금 더 깊게)
+
+Lambda는 실행 시 고객 VPC 서브넷에 연결된 ENI 를 통해 트래픽을 보낸다. 지금은 Hyperplane ENI 가 중간을 매개하여 성능·확장성이 개선되었고, ENI/IP 관리 부담이 줄었다. 
+
+SG는 stateful 이므로 요청에 대한 응답은 자동 허용되지만, NACL은 stateless 라서 1024–65535 에페메랄 포트를 왕복으로 열어두지 않으면 간헐 타임아웃이 난다. 
+
+
+
+---
+
+점검 체크리스트
+
+1. EC2 SG 인바운드: 서비스 포트(예: 3003) 소스 = sg-lambda
+
+
+2. Lambda SG 아웃바운드: 포트 3003 대상 = sg-ec2
+
+
+3. 서브넷 NACL: 3003/에페메랄 왕복 허용(쓰는 경우에만) 
+
+
+4. IAM: 실행 역할에 VPC ENI 관련 권한(AWSLambdaVPCAccessExecutionRole 등) 존재 확인 
+
+
+5. 인터넷 필요 시: NAT 또는 필요한 VPC 엔드포인트 구성(특히 CloudWatch Logs) 
+
+
+6. 테스트: Lambda 코드에서 nc/curl로 EC2 사설 IP:PORT 접속 또는 내부 NLB/ALB 도메인 호출
+
+
+
+
+---
+
+필요하면 네 환경(Seoul 리전, 포트, SG 이름 규칙, NACL 정책, 피어링/TGW 여부)에 맞춘 정확한 SG/NACL/IAM/라우팅 스니펫을 바로 커스터마이즈해줄게.
+
+Q1
+
+EC2의 포트가 여러 개(예: 3003, 8080, 5432)일 때, SG 참조 기반으로 최소 권한 규칙을 어떻게 설계할까? 내 포트별 규칙 표를 만들어줄래?
+
+Q2
+
+NAT 없이 운영하려면, 내 함수가 쓰는 AWS 서비스 목록을 주면 필요한 VPC 엔드포인트 집합(Logs, STS, Secrets Manager, S3 등) 을 정확히 골라 설계해줄 수 있을까?
+
+Q3
+
+VPC 피어링 또는 TGW로 다른 VPC의 EC2 에 붙어야 한다면, 라우팅·SG 참조(피어 SG 참조 가능/불가 케이스)까지 포함한 표준 패턴을 내 네트워크 토폴로지에 맞춰 그려줄까? 
+
+
+
+
+
+
+
+
+
+
 좋아, Lambda–VPC 통신 테스트용으로 가장 간단한 예제를 만들어줄게.
 
 
@@ -124,4 +672,665 @@ Q2
 
 Q3
 CloudWatch Logs 대신 S3 같은 저장소로 Lambda 결과를 바로 남기고 싶다면 어떤 방식으로 코드를 수정하는 게 좋을까?
+
+
+
+
+
+
+
+
+
+짧은 답: 맞아. Lambda를 VPC에 붙이면 선택한 서브넷마다 Lambda가 관리하는 ENI(하이퍼플레인 ENI) 가 자동 생성되고, 그 ENI를 통해 EC2 등 VPC 리소스와 사설 통신한다. 이 ENI들은 Lambda가 수명주기를 관리하므로 사용자가 직접 삭제/분리할 수 없다. 
+
+어떻게 확인하나
+
+콘솔에서
+
+1. EC2 콘솔 → Network Interfaces 이동
+
+
+2. 필터
+
+VPC = 해당 VPC
+
+Subnet = Lambda에 지정한 서브넷
+
+Security group = Lambda에 연결한 SG
+
+
+
+3. 목록에서 Description(종종 “AWS Lambda …” 형태)과 Status/Attachment를 보면 Lambda가 만든 ENI를 확인할 수 있다. 삭제는 불가(의존성 오류)이며, Lambda 설정을 해제하거나 함수를 삭제하면 Lambda가 정리한다. 
+
+
+
+CLI로
+
+Lambda에 붙인 서브넷/SG 기준으로 ENI를 조회하면 깔끔하다:
+
+# 서브넷과 SG로 ENI 찾기
+aws ec2 describe-network-interfaces \
+  --filters "Name=subnet-id,Values=subnet-aaaa,subnet-bbbb" \
+            "Name=group-id,Values=sg-lambda-xxxx" \
+  --query 'NetworkInterfaces[].{ENI:NetworkInterfaceId,PrivateIP:PrivateIpAddress,Desc:Description,Status:Status,SG:Groups[*].GroupId,Subnet:SubnetId,AZ:AvailabilityZone}'
+
+출력된 Description/Status와 함께, Lambda에 지정한 SG/서브넷과 일치하는 ENI가 보이면 그것이 Lambda가 관리하는 ENI다. 
+
+동작 원리(요약)
+
+Lambda는 실행 시 Lambda 서비스 VPC ↔ 고객 VPC 사이에 Hyperplane ENI 를 사용한다. 고객 VPC(네 서브넷)에 만들어지는 ENI들은 Lambda가 공유/재사용하며, 동일한 서브넷+보안그룹 조합을 쓰는 여러 함수가 같은 ENI를 공유할 수도 있다. 수요 증가 시 추가 ENI를 자동 생성한다. 
+
+이 ENI들은 사용자 직접 삭제 불가(의존성/권한 에러 발생). VPC 설정을 해제하거나, 해당 조합을 사용하는 마지막 함수가 제거되면 Lambda가 일정 시간 내 정리한다. 
+
+
+참고 체크
+
+Lambda를 VPC에 붙이면 기본 인터넷 아웃바운드가 차단된다. 인터넷/다른 AWS 서비스 접근이 필요하면 NAT 게이트웨이 또는 VPC 엔드포인트를 구성해야 한다. 
+
+
+Q1
+
+내 함수에 붙은 ENI들의 사설 IP 리스트만 빠르게 뽑아보려면 어떤 --query를 쓰면 좋을까?
+
+Q2
+
+동일 서브넷+보안그룹 조합을 쓰는 함수가 여러 개일 때 ENI가 공유/증설되는 조건과, 이를 감안한 서브넷 IP 용량 계획은 어떻게 잡는 게 합리적일까?
+
+Q3
+
+ENI를 직접 삭제할 수 없도록 막는 의존성/권한 에러를 재현해보고, “정상적인 정리 절차(함수 설정 변경/삭제)”에 따른 ENI 정리 타임라인을 실험 시나리오로 만들어줄 수 있을까?
+
+
+
+
+
+
+
+
+
+
+좋은 질문이야 👍
+여기서는 두 가지 다른 개념을 정확히 분리해서 생각해야 해.
+
+
+---
+
+1. Lambda VPC 연결
+
+목적: Lambda 함수가 VPC 안의 리소스(EC2, RDS 등) 와 사설 통신 가능하도록 ENI를 생성하는 기능.
+
+IAM 권한 요구사항:
+
+Lambda 실행 역할(Execution Role)에 AWSLambdaVPCAccessExecutionRole 관리형 정책(혹은 동등 권한)을 반드시 부여해야 함.
+
+이 정책에는 ec2:CreateNetworkInterface, ec2:DescribeNetworkInterfaces, ec2:DeleteNetworkInterface 같은 권한이 들어 있음.
+
+그래야 Lambda 서비스가 너 대신 서브넷 안에 ENI를 만들고 관리할 수 있음.
+
+
+
+리소스 기반 정책:
+
+VPC 연결은 Lambda가 나가는 트래픽 경로를 바꾸는 것이므로, 일반적으로 함수 리소스 정책과는 무관하다.
+
+EC2 등 타깃 리소스 SG/ACL만 제대로 설정되어 있으면 된다.
+
+
+
+
+---
+
+2. PrivateLink (VPC Endpoint Service / Interface Endpoint)
+
+목적: 다른 VPC에서 네트워크 트래픽을 PrivateLink (Interface VPC Endpoint) 를 통해 서비스에 접속하도록 하는 기능.
+
+여기서 Lambda는 Endpoint Service Provider 가 될 수는 없다. (즉 Lambda 함수를 직접 EPS로 노출 불가)
+
+AWS PrivateLink의 지원 대상은 NLB, GWLB 등 ENI 기반 서비스 뿐이다.
+
+Lambda 자체는 PrivateLink 대상이 될 수 없고, Lambda를 프라이빗하게 호출하려면 API Gateway(Private) 또는 VPC Lattice 를 Lambda 앞단에 두고, 그것을 EPS로 노출해야 한다.
+
+
+
+
+---
+
+3. VPC 엔드포인트 (Lambda API용)
+
+만약 네가 묻는 “Lambda EPS”가 com.amazonaws.<region>.lambda Interface VPC Endpoint (즉, Lambda API 호출을 사설 경로로 하는 VPCE)라면, IAM과 리소스 정책은 이렇게 설정한다:
+
+IAM 권한 (호출자 측)
+
+Lambda API를 호출하는 IAM 주체(EC2 IAM Role, IAM User 등)에게 lambda:InvokeFunction 같은 API 권한을 부여해야 함.
+
+이건 VPCE 사용 여부와 무관하게 필요.
+
+
+엔드포인트 정책 (VPCE 리소스)
+
+VPCE 자체에 붙는 정책으로, 어떤 IAM 주체가 어떤 Lambda API를 호출할 수 있는지 제한 가능.
+
+예: 특정 함수만 Invoke 허용:
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {"AWS": "arn:aws:iam::111122223333:user/MyUser"},
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:ap-northeast-2:111122223333:function:my-fn"
+    }
+  ]
+}
+
+
+Lambda 리소스 기반 정책 (선택)
+
+함수에 붙는 리소스 정책에서 Condition으로 aws:SourceVpce 조건을 사용하면, 특정 VPCE를 통해서만 Invoke 허용할 수 있다:
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowInvokeFromSpecificVPCE",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:ap-northeast-2:111122223333:function:my-fn",
+      "Condition": {
+        "StringEquals": {"aws:SourceVpce": "vpce-0abc123def4567890"}
+      }
+    }
+  ]
+}
+
+
+
+이렇게 하면 IAM 권한 → 엔드포인트 정책 → 리소스 기반 정책의 3중 필터로 보안 제어 가능하다.
+
+
+---
+
+4. 정리
+
+VPC 연결: Execution Role에 AWSLambdaVPCAccessExecutionRole 권한 필요, 리소스 정책은 불필요.
+
+PrivateLink EPS: Lambda 직접 지원 안 됨 → API Gateway(Private) 또는 VPC Lattice 통해야 함.
+
+Lambda API VPC Endpoint (Interface):
+
+IAM 호출자 권한 필요 (lambda:InvokeFunction)
+
+VPCE 정책으로 API 호출 제한 가능
+
+함수 리소스 기반 정책에서 aws:SourceVpce 조건으로 세분화 가능
+
+
+
+
+---
+
+👉 여기서 네가 말한 “Lambda를 EPS로 사용하는 경우”가 Lambda API VPC Endpoint 인지, 아니면 “Lambda를 PrivateLink 서비스처럼 노출”하고 싶은 것인지 확인하고 싶어.
+
+내가 지금 정리한 내용 중에서 어떤 시나리오에 해당하는지 알려줄래?
+
+
+
+
+
+
+
+
+
+
+좋은 질문이야 👍 두 개념이 비슷해 보이지만 원리가 완전히 달라.
+
+
+---
+
+1. Lambda API VPC Endpoint
+
+이게 뭔가?
+AWS가 Lambda 서비스 자체(Lambda Control Plane API) 에 대해 제공하는 Interface VPC Endpoint (서비스 이름: com.amazonaws.<region>.lambda).
+
+무엇을 할 수 있나?
+
+VPC 내부에서 Lambda API (InvokeFunction, ListFunctions, GetFunction 등)를 사설 IP 경로로 호출.
+
+즉, lambda.ap-northeast-2.amazonaws.com 으로 가는 트래픽이 인터넷 → AWS 퍼블릭 엔드포인트 대신 VPC ENI (PrivateLink) 로 간다.
+
+
+제한점
+
+“Lambda API” 호출을 PrivateLink화하는 것이지, 함수의 실제 네트워크 트래픽을 직접 PrivateLink로 노출하는 게 아님.
+
+따라서 호출자는 여전히 aws lambda invoke/SDK 등을 사용해서 Lambda API 호출을 해야 하고, HTTP 엔드포인트(URL) 처럼 직접 붙는 건 아님.
+
+
+
+
+---
+
+2. Lambda를 PrivateLink 서비스처럼 노출
+
+PrivateLink 기본 개념
+PrivateLink(= VPC Endpoint Service)는 내 VPC에서 만든 NLB/GWLB 뒤 서비스를 다른 VPC 소비자가 Interface VPC Endpoint를 통해 사설 IP로 접근하게 해주는 기능.
+
+Lambda는 EPS가 될 수 있나?
+
+직접은 불가능. Lambda 함수는 NLB에 직접 붙을 수 있는 리소스가 아니기 때문.
+
+대신 중간 계층을 둬야 한다:
+
+API Gateway (Private API) → Lambda 연결
+
+ALB/NLB + Lambda (Lambda target integration)
+
+VPC Lattice 서비스 → Lambda 연결
+
+
+이렇게 하면 내 VPC에 PrivateLink Endpoint Service 를 만들어서 다른 계정/VPC에서 Interface Endpoint로 접근할 수 있다.
+
+
+
+
+---
+
+3. 차이점 요약표
+
+구분	Lambda API VPC Endpoint	Lambda를 PrivateLink 서비스처럼 노출
+
+제공 주체	AWS (서비스 엔드포인트)	내가 만든 서비스(NLB, API GW 등)
+대상	Lambda Control Plane API (Invoke, List 등)	특정 Lambda 함수를 프라이빗 엔드포인트로 노출
+사용 방법	SDK/CLI/API → lambda.*.amazonaws.com	소비자 VPC에서 사설 DNS/ENI로 HTTP 호출
+네트워크 흐름	내 VPC → VPCE(Interface) → AWS Lambda API	소비자 VPC → Interface Endpoint → 내 NLB/API GW → Lambda
+IAM/정책	IAM + VPCE 정책 + Lambda 리소스 정책(조건: aws:SourceVpce)	EPS 권한(acceptance), 서비스 리소스 기반 정책(API GW 등)
+직접 지원 여부	O (공식 서비스)	X (중간 계층 필요)
+
+
+
+---
+
+4. 이해 포인트
+
+Lambda API VPC Endpoint = “내가 Lambda API를 부를 때 인터넷 대신 사설 경로로”
+
+Lambda를 PrivateLink처럼 = “내 함수 결과를 외부 VPC에서 사설 엔드포인트로 호출 가능하게”
+
+이건 Lambda 혼자선 불가능 → 반드시 API Gateway Private / VPC Lattice / NLB 연동 같은 앞단 서비스 필요
+
+
+
+
+---
+
+👉 너가 하고 싶은 게
+
+1. 내 VPC 안에서 인터넷 없이 Lambda API만 호출하려는 건지,
+
+
+2. 아니면 다른 VPC/계정이 내 Lambda를 PrivateLink 서비스처럼 소비하게 하려는 건지,
+
+
+
+이 두 가지 시나리오 중 어떤 거야?
+
+
+
+
+
+
+
+
+
+
+
+좋은 포인트 짚었어. Lambda 호출 권한 구조는 IAM 주체 권한(IAM 정책/역할) 과 Lambda 함수 리소스 기반 정책(Resource-based policy) 이 어떻게 결합되는지 이해해야 해.
+
+
+---
+
+1. 우선순위/위임 구조
+
+AWS IAM 권한 체크는 항상 “2단계” 구조로 이루어진다:
+
+1. 주체(IAM User/Role) 에 붙은 권한 정책 → “이 사람이 lambda:InvokeFunction 을 할 수 있나?”
+
+
+2. 리소스(Lambda 함수) 에 붙은 리소스 기반 정책 → “이 함수가 이 주체한테 Invoke를 허용했나?”
+
+
+
+
+즉, 주체가 권한을 가지고 있어야 하고, 동시에 리소스 정책에서 막지 않아야 최종 허용된다.
+
+
+---
+
+2. EC2에서의 차이
+
+EC2 내에서 aws configure 로 IAM Access Key/Secret Key 입력 → 이건 IAM User 신분으로 호출하는 것.
+
+EC2 Instance Role (IAM Role attached to EC2) 을 사용하는 경우 → 해당 Role 신분으로 Lambda API 호출.
+
+
+즉, 어떤 자격 증명을 쓰느냐에 따라 주체(Caller Principal) 이 달라진다.
+
+
+---
+
+3. Lambda 함수 호출 시 평가 흐름
+
+1. IAM 권한 검사: 호출자가 lambda:InvokeFunction 액션을 허용받았는지 확인.
+
+IAM User, 또는 EC2 Instance Role의 정책에 허용되어야 한다.
+
+
+
+2. Lambda 리소스 기반 정책 검사:
+
+Lambda 함수는 기본적으로 동일 계정 내부 호출은 IAM 권한만으로 가능하다. (리소스 기반 정책 없어도 됨)
+
+다른 계정에서 호출할 때는 Lambda 함수 리소스 정책에 cross-account 허용을 명시해야 한다. (Principal 지정)
+
+
+
+3. 조건 검사: 리소스 정책에 aws:SourceVpce, aws:SourceAccount 같은 조건이 있다면 추가로 만족해야 한다.
+
+
+
+
+---
+
+4. 최종 결론 (AND vs OR?)
+
+IAM 주체 권한과 리소스 기반 정책은 AND 조건이다.
+
+같은 계정 내부 호출: IAM 권한만 필요 (리소스 정책 생략 가능 → 암묵적으로 허용).
+
+다른 계정 호출: IAM 권한 + 리소스 정책의 cross-account 허용 모두 만족해야 호출 가능.
+
+
+
+
+---
+
+5. 예시 정리
+
+같은 계정 (EC2 Role → Lambda)
+
+EC2 Role 정책에 lambda:InvokeFunction 허용만 있으면 호출 가능.
+
+Lambda 함수에 별도 리소스 정책 없어도 된다.
+
+
+다른 계정 (Account A EC2 → Account B Lambda)
+
+EC2 Role(User)이 lambda:InvokeFunction 권한 있어야 하고,
+
+동시에 Lambda 함수 리소스 정책에 Principal: arn:aws:iam::<AccountA>:role/EC2Role 같은 허용이 있어야 한다.
+
+둘 다 만족해야 호출 성공.
+
+
+
+---
+
+✅ 정리
+
+IAM 권한: “이 주체가 이 API를 실행할 수 있나?”
+
+리소스 정책: “이 리소스가 이 주체의 접근을 받아줄 건가?”
+
+→ 결과 = AND
+
+단, 동일 계정 호출은 Lambda의 리소스 정책이 없어도 IAM 권한만 있으면 자동 허용된다.
+
+
+
+---
+
+혹시 너가 말한 시나리오가 같은 계정 내부 EC2 → Lambda 호출이야, 아니면 Cross-account 호출을 염두에 두고 있는 거야?
+
+
+
+
+
+
+
+
+
+좋아, 그러면 같은 계정 호출과 Cross-Account 호출을 나눠서 IAM 권한/리소스 기반 정책이 어떻게 작동하는지 비교해서 정리해줄게.
+
+
+---
+
+1. 같은 계정 (EC2 또는 IAM User → Lambda)
+
+필요 조건
+
+주체(IAM User/Role) 에 lambda:InvokeFunction 권한이 있어야 한다.
+
+리소스 기반 정책(Resource policy) 은 없어도 된다. (기본적으로 같은 계정 내에서는 IAM 권한만으로 접근 가능)
+
+
+원리
+
+AWS는 같은 계정 안에서 호출하는 경우, Lambda 함수 리소스 정책을 묵시적으로 허용한다.
+
+
+결론
+
+IAM 권한만 있으면 호출 가능.
+
+
+
+
+---
+
+2. Cross-Account (Account A → Account B Lambda)
+
+필요 조건 (AND 관계)
+
+1. Account A 주체: lambda:InvokeFunction 권한이 있어야 한다. (IAM User/Role 정책)
+
+
+2. Account B Lambda 함수 리소스 정책: Principal 항목에 Account A 주체(또는 Account A 전체 계정)를 허용해야 한다.
+
+
+
+원리
+
+IAM 권한만 있으면? → Account B Lambda 함수가 받아주지 않아서 AccessDenied.
+
+리소스 정책만 있으면? → Account A 주체가 lambda:InvokeFunction 권한이 없어서 Unauthorized.
+
+
+결론
+
+둘 다 있어야 호출 가능 = AND 조건.
+
+
+
+
+---
+
+3. Lambda 리소스 정책에서 자주 쓰는 조건
+
+리소스 기반 정책은 단순 허용 말고 조건을 걸 수 있어. 예시:
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowInvokeFromSpecificVPCE",
+      "Effect": "Allow",
+      "Principal": {"AWS": "arn:aws:iam::111122223333:role/EC2Role"},
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:ap-northeast-2:111122223333:function:my-fn",
+      "Condition": {
+        "StringEquals": {"aws:SourceVpce": "vpce-0abc123def4567890"}
+      }
+    }
+  ]
+}
+
+조건 예시: aws:SourceAccount, aws:SourceVpce, aws:PrincipalOrgID 등
+
+이걸 쓰면 cross-account 허용을 주더라도 특정 상황에서만 제한적으로 허용 가능.
+
+
+
+---
+
+4. 최종 요약 (우선순위 & 위임)
+
+IAM 주체 권한 → “나(주체)가 이 API를 실행할 수 있는가?”
+
+Lambda 리소스 정책 → “이 리소스가 그 호출을 받아줄 것인가?”
+
+결합 → AND 조건 (둘 다 만족해야 허용)
+
+같은 계정: IAM 권한만 필요 (리소스 정책 생략 가능)
+
+cross-account: IAM 권한 + 리소스 정책 모두 필요
+
+
+
+
+---
+
+👉 따라서 설계 시 체크리스트는 이렇게 돼:
+
+1. 같은 계정 호출이면 IAM User/Role 정책만 관리.
+
+
+2. cross-account 호출이면:
+
+Account A 쪽 IAM Role/User에 lambda:InvokeFunction 부여,
+
+Account B 쪽 Lambda 함수 리소스 정책에 Account A의 Role/User(Principal) 허용.
+
+
+
+3. 보안 강화를 원하면 리소스 정책에 조건 키 추가 (SourceVpce, SourceAccount)
+
+
+
+
+---
+
+혹시 네가 구상하는 환경은 EC2 Instance Role을 통한 호출이 메인인지, 아니면 AWS 계정 간 호출 (예: 운영 계정에서 보안 계정 Lambda 호출) 같은 구조야?
+
+
+
+
+
+
+
+
+
+
+정확히 구분해볼게.
+
+결론 먼저
+
+Lambda VPC 활성화는 “Lambda 실행환경(서비스가 소유한 VPC)”에서 네트워크를 네 VPC로 터널링하기 위해, 네 VPC 서브넷에 “하이퍼플레인 ENI(Hyperplane ENI)”를 생성해 사설 IP로 통신하는 메커니즘이야. 함수 코드는 여전히 Lambda가 소유·관리하는 VPC에서 돌지만, 트래픽은 네 VPC 안의 ENI를 통해 들어와서 EC2/RDS 등과 사설로 통신한다. 
+
+PrivateLink(Interface VPC Endpoint) 는 “소비자 VPC에 EP(엔드포인트 ENI) 를 만들고, 그 ENI에서 제공자(EPS) 로 EP→EPS 방향으로 트래픽을 보내는** 서비스 소비 모델**이야. Lambda 자체는 EPS가 될 수 없고(= NLB 기반 서비스만 EPS 가능), Lambda를 사설 노출하려면 API Gateway Private 또는 VPC Lattice 같은 앞단을 둬야 한다. 
+
+
+
+---
+
+왜 ENI가 “사용자 VPC”에 만들어질까?
+
+핵심은 라우팅·보안·가시성을 네 VPC 규칙 안에서 일관되게 적용하려는 설계야.
+
+1. 라우팅 관점
+네 VPC 리소스(EC2, RDS, 내부 NLB 등)에 사설로 붙으려면, 패킷의 소스가 네 VPC 주소공간에 속하는 IP 여야 라우트 테이블·NACL·SG 규칙이 정상적으로 적용돼. 그래서 Lambda는 네 VPC 서브넷에 사설 IP를 가진 ENI(= Hyperplane ENI) 를 “대표자”처럼 세워서, 그 ENI를 통해 트래픽을 주고받는다. 
+
+
+2. 보안 관점
+보안그룹(SG)과 NACL은 VPC 경계 내부 IP에 적용될 때 가장 강력해. Lambda가 만든 ENI는 네가 지정한 서브넷/보안그룹 조합을 그대로 상속받으므로, EC2 SG의 인바운드 소스로 “Lambda SG”를 참조하는 식의 미세 권한 제어가 가능해진다. 
+
+
+3. 운영/성능 관점(하이퍼플레인)
+2019년 개선 이후 Lambda는 Hyperplane ENI 를 사용해 “실행환경 ↔ 네 VPC ENI” 사이를 서비스가 대규모로 최적화한다. 이 ENI는 서브넷+SG 조합 단위로 공유/재사용되고, 최대 65,000 포트를 처리하며, 수요에 따라 자동 증설된다. 이 구조가 과거의 “실행환경마다 ENI 붙여 콜드스타트 증가” 문제를 크게 줄였다. 
+
+
+
+> 공식 문서의 표현대로, 모든 Lambda는 Lambda가 소유한 VPC에서 실행되고, 네 VPC에 접근하기 위해 Hyperplane ENI를 만든다. 인터넷 접근은 VPC에 붙이는 순간 기본 차단되며, 필요 시 NAT 또는 서비스별 VPC 엔드포인트를 추가한다. 
+
+
+
+
+---
+
+PrivateLink와의 차이(개념 정렬)
+
+Lambda VPC 연결: “함수가 네 VPC 리소스를 소비”하기 위해 네 VPC에 ENI를 만든다. (데이터 흐름: Lambda 서비스 VPC → 네 VPC(ENI) → EC2/RDS…) Hyperplane이 중간에서 대규모 연결을 집약/관리. 
+
+PrivateLink(Interface EP): “네 VPC가 어떤 서비스를 소비”하기 위해 네 VPC에 EP ENI를 만든다. 트래픽은 항상 EP→EPS (소비자→제공자) 방향. AWS 서비스(예: com.amazonaws.<region>.lambda)도 이런 식으로 사설 연결한다. 
+
+
+간단 비유
+
+Lambda VPC 연결 = “Lambda가 네 회사 사내망 출입증(ENI)을 받아 네 사내망으로 들어와서 일하는 느낌”
+
+PrivateLink = “네 회사 사내망에 상대 회사 서비스 창구(ENI) 를 내 입구에 설치해두고, 거기로만 상대 회사 서비스에 손님(트래픽)을 보내는 느낌”
+
+
+
+---
+
+확인/특징 몇 가지
+
+하이퍼플레인 ENI 공유/수명주기: 같은 서브넷+SG 조합을 쓰는 여러 함수가 같은 ENI를 공유하고, 필요 시 자동으로 ENI를 늘린다. 최대 포트 수, Pending/Active 전이, 장기간 미사용 시 ENI 회수 등 동작이 문서화돼 있다. 
+
+가시성: 최신 설계에서는 이 ENI가 서비스가 관리하는 네트워크 리소스로 취급되며(하이퍼플레인), 전통적 ENI처럼 세세한 내부를 직접 다루진 않는다. 원리는 “Lambda 서비스 VPC ↔ 네 VPC(ENI)” 패턴으로 이해하면 된다. 
+
+인터넷·AWS 서비스 접근: VPC 연결 시 공용 인터넷이 막히므로, 인터넷이 필요하면 NAT, AWS 서비스는 Interface/Gateway VPC 엔드포인트로 사설 연결을 구성한다. 
+
+
+
+---
+
+도식(텍스트)
+
+[Lambda 실행환경]  --(AWS 내부)-->  [Hyperplane]  --(사설 IP)-->  [네 VPC의 Hyperplane ENI] --(SG/NACL/Route)--> EC2/RDS 등
+
+대조: PrivateLink는 [소비자 VPC의 Interface EP ENI] → [제공자 VPC의 NLB(EPS)] → [백엔드] 흐름. 
+
+
+---
+
+더 파고들면 도움되는 레퍼런스
+
+Lambda VPC 연결 원리/권한/인터넷 접근/Hyperplane ENI: 공식 가이드(“모든 Lambda는 서비스 소유 VPC에서 실행”, “Hyperplane ENI”, “인터넷 접근 주의”) 
+
+Hyperplane 네트워킹(콜드스타트 개선, VPC-to-VPC NAT 유사 구조): 2019 개선 공지 블로그 
+
+PrivateLink 개념/EP→EPS/DNS: 공식 개념/가이드/FAQ 
+
+Lambda를 사설로 “제공”하고 싶다면: API Gateway Private 또는 VPC Lattice에서 Lambda를 타깃으로 붙이는 아키텍처 참고 
+
+
+
+---
+
+Q1
+
+Lambda가 VPC에 붙은 뒤 S3/Secrets Manager/STS 등으로 나가야 할 때, NAT 없이 운영하려면 어떤 VPC 엔드포인트 조합이 필요한지 내 사용 목록 기준으로 설계해줄 수 있을까?
+
+Q2
+
+같은 서브넷+SG 조합을 쓰는 함수가 많을 때 Hyperplane ENI 용량(65k 포트/자동 증설) 과 서브넷 IP 플래닝을 어떻게 잡아야 안전할까? 실제 트래픽 패턴 기준으로 계산해보자.
+
+Q3
+
+내 Lambda를 다른 계정 VPC에서 사설로 소비시키고 싶다면, API Gateway Private vs VPC Lattice 중 어떤 경로가 적합할까? 보안정책(리소스 정책/VPCE 조건)까지 포함해 비교 설계를 해줄래? 
+
+
 
