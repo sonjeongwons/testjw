@@ -1334,3 +1334,96 @@ Q3
 
 
 
+
+
+
+
+
+좋은 질문이야 👍
+여기서 말하는 VPC Endpoint Policy 는 “이 엔드포인트를 통해서 호출할 수 있는 액션·리소스 범위”를 제어하는 실행 권한(permissions guardrail) 이라고 이해하면 돼.
+
+
+---
+
+1. 성격 정리
+
+엔드포인트 정책(Endpoint policy)
+
+VPC Endpoint 리소스에 붙는 IAM 정책 문서(JSON)
+
+이 엔드포인트를 경유하는 API 요청에 대해 허용/거부 범위를 제어한다.
+
+즉, “이 VPCE를 통해 Lambda를 Invoke 할 수 있는가? 어떤 함수까지 허용할까?” 같은 걸 정의.
+
+일종의 실행 권한 제한(permissions boundary) 개념에 가까움.
+
+
+리소스 기반 정책(Resource-based policy)
+
+S3 버킷 정책, Lambda 함수 정책, KMS 키 정책처럼 리소스 객체 자체에 붙는 정책.
+
+리소스가 특정 주체(AWS 계정, IAM Role, VPCE 등)의 접근을 허용할지 여부를 정의.
+
+Principal, Condition 등을 통해 누가 이 리소스에 접근할 수 있는지 제어.
+
+
+
+
+---
+
+2. 작동 방식
+
+엔드포인트 정책은 추가 필터로 동작해. 최종 평가 흐름은 이렇게 돼:
+
+1. IAM 주체 권한: 호출 주체(IAM User/Role)가 lambda:InvokeFunction 같은 권한을 가지고 있어야 함.
+
+
+2. 엔드포인트 정책: 그 요청이 VPCE를 통과할 때, 엔드포인트 정책에서 해당 액션/리소스를 허용하는지 검사.
+
+
+3. 리소스 정책: 대상 리소스(Lambda 함수, S3 버킷 등)가 요청을 받아줄지 검사. (특히 cross-account 접근)
+
+
+
+👉 따라서 모두 AND 조건이야. 어느 한쪽이라도 거부되면 호출이 실패한다.
+
+
+---
+
+3. 예시 (Lambda VPCE 정책)
+
+{
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:ap-northeast-2:123456789012:function:my-function"
+    }
+  ]
+}
+
+이 정책은 “이 VPCE를 통과하는 호출 중, 지정한 Lambda 함수 Invoke만 허용”한다.
+
+하지만 호출 주체가 lambda:InvokeFunction 권한이 없거나, 함수 리소스 정책에서 막으면 여전히 실패한다.
+
+
+
+---
+
+✅ 정리
+
+VPCE 정책 = 엔드포인트를 통한 호출 권한 제어 (실행 경로를 제한하는 가드레일)
+
+리소스 정책 = 리소스가 누구의 접근을 받아줄지 제어 (Principal/Condition 기반)
+
+IAM 주체 권한 = 호출자가 그 API를 실행할 수 있는지 여부
+
+최종 결과 = AND 조건 (세 개 다 만족해야 허용)
+
+
+
+---
+
+혹시 원해? 내가 같은 계정 내부 vs cross-account 호출 상황별로 VPCE 정책 + 리소스 정책 + IAM 권한이 어떻게 조합돼야 하는지 “표”로 정리해줄 수도 있어.
+
