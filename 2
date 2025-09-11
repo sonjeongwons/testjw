@@ -347,3 +347,165 @@ Q3
 사설 DNS를 표준화하려면 PHZ 교차연동 vs Route 53 Resolver(인바운드/아웃바운드 + RAM) vs Route 53 Profiles 중 어떤 조합이 최선일까? 내 도메인 구조에 맞춘 예시를 만들어줘.
 
 
+
+
+
+
+정확히 정리해줄게. PrivateLink(Interface VPC Endpoint)로 A→B 연결 시, 권한은 크게 3곳에서 다뤄:
+
+1. B 계정(제공자, Endpoint Service의 리소스 기반 정책)
+
+
+2. A 계정(소비자, EP 생성 주체의 IAM 권한: identity-based policy)
+
+
+3. A 계정(생성된 EP에 붙는 Endpoint Policy: 리소스 기반 정책)
+
+
+
+아래를 그대로 쓰면 안전하게 동작해.
+
+
+---
+
+1) B 계정: Endpoint Service 리소스 기반 정책(“Allow principals”)
+
+B가 NLB를 앞단에 둔 Endpoint Service를 만들고, **연결을 허용할 Principal(A의 계정 또는 롤)**을 등록한다. 이게 교차계정 신뢰의 핵심이다.
+
+콘솔: VPC > Endpoint services > (대상 서비스) > Allow principals 에서 A의 계정ID(arn:aws:iam::<AID>:root)나 A의 특정 Role ARN을 추가. 
+
+API/CLI: ModifyVpcEndpointServicePermissions / DescribeVpcEndpointServicePermissions (허용된 Principal 확인). 
+
+Acceptance 옵션을 켜면, A가 EP를 생성해도 B가 승인해야 연결 성립. 보안에 유리. 
+
+
+> 요점: B는 ‘누가 내 서비스에 EP를 붙일 수 있는가’를 리소스 정책으로 통제한다. 계정 단위나 특정 Role 단위로 좁혀라. 
+
+
+
+
+---
+
+2) A 계정: EP 생성 주체의 IAM 권한(Identity-based policy)
+
+A에서 EP를 만들 주체(사용자/역할)에 EC2 VPC Endpoint 생성 권한을 부여한다. 동시에, 어떤 서비스 이름의 Endpoint만 생성 가능한지를 Condition으로 강하게 제한하자.
+
+예시(서울 리전, 서비스 이름 com.amazonaws.vpce.ap-northeast-2.vpce-svc-0123456789abcdef 가정):
+
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "CreateSpecificVPCEndpointOnly",
+    "Effect": "Allow",
+    "Action": [
+      "ec2:CreateVpcEndpoint",
+      "ec2:DescribeVpcEndpointServices",
+      "ec2:DescribeVpcEndpoints",
+      "ec2:DeleteVpcEndpoints",
+      "ec2:ModifyVpcEndpoint"
+    ],
+    "Resource": "*",
+    "Condition": {
+      "StringEquals": {
+        "ec2:VpceServiceName": "com.amazonaws.vpce.ap-northeast-2.vpce-svc-0123456789abcdef"
+      }
+    }
+  }]
+}
+
+ec2:CreateVpcEndpoint 등에 대해 ec2:VpceServiceName 조건으로 특정 서비스만 허용 가능. 필요하면 ec2:VpceServicePrivateDnsName 조건으로 프라이빗 DNS 이름까지 제한. 
+
+권한이 부족하면 EP 생성 시 AccessDenied 오류가 난다. 권한 세트를 점검하라. 
+
+
+
+---
+
+3) A 계정: Endpoint Policy(리소스 기반)로 “EP 통해 할 수 있는 동작” 한 번 더 최소화
+
+EP 생성 시 Endpoint Policy를 “Full access” 대신 “Custom”으로 잡아서, 누가/무엇을/어떤 API로 이용할지 더 제한한다. 이 정책은 추가 필터이며, IAM/서비스 리소스 정책을 대체하지 않는다. 
+
+예시(EP를 통해 특정 도메인/리소스/동작만 허용하는 패턴—서비스가 EP 정책을 지원할 때 유효):
+
+{
+  "Statement": [{
+    "Sid": "LeastPrivilegeThroughThisEP",
+    "Effect": "Allow",
+    "Principal": { "AWS": "arn:aws:iam::<AID>:role/YourAppRole" },
+    "Action": ["execute-api:Invoke", "lambda:InvokeFunction", "s3:GetObject"], 
+    "Resource": [
+      "arn:aws:execute-api:ap-northeast-2:<BID>:<api-id>/*",
+      "arn:aws:lambda:ap-northeast-2:<BID>:function:backend-*",
+      "arn:aws:s3:::example-bucket/*"
+    ]
+  }]
+}
+
+어떤 서비스는 EP Policy 미지원이니, 지원 여부를 확인하고 설계(예: API Gateway Private API는 EP 정책으로 세밀 제어 가능). 
+
+다시 강조: **EP Policy는 “추가적인 Gate”**일 뿐. **A의 IAM Allow + B의 Allow principals + (해당 서비스의 리소스 정책/보안)**가 함께 맞물려야 통과된다. 
+
+
+
+---
+
+네트워크/보안그룹 체크(핵심만)
+
+A 쪽: Lambda/EC2 등 호출자가 나가는 SG → EP ENI의 SG로 443(또는 대상 포트) 허용.
+
+B 쪽: NLB 뒤 Target의 SG 인바운드에 EP ENI 소스(또는 A VPC CIDR)를 허용.
+
+이 부분은 IAM과 별개로 패킷이 실제로 통과하도록 하는 네트워크 레벨 요구사항.
+
+
+
+---
+
+전체 흐름 요약(교차계정 최소권한)
+
+1. B: Endpoint Service 생성 → Allow principals에 A의 계정/역할 추가, 필요 시 수락 필수 설정. 
+
+
+2. A: EP 생성 주체의 IAM 정책에 ec2:CreateVpcEndpoint 등과 ec2:VpceServiceName 조건으로 특정 서비스만 허용. 
+
+
+3. A: 생성된 EP Policy로 “이 EP 경유 허용 동작/리소스/주체”를 추가로 제한(지원 서비스에 한함). 
+
+
+4. SG/라우팅: EP ENI, NLB/Target SG 모두 필요 포트만 열기.
+
+
+5. 필요 시 Acceptance로 연결 승인 워크플로 정착. 
+
+
+
+
+---
+
+참고 문서
+
+PrivateLink 전반/교차계정 신뢰의 기본 원리(리소스 기반 정책 + 주체 권한 병행 필요). 
+
+Endpoint Service 구성 및 “Allow principals” 관리. 
+
+서비스 공유 개요(서비스 제공자/소비자 모델). 
+
+EP Policy의 성격(추가 필터, 대체 아님)과 설정 위치. 
+
+EP 생성 권한을 특정 서비스로 제한하는 IAM 조건 키(ec2:VpceServiceName, ec2:VpceServicePrivateDnsName). 
+
+EP 권한 부족/오류 트러블슈팅. 
+
+
+
+---
+
+Q1
+
+내 상황을 기준으로 A의 IAM 정책을 ec2:VpceServiceName 조건까지 넣어 더 잠그고 싶은데, 실제 서비스 이름/리전/계정ID 반영해서 JSON 만들어줘.
+
+Q2
+
+B의 Endpoint Service를 “승인 필수 + 조직 외 계정 차단”으로 설계하려
+
+
