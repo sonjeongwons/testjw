@@ -174,3 +174,176 @@ Q3
 
 API Gateway Private API로 바꾼다면, 교차 계정에서 execute-api 엔드포인트 정책과 리소스 정책은 어떻게 설계할까? 단계별로 샘플을 보여줘.
 
+
+
+
+
+
+
+
+
+가능해. 방법은 3가지 트랙이 있어—(A) PrivateLink, (B) VPC Peering / Transit Gateway(라우팅 기반), (C) VPC Lattice(서비스 기반). 네 요구(일방향 호출/보안 경계/운영 편의성/요금)에 맞춰 골라 쓰면 돼.
+
+
+---
+
+A) PrivateLink (권장: A→B 단방향, TCP/HTTP 백엔드)
+
+시나리오: A계정 Lambda를 A VPC에 붙이고, B계정 EC2 앞에 NLB를 두고 Endpoint Service로 공개 → A VPC에서 Interface VPC Endpoint(EP) 생성 후 사설로 호출.
+
+구성 절차
+
+1. B 계정
+
+대상 EC2 앞에 NLB + Target Group(Instance/IP) 구성.
+
+Endpoint Service 생성 후 허용 Principal로 A 계정(또는 A의 특정 IAM Role) 추가, 수락 정책 설정. 
+
+
+
+2. A 계정
+
+Lambda를 A VPC의 프라이빗 서브넷 + SG로 연결(ENI 생성). 
+
+Interface VPC Endpoint를 B가 만든 Endpoint Service에 연결(승인 플로우). **Private DNS(커스텀 도메인)**를 쓰려면 B가 제공하는 프라이빗 도메인/Route 53 구성을 함께 고려. 
+
+
+
+3. 보안
+
+A 쪽: Lambda 실행 역할에 대상 접속 권한(애플리케이션 프로토콜 기준) + Lambda ENI가 달린 SG의 아웃바운드 443/해당 포트 허용.
+
+B 쪽: NLB 뒤 Target SG 인바운드에 EP ENI의 SG 혹은 A VPC CIDR 허용.
+
+Endpoint Policy로 EP를 통한 허용 동작/주체를 최소화(추가 필터). 
+
+
+
+
+특징
+
+라우팅/피어링 없이 일방향 소비자→제공자 모델.
+
+L4(및 일부 L7) 트래픽에 적합, NLB 필수.
+
+계정/조직 단위 공유와 승인이 쉬움. 
+
+
+
+---
+
+B) VPC Peering / Transit Gateway (양방향 라우팅, 포트 제한 자유로움)
+
+시나리오: A VPC(람다 ENI 존재) ↔ B VPC(EC2 존재) 를 Peering(1:1) 또는 TGW(허브)로 연결, 라우팅/SG로 허용.
+
+구성 절차(피어링 기준)
+
+1. A↔B VPC 피어링 생성, 양쪽 라우트 테이블에 상대 VPC CIDR 경로 추가. CIDR 중복 금지. 
+
+
+2. 보안그룹
+
+교차 계정·동일 리전이면 상대 VPC의 SG를 직접 참조하여 허용 가능(인바운드 소스로 123456789012/sg-xxxx 형식). 리전 다르면 CIDR로 허용. 
+
+
+
+3. DNS
+
+사설 도메인 해석이 필요하면 Route 53 PHZ를 교차 계정 VPC에 연동하거나, Route 53 Resolver(인바운드/아웃바운드) + RAM 공유로 중앙 DNS를 구성. 
+
+
+
+
+Transit Gateway 선택 기준
+
+VPC가 다수이거나 M:N 망형 토폴로지면 TGW가 관리/확장에 유리. 각 VPC를 TGW에 어태치하고 TGW 라우팅 테이블로 연결. 
+
+
+특징
+
+양방향 트래픽 가능, NLB 없이도 EC2 포트에 직접 접근.
+
+네트워크가 커지면 TGW가 더 간결. 피어링은 저렴하지만 비전이행(Transitive) 불가. 
+
+
+
+---
+
+C) VPC Lattice (HTTP/HTTPS 서비스 레벨, 다계정 표준화)
+
+시나리오: B 계정에서 **서비스(HTTP)**를 Lattice에 등록 → 서비스 네트워크를 A/B VPC에 연결 → A의 Lambda는 서비스 DNS로 호출.
+
+장점: 다계정·다VPC 간 서비스 디스커버리/정책/관측을 통합, 피어링/PrivateLink/TGW 없이도 일관된 서비스 호출. 라우팅/보안/가시성 모델이 HTTP 중심이라 운영이 단순. 
+
+리소스 공유: Lattice 엔티티를 RAM으로 공유해 교차 계정 연결. 
+
+
+
+---
+
+Lambda 측 공통 구성 포인트
+
+Lambda를 VPC에 연결하면 **ENI(하이퍼플레인 ENI)**가 생성되고, 선택한 서브넷/SG 조합을 재사용. 동시연결 용량은 ENI 단위로 확장. 
+
+인터넷 필요 시 NAT 게이트웨이(IPv4) 또는 듀얼스택/IPv6 경로. 퍼블릭 서브넷에 붙인다고 인터넷이 생기지 않는다. 
+
+
+
+---
+
+어떤 방식을 고르면 좋나?
+
+보안 경계 유지 + 단방향 소비자 모델 + L4 단순 포트 → PrivateLink(B에 NLB 준비 가능할 때). 
+
+양방향 통신/SSH 등 다양한 포트 → VPC Peering(소수 VPC) 또는 TGW(다수 VPC). 교차계정 SG 참조로 보안 정밀제어(동일 리전). 
+
+HTTP 마이크로서비스 표준화 + 다계정 운영/가시성 → VPC Lattice. 
+
+
+
+---
+
+빠른 체크리스트
+
+CIDR 중복 없음(피어링/TGW). 
+
+DNS 전략: PHZ 교차연동 또는 Resolver/RAM 공유. 
+
+SG/라우팅: 피어링이면 상대 SG 직접 참조(동일 리전) 또는 CIDR, Lattice/PrivateLink면 EP ENI SG 기준. 
+
+요금/운영: PrivateLink(ENI/데이터 요금), TGW(Attachment/GB당), Lattice(서비스/데이터). 공식 모델로 산정.
+
+
+
+---
+
+예시 아키텍처 스니펫(PrivateLink)
+
+B: NLB (TCP:8443) -> EC2(Target Group) → Endpoint Service(allow principals: A의 arn:aws:iam::<AID>:role/InvokeFromLambdaRole). 
+
+A: Lambda(VPC: subnetX, sgA) -> Interface EP(vpce-xxxx, sgEP) → DNS: *.vpce-xxxx.vpce.amazonaws.com 로 연결(Private DNS 커스텀 도입시 Route 53).
+
+SG: sgA egress 8443 -> sgEP, B측 Target SG ingress 8443 <- sgEP(or A CIDR).
+
+
+
+---
+
+원하면, 네 현재 CIDR/서브넷/보안그룹/리전/프로토콜을 알려줘. 최소 권한 SG/엔드포인트 정책/Route 53 설계까지 너의 실제 값으로 완성판을 바로 뽑아줄게.
+
+
+---
+
+Q1
+
+내 환경이 SSH, DB 포트 등 다수 포트를 필요로 하는데, Peering과 TGW 중 어느 쪽이 비용/운영상 유리할까? 내 VPC 수와 트래픽 패턴을 기준으로 계산해줘.
+
+Q2
+
+PrivateLink로 간다면, B 계정 NLB를 zero-trust하게 운영하려면 Endpoint Service 권한·NLB 보안·SG·헬스체크를 어떻게 잠가야 할까?
+
+Q3
+
+사설 DNS를 표준화하려면 PHZ 교차연동 vs Route 53 Resolver(인바운드/아웃바운드 + RAM) vs Route 53 Profiles 중 어떤 조합이 최선일까? 내 도메인 구조에 맞춘 예시를 만들어줘.
+
+
